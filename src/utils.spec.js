@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { cmd_t, sahara_mode_t } from "./saharaDefs";
-import { packGenerator } from "./utils";
+import { compareStringToBytes, packGenerator } from "./utils";
 
 describe("packGenerator", () => {
   test("should convert single number into 4-byte Uint8Array", () => {
@@ -107,4 +107,30 @@ describe("packGenerator", () => {
       expect(result[24 + (i * 4) + 3]).toBe(0);
     }
   });
+});
+
+describe("compareStringToBytes", () => {
+  test("empty string", () => {
+    const input = new TextEncoder().encode("");
+    expect(compareStringToBytes("", input)).toBeTrue();
+    expect(compareStringToBytes("a", input)).toBeFalse();
+  });
+
+  test("longer string", () => {
+    const input = new TextEncoder().encode("Hello, world!");
+    expect(compareStringToBytes("", input)).toBeFalse();
+    expect(compareStringToBytes("Hello", input)).toBeFalse();
+    expect(compareStringToBytes("Hello, world!", input)).toBeTrue();
+    expect(compareStringToBytes(0, input)).toBeFalse();
+    expect(compareStringToBytes(undefined, input)).toBeFalse();
+    expect(compareStringToBytes(null, input)).toBeFalse();
+  });
+
+  test("empty bytes", () => {
+    const input = new Uint8Array(0);
+    expect(compareStringToBytes("", input)).toBeTrue();
+    expect(compareStringToBytes(0, input)).toBeFalse();
+    expect(compareStringToBytes(undefined, input)).toBeFalse();
+    expect(compareStringToBytes(null, input)).toBeFalse();
+  })
 });
