@@ -1,7 +1,120 @@
 import { describe, expect, test } from "bun:test";
 
 import { cmd_t, sahara_mode_t } from "./saharaDefs";
-import { compareStringToBytes, containsBytes, packGenerator } from "./utils";
+import { compareStringToBytes, containsBytes, packGenerator, structHelper_io } from "./utils";
+
+describe("structHelper_io", () => {
+  describe("dword", () => {
+    test("should read 32-bit integer in little-endian", () => {
+      // Create test data: 0x78563412 in little-endian
+      const data = new Uint8Array([0x12, 0x34, 0x56, 0x78]);
+      const helper = new structHelper_io(data);
+
+      const result = helper.dword();
+      expect(result).toBe(0x78563412);
+      expect(helper.pos).toBe(4);
+    });
+
+    test("should read 32-bit integer in big-endian", () => {
+      // Create test data: 0x12345678 in big-endian
+      const data = new Uint8Array([0x12, 0x34, 0x56, 0x78]);
+      const helper = new structHelper_io(data);
+
+      const result = helper.dword(false);  // false for big-endian
+      expect(result).toBe(0x12345678);
+      expect(helper.pos).toBe(4);
+    });
+
+    test("should read multiple dwords and advance position", () => {
+      // Two 32-bit integers in sequence
+      const data = new Uint8Array([
+        0x12, 0x34, 0x56, 0x78,  // First dword
+        0xFF, 0xFF, 0x00, 0x00   // Second dword
+      ]);
+      const helper = new structHelper_io(data);
+
+      const first = helper.dword();
+      const second = helper.dword();
+
+      expect(first).toBe(0x78563412);
+      expect(second).toBe(0x0000FFFF);
+      expect(helper.pos).toBe(8);
+    });
+
+    test("should handle zero values", () => {
+      const data = new Uint8Array([0x00, 0x00, 0x00, 0x00]);
+      const helper = new structHelper_io(data);
+
+      const result = helper.dword();
+      expect(result).toBe(0);
+      expect(helper.pos).toBe(4);
+    });
+
+    test("should handle maximum 32-bit value", () => {
+      const data = new Uint8Array([0xFF, 0xFF, 0xFF, 0xFF]);
+      const helper = new structHelper_io(data);
+
+      const result = helper.dword();
+      expect(result).toBe(0xFFFFFFFF);
+      expect(helper.pos).toBe(4);
+    });
+  });
+
+  describe('qword', () => {
+    test('should read 64-bit integer in little-endian', () => {
+      // Create test data: 0x1234567890ABCDEF in little-endian
+      const data = new Uint8Array([0xEF, 0xCD, 0xAB, 0x90, 0x78, 0x56, 0x34, 0x12]);
+      const helper = new structHelper_io(data);
+
+      const result = helper.qword();
+      expect(result).toBe(BigInt("0x1234567890ABCDEF"));
+      expect(helper.pos).toBe(8);
+    });
+
+    test('should read 64-bit integer in big-endian', () => {
+      // Create test data: 0x1234567890ABCDEF in big-endian
+      const data = new Uint8Array([0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF]);
+      const helper = new structHelper_io(data);
+
+      const result = helper.qword(false);  // false for big-endian
+      expect(result).toBe(BigInt("0x1234567890ABCDEF"));
+      expect(helper.pos).toBe(8);
+    });
+
+    test('should read multiple qwords and advance position', () => {
+      const data = new Uint8Array([
+        0xEF, 0xCD, 0xAB, 0x90, 0x78, 0x56, 0x34, 0x12,  // First qword
+        0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00   // Second qword
+      ]);
+      const helper = new structHelper_io(data);
+
+      const first = helper.qword();
+      const second = helper.qword();
+
+      expect(first).toBe(BigInt("0x1234567890ABCDEF"));
+      expect(second).toBe(BigInt("0x00000000FFFFFFFF"));
+      expect(helper.pos).toBe(16);
+    });
+
+    test('should handle zero values', () => {
+      const data = new Uint8Array([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+      const helper = new structHelper_io(data);
+
+      const result = helper.qword();
+      expect(result).toBe(BigInt(0));
+      expect(helper.pos).toBe(8);
+    });
+
+    test("should handle maximum 64-bit value", () => {
+      const data = new Uint8Array([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+      const helper = new structHelper_io(data);
+
+      const result = helper.qword();
+      expect(result).toBe(BigInt("0xFFFFFFFFFFFFFFFF"));
+      expect(helper.pos).toBe(8);
+    });
+  });
+});
 
 describe("packGenerator", () => {
   test("should convert single number into 4-byte Uint8Array", () => {
