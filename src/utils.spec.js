@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { cmd_t, sahara_mode_t } from "./saharaDefs";
-import { compareStringToBytes, packGenerator } from "./utils";
+import { compareStringToBytes, containsBytes, packGenerator } from "./utils";
 
 describe("packGenerator", () => {
   test("should convert single number into 4-byte Uint8Array", () => {
@@ -106,6 +106,21 @@ describe("packGenerator", () => {
       expect(result[24 + (i * 4) + 2]).toBe(0);
       expect(result[24 + (i * 4) + 3]).toBe(0);
     }
+  });
+});
+
+describe("containsBytes", () => {
+  test("empty string", () => {
+    const input = new TextEncoder().encode("");
+    expect(containsBytes("", input)).toBeTrue();
+    expect(containsBytes("a", input)).toBeFalse();
+  });
+
+  test("substring", () => {
+    const input = new TextEncoder().encode("GPT EFI PART12");
+    expect(containsBytes("", input)).toBeTrue();
+    expect(containsBytes("a", input)).toBeFalse();
+    expect(containsBytes("EFI PART", input)).toBeTrue();
   });
 });
 
