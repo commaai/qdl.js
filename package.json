@@ -3,9 +3,21 @@
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
+  "main": "dist/qdl.js",
+  "types": "dist/qdl.d.ts",
   "exports": {
-    ".": "./src/qdl.js",
-    "./utils": "./src/utils.js"
+    ".": {
+      "types": "./dist/qdl.d.ts",
+      "import": "./dist/qdl.js"
+    },
+    "./utils": {
+      "types": "./dist/utils.d.ts",
+      "import": "./dist/utils.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc",
+    "postinstall": "bun run build"
   },
   "//devDependencies": {
     "@happy-dom/global-registrator": "happy-dom is used by tests involving browser APIs, like DOMParser",
@@ -21,5 +33,11 @@
   },
   "dependencies": {
     "crc-32": "^1.2.2"
+  },
+  "//peerDependencies": {
+    "typescript": "does type checking, generates JS bundles and type declarations for language servers"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
   }
 }
