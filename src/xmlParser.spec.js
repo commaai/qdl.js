@@ -102,7 +102,7 @@ describe("xmlParser", () => {
       expect(result).toEqual(["Test message"]);
     });
 
-    test.skip("parse multiple logs", () => {
+    test("parse multiple logs", () => {
       const xml = `<?xml version="1.0" ?>
         <data>
           <log value="Message 1"/>
@@ -117,7 +117,7 @@ describe("xmlParser", () => {
       ]);
     });
 
-    test.skip("parse program operation logs", () => {
+    test("parse program operation logs", () => {
       const xml = `<?xml version="1.0" ?>
         <data>
           <log value="Writing sector 0x1000"/>
@@ -137,7 +137,7 @@ describe("xmlParser", () => {
       expect(result).toEqual(["Test & debug <sample>"]);
     });
 
-    test.skip("handle mixed response and log content", () => {
+    test("handle mixed response and log content", () => {
       const xml = `<?xml version="1.0" ?>
         <data>
           <response value="ACK" status="progress"/>
@@ -188,7 +188,7 @@ describe("xmlParser", () => {
       });
     });
 
-    test.skip("parse storage info response", () => {
+    test("parse storage info response", () => {
       const xml = `<?xml version="1.0" ?>
         <data>
           <response value="ACK"/>
