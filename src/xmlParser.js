@@ -1,53 +1,42 @@
 export class xmlParser {
+  decoder = new TextDecoder();
+  parser = new DOMParser();
+
+  /**
+   * @param {Uint8Array} input
+   * @returns {Document}
+   */
+  #parseXmlDocument(input) {
+    return this.parser.parseFromString(this.decoder.decode(input), "text/xml");
+  }
+
+  /**
+   * @param {Uint8Array} input
+   * @returns {Record<string, string>}
+   */
   getResponse(input) {
-    let tInput = new TextDecoder().decode(input);
-    let lines = tInput.split("<?xml");
-    let content = {}
-    const replaceBytes = new TextDecoder().decode(new Uint8Array([0xf0, 0xe9, 0x88, 0x14]));
-    for (let line of lines) {
-      if ("" === line) {
-        continue;
-      }
-      line = "<?xml" + line;
-      if (line.includes(replaceBytes)) {
-        line.replace(replaceBytes, "")
-      }
-      const xmlDoc = new DOMParser().parseFromString(line, "text/xml");
-      const responseElement = xmlDoc.querySelector('response');
-      if (responseElement !== null) {
-        content = Array.from(responseElement.attributes).reduce((obj, attr) => {
-          obj[attr.name] = attr.value;
-          return obj;
-        }, content);
-      }
-    }
+    const doc = this.#parseXmlDocument(input);
+    const content = {};
+    doc.querySelectorAll("response").forEach((el) => {
+      for (const attr of el.attributes) content[attr.name] = attr.value;
+    });
     return content;
   }
 
-
+  /**
+   * @param {Uint8Array} input
+   * @returns {string[]}
+   */
   getLog(input) {
-    let tInput = new TextDecoder().decode(input);
-    let lines = tInput.split("<?xml");
-    let data = [];
-    const replaceBytes = new TextDecoder().decode(new Uint8Array([0xf0, 0xe9, 0x88, 0x14]));
-    for (let line of lines) {
-      if ("" === line) {
-        continue;
+    const doc = this.#parseXmlDocument(input);
+    const data = [];
+    doc.querySelectorAll("log").forEach((el) => {
+      for (const attr of el.attributes) {
+        if (attr.name !== "value") continue;
+        data.push(attr.value);
+        break;
       }
-      line = "<?xml" + line;
-      if (line.includes(replaceBytes)) {
-        line.replace(replaceBytes, "")
-      }
-      const xmlDoc = new DOMParser().parseFromString(line, "text/xml");
-      const responseElement = xmlDoc.querySelector('log');
-      if (responseElement !== null) {
-        data = Array.from(responseElement.attributes).reduce((obj, attr) => {
-          if (attr.name === "value")
-           obj.push(attr.value);
-          return obj;
-        }, data);
-      }
-    }
+    });
     return data;
   }
 }
