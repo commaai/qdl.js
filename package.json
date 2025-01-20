@@ -8,6 +8,7 @@
     "./utils": "./src/utils.js"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "^16.6.0",
     "@types/bun": "latest"
   },
   "dependencies": {
