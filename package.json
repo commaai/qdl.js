@@ -7,9 +7,15 @@
     ".": "./src/qdl.js",
     "./utils": "./src/utils.js"
   },
+  "//devDependencies": {
+    "@happy-dom/global-registrator": "happy-dom is used by tests involving browser APIs, like DOMParser"
+  },
   "devDependencies": {
     "@happy-dom/global-registrator": "^16.6.0",
     "@types/bun": "latest"
+  },
+  "//dependencies": {
+    "crc-32": "crc32s are used in the gpt header calculations"
   },
   "dependencies": {
     "crc-32": "^1.2.2"
