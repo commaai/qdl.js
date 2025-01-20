@@ -157,4 +157,53 @@ describe("xmlParser", () => {
       expect(result).toEqual([""]);
     });
   });
+
+  describe("Real world protocol examples", () => {
+    test("parse power command response", () => {
+      const xml = "<?xml version=\"1.0\" ?><data><response value=\"ACK\" command=\"power\" status=\"reset\"/></data>";
+      const result = parser.getResponse(encoder.encode(xml));
+      expect(result).toEqual({
+        value: "ACK",
+        command: "power",
+        status: "reset",
+      });
+    });
+
+    test("parse read command response", () => {
+      const xml = `<?xml version="1.0" ?>
+        <data>
+          <response value="ACK"
+                   SECTOR_SIZE_IN_BYTES="512"
+                   num_partition_sectors="1000"
+                   physical_partition_number="0"
+                   start_sector="0"/>
+        </data>`;
+      const result = parser.getResponse(encoder.encode(xml));
+      expect(result).toEqual({
+        value: "ACK",
+        SECTOR_SIZE_IN_BYTES: "512",
+        num_partition_sectors: "1000",
+        physical_partition_number: "0",
+        start_sector: "0",
+      });
+    });
+
+    test("parse storage info response", () => {
+      const xml = `<?xml version="1.0" ?>
+        <data>
+          <response value="ACK"/>
+          <log value="UFS Inquiry Command Output: Unipro"/>
+          <log value="UFS Total Active LU: 0x3"/>
+          <log value="UFS Boot Partition Enabled: 0x1"/>
+          <log value="UFS Total Active LU: 0x3"/>
+        </data>`;
+      const logs = parser.getLog(encoder.encode(xml));
+      expect(logs).toEqual([
+        "UFS Inquiry Command Output: Unipro",
+        "UFS Total Active LU: 0x3",
+        "UFS Boot Partition Enabled: 0x1",
+        "UFS Total Active LU: 0x3",
+      ]);
+    });
+  });
 });
