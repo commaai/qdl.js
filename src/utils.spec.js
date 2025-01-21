@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { cmd_t, sahara_mode_t } from "./saharaDefs";
-import { compareStringToBytes, containsBytes, packGenerator, readBlobAsBuffer, structHelper_io } from "./utils";
+import { compareStringToBytes, concatUint8Array, containsBytes, packGenerator, readBlobAsBuffer, structHelper_io } from "./utils";
 
 describe("structHelper_io", () => {
   describe("dword", () => {
@@ -219,6 +219,45 @@ describe("packGenerator", () => {
       expect(result[24 + (i * 4) + 2]).toBe(0);
       expect(result[24 + (i * 4) + 3]).toBe(0);
     }
+  });
+});
+
+describe("concatUint8Array", () => {
+  describe("valid Uint8Arrays", () => {
+    test("should concatenate all arrays", () => {
+      const array1 = new Uint8Array([0x01, 0x02]);
+      const array2 = new Uint8Array([0x03, 0x04]);
+      const result = concatUint8Array([array1, array2]);
+
+      expect(result).toEqual(new Uint8Array([0x01, 0x02, 0x03, 0x04]));
+    });
+
+    test("should handle empty arrays", () => {
+      const array1 = new Uint8Array();
+      const array2 = new Uint8Array([0x01]);
+      const result = concatUint8Array([array1, array2]);
+
+      expect(result).toEqual(new Uint8Array([0x01]));
+    });
+  });
+
+  describe("null values provided", () => {
+    test("should skip null values", () => {
+      const array1 = new Uint8Array([0x01]);
+      const array2 = null;
+      const result = concatUint8Array([array1, array2]);
+
+      expect(result).toEqual(new Uint8Array([0x01]));
+    });
+
+    test("should handle multiple nulls", () => {
+      const array1 = new Uint8Array([0x01]);
+      const array2 = null;
+      const array3 = new Uint8Array([0x02]);
+      const result = concatUint8Array([array1, array2, array3]);
+
+      expect(result).toEqual(new Uint8Array([0x01, 0x02]));
+    });
   });
 });
 
