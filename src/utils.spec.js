@@ -230,6 +230,7 @@ describe("concatUint8Array", () => {
       const result = concatUint8Array([array1, array2]);
 
       expect(result).toEqual(new Uint8Array([0x01, 0x02, 0x03, 0x04]));
+      expect(result.length).toEqual(array1.length + array2.length);
     });
 
     test("should handle empty arrays", () => {
@@ -238,6 +239,7 @@ describe("concatUint8Array", () => {
       const result = concatUint8Array([array1, array2]);
 
       expect(result).toEqual(new Uint8Array([0x01]));
+      expect(result.length).toEqual(array1.length + array2.length);
     });
   });
 
@@ -248,6 +250,7 @@ describe("concatUint8Array", () => {
       const result = concatUint8Array([array1, array2]);
 
       expect(result).toEqual(new Uint8Array([0x01]));
+      expect(result.length).toEqual(array1.length);
     });
 
     test("should handle multiple nulls", () => {
@@ -257,6 +260,7 @@ describe("concatUint8Array", () => {
       const result = concatUint8Array([array1, array2, array3]);
 
       expect(result).toEqual(new Uint8Array([0x01, 0x02]));
+      expect(result.length).toEqual(array1.length + array3.length);
     });
   });
 });
