@@ -2,17 +2,29 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 
 export class structHelper_io {
+  /**
+   * @param {Uint8Array} data
+   * @param {number} pos
+   */
   constructor(data, pos=0) {
     this.pos = pos
     this.data = data;
   }
 
+  /**
+   * @param {boolean} littleEndian
+   * @returns {number}
+   */
   dword(littleEndian=true) {
     let view = new DataView(this.data.slice(this.pos, this.pos+4).buffer, 0);
     this.pos += 4;
     return view.getUint32(0, littleEndian);
   }
 
+  /**
+   * @param {boolean} littleEndian
+   * @returns {bigint}
+   */
   qword(littleEndian=true) {
     let view = new DataView(this.data.slice(this.pos, this.pos+8).buffer, 0);
     this.pos += 8;
@@ -21,6 +33,11 @@ export class structHelper_io {
 }
 
 
+/**
+ * @param {number[]} elements
+ * @param {boolean} littleEndian
+ * @returns {Uint8Array<ArrayBuffer>}
+ */
 export function packGenerator(elements, littleEndian=true) {
   let n = elements.length;
   const buffer = new ArrayBuffer(n*4);
@@ -32,6 +49,10 @@ export function packGenerator(elements, littleEndian=true) {
 }
 
 
+/**
+ * @param {Uint8Array[]} arrays
+ * @returns {Uint8Array<ArrayBuffer>}
+ */
 export function concatUint8Array(arrays) {
   let length = 0;
   arrays.forEach(item => {
@@ -51,12 +72,22 @@ export function concatUint8Array(arrays) {
 }
 
 
+/**
+ * @param {string} subString
+ * @param {Uint8Array} array
+ * @returns {boolean}
+ */
 export function containsBytes(subString, array) {
   let tArray = new TextDecoder().decode(array);
   return tArray.includes(subString);
 }
 
 
+/**
+ * @param {string} compareString
+ * @param {Uint8Array} array
+ * @returns {boolean}
+ */
 export function compareStringToBytes(compareString, array) {
   let tArray = new TextDecoder().decode(array);
   return compareString === tArray;
@@ -77,6 +108,10 @@ export function readBlobAsBuffer(blob) {
 }
 
 
+/**
+ * @param {Uint8Array} array
+ * @returns {bigint|number}
+ */
 export function bytes2Number(array) {
   let view = new DataView(array.buffer, 0);
   if (array.length !== 8 && array.length !== 4) {
