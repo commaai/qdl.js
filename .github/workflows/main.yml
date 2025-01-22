@@ -20,12 +20,8 @@ jobs:
       - run: bun install
       - run: bun test
       - run: bun run build
-
-  demo:
-    runs-on: ubuntu-latest
-    timeout-minutes: 1
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
-      - run: cd demo; bun install
-      - run: cd demo; bun run check
+      - name: check demo
+        run: |
+          cd demo
+          bun install
+          bun run check
