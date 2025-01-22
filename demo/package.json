@@ -1,0 +1,20 @@
+{
+  "name": "demo",
+  "module": "serve.ts",
+  "type": "module",
+  "scripts": {
+    "start": "bun run --experimental-css --experimental-html serve.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@commaai/qdl": "git+https://github.com/commaai/qdl.js.git#d563c4d"
+  },
+  "trustedDependencies": [
+    "@commaai/qdl"
+  ]
+}
