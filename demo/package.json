@@ -1,0 +1,22 @@
+{
+  "name": "demo",
+  "module": "serve.ts",
+  "type": "module",
+  "scripts": {
+    "start": "bun run serve.ts",
+    "check": "tsc",
+    "build": "bun run build.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@commaai/qdl": "link:@commaai/qdl"
+  },
+  "trustedDependencies": [
+    "@commaai/qdl"
+  ]
+}

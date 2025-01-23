@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>QDL.js Demo</title>
+    <link rel="stylesheet" type="text/css" href="./app.css"/>
+  </head>
+  <body>
+    <h1>QDL.js Demo</h1>
+
+    <p>This demo will connect to a comma three device in QDL mode and read its partition information.</p>
+
+    <h2>Instructions:</h2>
+    <ol>
+      <li>Unplug all cables from your comma three</li>
+      <li>Wait until the LED on the rear turns off completely</li>
+      <li>Connect the device to your computer using USB-C port 2 (lower port)</li>
+      <li>Connect power to the OBD-C port (port 1). The LED should turn red.</li>
+      <li>Click the "Connect & Read Info" button below</li>
+      <li>When prompted, select the device that starts with "QUSB_BULK"</li>
+    </ol>
+
+    <h3>Note on Linux</h3>
+    <p>Make sure to run the script below in your terminal after plugging in your device.</p>
+    <pre>for d in /sys/bus/usb/drivers/qcserial/*-*; do [ -e \"$d\" ] && echo -n \"$(basename $d)\" | sudo tee /sys/bus/usb/drivers/qcserial/unbind > /dev/null; done</pre>
+
+    <button onclick="connectDevice()">Connect & Read Info</button>
+    <div id="status"></div>
+    <pre id="output"></pre>
+
+    <script type="module" src="./app.ts"></script>
+  </body>
+</html>
