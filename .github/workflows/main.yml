@@ -39,13 +39,11 @@ jobs:
       - run: cd demo; bun run build
 
       - name: Upload artifact
-        if: github.ref == 'refs/heads/master'
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./demo/dist
 
   deploy:
-    if: github.ref == 'refs/heads/master'
     needs: demo
     permissions:
       pages: write
