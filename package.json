@@ -17,13 +17,16 @@
   },
   "scripts": {
     "build": "tsc",
-    "postinstall": "bun run build"
+    "postinstall": "bun run build",
+    "lint": "biome lint"
   },
   "//devDependencies": {
+    "@biomejs/biome": "code linter and formatter",
     "@happy-dom/global-registrator": "happy-dom is used by tests involving browser APIs, like DOMParser",
     "@types/w3c-web-usb": "type information for the WebUSB APIs"
   },
   "devDependencies": {
+    "@biomejs/biome": "1.9.4",
     "@happy-dom/global-registrator": "^16.7.2",
     "@types/bun": "latest",
     "@types/w3c-web-usb": "^1.0.10"
@@ -39,5 +42,8 @@
   },
   "peerDependencies": {
     "typescript": "^5.7.3"
-  }
+  },
+  "trustedDependencies": [
+    "@biomejs/biome"
+  ]
 }
