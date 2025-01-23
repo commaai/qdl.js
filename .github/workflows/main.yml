@@ -46,7 +46,9 @@ jobs:
 
   deploy:
     if: github.ref == 'refs/heads/master'
-    needs: demo
+    needs:
+      - demo
+      - test
     permissions:
       pages: write
       id-token: write
