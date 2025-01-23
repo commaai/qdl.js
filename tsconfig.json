@@ -17,7 +17,6 @@
     "declaration": true,
     "sourceMap": true,
     "incremental": true,
-    "tsBuildInfoFile": "node_modules/.tsbuildinfo",
     // TODO: enable after disabling allowJs
     // "isolatedDeclarations": true,
 
@@ -30,5 +29,5 @@
     "noPropertyAccessFromIndexSignature": true
   },
   "include": ["src/*.js"],
-  "exclude": ["src/*.spec.js", "dist", "node_modules"],
+  "exclude": ["src/*.spec.js", "demo", "dist", "node_modules"],
 }

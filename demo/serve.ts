@@ -5,7 +5,7 @@ const server = Bun.serve({
     "/": index,
   },
   development: true,
-  fetch(req) {
+  fetch() {
     return new Response("404!");
   },
 });

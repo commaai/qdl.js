@@ -16,7 +16,7 @@
     }
   },
   "scripts": {
-    "build": "rm -rf dist && tsc",
+    "build": "tsc",
     "postinstall": "bun run build"
   },
   "//devDependencies": {
@@ -24,7 +24,7 @@
     "@types/w3c-web-usb": "type information for the WebUSB APIs"
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "^16.6.0",
+    "@happy-dom/global-registrator": "^16.7.2",
     "@types/bun": "latest",
     "@types/w3c-web-usb": "^1.0.10"
   },
@@ -38,6 +38,6 @@
     "typescript": "does type checking, generates JS bundles and type declarations for language servers"
   },
   "peerDependencies": {
-    "typescript": "^5.0.0"
+    "typescript": "^5.7.3"
   }
 }
