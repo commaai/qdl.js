@@ -3,8 +3,9 @@
   "module": "serve.ts",
   "type": "module",
   "scripts": {
-    "start": "bun run --experimental-css --experimental-html serve.ts",
-    "check": "tsc"
+    "start": "bun run serve.ts",
+    "check": "tsc",
+    "build": "bun run build.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
