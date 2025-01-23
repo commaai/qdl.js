@@ -22,6 +22,7 @@ jobs:
       - run: bun run build
       - name: check demo
         run: |
+          bun link
           cd demo
           bun install
           bun run check

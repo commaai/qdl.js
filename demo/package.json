@@ -13,7 +13,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "@commaai/qdl": "git+https://github.com/commaai/qdl.js.git#d563c4d"
+    "@commaai/qdl": "link:@commaai/qdl"
   },
   "trustedDependencies": [
     "@commaai/qdl"
