@@ -81,9 +81,9 @@ export class Sahara {
     await this.cdc.write(dataToSend);
     let res = await this.getResponse();
     if ("cmd" in res) {
-      let cmd = res["cmd"];
+      let cmd = res.cmd;
       if (cmd === cmd_t.SAHARA_EXECUTE_RSP) {
-        let pkt = res["data"];
+        let pkt = res.data;
         let data = packGenerator([cmd_t.SAHARA_EXECUTE_DATA, 0xC, mcmd]);
         await this.cdc.write(data);
         return await this.cdc.read(pkt.data_len);
@@ -110,11 +110,11 @@ export class Sahara {
     }
     let res = await this.getResponse();
     if ("cmd" in res) {
-      if (res["cmd"] === cmd_t.SAHARA_END_TRANSFER) {
+      if (res.cmd === cmd_t.SAHARA_END_TRANSFER) {
         if ("data" in res) {
           return false;
         }
-      } else if (res["cmd"] === cmd_t.SAHARA_CMD_READY) {
+      } else if (res.cmd === cmd_t.SAHARA_CMD_READY) {
         return true;
       }
     }
@@ -189,12 +189,12 @@ export class Sahara {
       let resp = await this.getResponse();
       let cmd;
       if ("cmd" in resp) {
-        cmd = resp["cmd"];
+        cmd = resp.cmd;
       } else {
         throw "Sahara - Timeout while uploading loader. Wrong loader?";
       }
       if (cmd === cmd_t.SAHARA_64BIT_MEMORY_READ_DATA) {
-        let pkt = resp["data"];
+        let pkt = resp.data;
         this.id = pkt.image_id;
         if (this.id >= 0xC) {
           this.mode = "firehose";
@@ -216,7 +216,7 @@ export class Sahara {
         await this.cdc?.write(dataToSend);
         datalen -= dataLen;
       } else if (cmd === cmd_t.SAHARA_END_TRANSFER) {
-        let pkt = resp["data"];
+        let pkt = resp.data;
         if (pkt.image_tx_status === status_t.SAHARA_STATUS_SUCCESS) {
           if (await this.cmdDone()) {
             console.log("Loader successfully uploaded");
@@ -235,12 +235,12 @@ export class Sahara {
     if (await this.cdc.write(toSendData)) {
       let res = await this.getResponse();
       if ("cmd" in res) {
-        let cmd = res["cmd"];
+        let cmd = res.cmd;
         if (cmd === cmd_t.SAHARA_DONE_RSP) {
           return true;
         } else if (cmd === cmd_t.SAHARA_END_TRANSFER) {
           if ("data" in res) {
-            let pkt = res["data"];
+            let pkt = res.data;
             if (pkt.image_tx_status === status_t.SAHARA_NAK_INVALID_CMD) {
               console.error("Invalid transfer command received");
               return false;

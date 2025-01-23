@@ -15,27 +15,42 @@ const efiType = {
 
 
 export class structHelper {
+  /**
+   * @param {Uint8Array} data
+   * @param {number} [pos]
+   */
   constructor(data, pos = 0) {
-    this.pos = pos;
     this.data = data;
+    this.pos = pos;
+  }
+
+  /**
+   * @param {number} length
+   * @returns {Uint8Array}
+   */
+  sliceAndAdvance(length) {
+    const [start, end] = [this.pos, this.pos + length];
+    this.pos = end;
+    return this.data.slice(start, end);
   }
 
   qword(littleEndian=true) {
-    const view = new DataView(this.data.slice(this.pos, this.pos+=8).buffer, 0);
+    const view = new DataView(this.sliceAndAdvance(8).buffer, 0);
     return Number(view.getBigUint64(0, littleEndian));
   }
 
   dword(littleEndian=true) {
-    let view = new DataView(this.data.slice(this.pos, this.pos+=4).buffer, 0);
+    let view = new DataView(this.sliceAndAdvance(4).buffer, 0);
     return view.getUint32(0, littleEndian);
   }
 
   bytes(rlen=1) {
-    return this.data.slice(this.pos, this.pos += rlen);
+    return this.sliceAndAdvance(rlen)
   }
 
   toString(rlen=1) {
-    return this.data.slice(this.pos, this.pos += rlen);
+    // FIXME: what is the difference between this and bytes
+    return this.sliceAndAdvance(rlen)
   }
 }
 

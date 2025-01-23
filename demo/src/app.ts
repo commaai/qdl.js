@@ -6,7 +6,7 @@ declare global {
   }
 }
 
-window.connectDevice = async function() {
+window.connectDevice = async () => {
   const status = document.getElementById("status");
   const output = document.getElementById("output");
   if (!status || !output) throw "missing elements";

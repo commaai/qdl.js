@@ -35,7 +35,7 @@ export class qdlDevice {
         console.log("QDL device detected");
         let resp = await runWithTimeout(this.sahara?.connect(), 10000);
         if ("mode" in resp) {
-          this.mode = resp["mode"];
+          this.mode = resp.mode;
           console.log("Mode detected:", this.mode);
           return resp;
         }
@@ -47,7 +47,7 @@ export class qdlDevice {
   async connect() {
     try {
       let resp = await this.connectToSahara();
-      let mode = resp["mode"];
+      let mode = resp.mode;
       if (mode === "sahara") {
         await this.sahara?.uploadLoader();
       } else if (mode === "error") {

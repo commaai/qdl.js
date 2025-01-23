@@ -16,8 +16,7 @@ export class usbClass {
 
   get connected() {
     return (
-      this.device !== null &&
-      this.device.opened &&
+      this.device?.opened &&
       this.device.configurations[0].interfaces[0].claimed
     );
   }

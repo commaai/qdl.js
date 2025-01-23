@@ -38,7 +38,7 @@ export class Firehose {
 
   getStatus(resp) {
     if ("value" in resp) {
-      let value = resp["value"];
+      let value = resp.value;
       return (value === "ACK" || value === "true");
     }
     return true;
@@ -66,7 +66,7 @@ export class Firehose {
     const resp = this.xml.getResponse(rData);
     const status = this.getStatus(resp);
     if ("rawmode" in resp) {
-      if (resp["rawmode"] === "false") {
+      if (resp.rawmode === "false") {
         let log = this.xml.getLog(rData);
         return new response(status, rData, "", log)
       }
@@ -126,10 +126,10 @@ export class Firehose {
       const info = this.xml.getLog(wd);
       rsp = this.xml.getResponse(wd);
       if ("value" in rsp) {
-        if (rsp["value"] !== "ACK") {
+        if (rsp.value !== "ACK") {
           return new response(false, resData, info);
         } else if ("rawmode" in rsp) {
-          if (rsp["rawmode"] === "false") {
+          if (rsp.rawmode === "false") {
             return new response(true, resData);
           }
         }
@@ -138,7 +138,7 @@ export class Firehose {
         return new response(false, resData, rsp[2]);
       }
     }
-    let resp = rsp["value"] === "ACK";
+    let resp = rsp.value === "ACK";
     return new response(resp, resData, rsp[2]);
   }
 
@@ -220,7 +220,7 @@ export class Firehose {
       const wd  = await this.waitForData();
       const response = this.xml.getResponse(wd);
       if ("value" in response) {
-        if (response["value"] !== "ACK") {
+        if (response.value !== "ACK") {
           return false;
         }
       } else {
@@ -253,7 +253,7 @@ export class Firehose {
       const res = await this.waitForData();
       const response = this.xml.getResponse(res);
       if ("value" in response) {
-        if (response["value"] !== "ACK") {
+        if (response.value !== "ACK") {
           throw "Failed to erase: NAK";
         }
       } else {

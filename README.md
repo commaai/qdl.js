@@ -10,6 +10,16 @@ Run tests in watch mode
 bun test --watch
 ```
 
+**Lint**
+
+Check for linting problems
+
+```sh
+bun lint
+```
+
+You can also install the Biome extension for VS Code, Zed and IntelliJ-based editors.
+
 **Build**
 
 Bundles JS and generates type declarations

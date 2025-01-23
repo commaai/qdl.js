@@ -54,20 +54,14 @@ export function packGenerator(elements, littleEndian=true) {
  * @returns {Uint8Array<ArrayBuffer>}
  */
 export function concatUint8Array(arrays) {
-  let length = 0;
-  arrays.forEach(item => {
-    if (item !== null) {
-      length += item.length;
-    }
-  });
+  const length = arrays.filter(Boolean).reduce((sum, arr) => sum + arr.length, 0);
   let concatArray = new Uint8Array(length);
   let offset = 0;
-  arrays.forEach( item => {
-    if (item !== null) {
-      concatArray.set(item, offset);
-      offset += item.length;
-    }
-  });
+  for (const array of arrays) {
+    if (!array) continue;
+    concatArray.set(array, offset);
+    offset += array.length;
+  }
   return concatArray;
 }
 
