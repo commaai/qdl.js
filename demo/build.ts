@@ -1,11 +1,11 @@
-const output = await Bun.build({
+const build = await Bun.build({
   entrypoints: ["./src/index.html"],
   outdir: "./dist",
   sourcemap: "linked",
   minify: true,
 });
 
-const outputs = output.outputs.map(({ path, kind, size }) => ({ path, kind, "size (KiB)": (size / 1024).toFixed(1) }));
+const outputs = build.outputs.map(({ path, kind, size }) => ({ path, kind, "size (KiB)": (size / 1024).toFixed(1) }));
 console.log("Build outputs:");
 console.table(outputs);
 
