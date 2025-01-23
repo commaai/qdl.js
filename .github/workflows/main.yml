@@ -8,7 +8,10 @@ on:
 
 concurrency:
   group: ${{ github.ref == 'refs/heads/master' && github.run_id || github.head_ref || github.ref }}-${{ github.workflow }}-${{ github.event_name }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -34,3 +37,25 @@ jobs:
       - run: cd demo; bun install
       - run: cd demo; bun check
       - run: cd demo; bun run build
+
+      - name: Upload artifact
+        if: github.ref == 'refs/heads/master'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./demo/dist
+
+  deploy:
+    if: github.ref == 'refs/heads/master'
+    needs: demo
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
