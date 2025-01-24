@@ -43,27 +43,24 @@ window.connectDevice = async () => {
       status.className = "success";
       status.textContent = "Connected! Reading device info...";
 
-      const lunInfos: LunInfo[] = [];
-
-      // Get GPT info for each LUN
-      for (const lun of qdl.firehose.luns) {
-        const [guidGpt] = await qdl.getGpt(lun);
-        if (guidGpt) {
-          lunInfos.push({
-            lun,
-            partitions: guidGpt.partentries
-          });
-        }
-      }
-
-      // Get active slot
+      // Device information
       const activeSlot = await qdl.getActiveSlot();
 
-      // Display basic device info
       deviceDiv.innerHTML = `Serial Number: <code>${qdl.sahara.serial}</code><br>` +
         `Active Slot: <code>${activeSlot}</code>`;
 
-      // Create partition table display
+
+      // Get GPT info for each LUN
+      const lunInfos: LunInfo[] = [];
+      for (const lun of qdl.firehose.luns) {
+        const [guidGpt] = await qdl.getGpt(lun);
+        if (guidGpt) lunInfos.push({
+          lun,
+          partitions: guidGpt.partentries
+        });
+      }
+
+      // Partition table
       partitionsDiv.innerHTML = "";
       for (const lunInfo of lunInfos) {
         const lunTitle = document.createElement("h3");
@@ -74,7 +71,6 @@ window.connectDevice = async () => {
         const table = document.createElement("table");
         table.className = "w-full border-collapse";
 
-        // Add table header
         const thead = table.createTHead();
         const headerRow = thead.insertRow();
         for (const text of ["Partition", "Start Sector", "Size (sectors)", "Type", "Flags", "UUID"]) {
@@ -84,43 +80,35 @@ window.connectDevice = async () => {
           headerRow.appendChild(th);
         }
 
-        // Add partition rows
         const tbody = table.createTBody();
         for (const [name, info] of lunInfo.partitions) {
           const row = tbody.insertRow();
           row.className = "hover:bg-gray-50 dark:hover:bg-gray-800";
 
-          // Name cell
           const nameCell = row.insertCell();
           nameCell.textContent = name;
           nameCell.className = "p-2 border";
 
-          // Start sector cell
           const startCell = row.insertCell();
           startCell.textContent = info.sector.toString();
           startCell.className = "p-2 border font-mono";
 
-          // Size cell
           const sizeCell = row.insertCell();
           sizeCell.textContent = info.sectors.toString();
           sizeCell.className = "p-2 border font-mono";
 
-          // Type cell
           const typeCell = row.insertCell();
           typeCell.textContent = info.type;
           typeCell.className = "p-2 border";
 
-          // Flags cell
           const flagsCell = row.insertCell();
           flagsCell.textContent = "0x" + info.flags.toString(16);
           flagsCell.className = "p-2 border font-mono";
 
-          // UUID cell
           const uuidCell = row.insertCell();
           uuidCell.textContent = info.unique.replace(/\s+/g, '');
           uuidCell.className = "p-2 border font-mono text-sm";
         }
-
         partitionsDiv.appendChild(table);
       }
 
