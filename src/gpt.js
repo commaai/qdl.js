@@ -21,21 +21,21 @@ export class structHelper {
   }
 
   qword(littleEndian=true) {
-    const view = new DataView(this.data.slice(this.pos, this.pos+=8).buffer, 0);
+    const view = new DataView(this.data.slice(this.pos, this.pos+8).buffer, 0);
     return Number(view.getBigUint64(0, littleEndian));
   }
 
   dword(littleEndian=true) {
-    let view = new DataView(this.data.slice(this.pos, this.pos+=4).buffer, 0);
+    let view = new DataView(this.data.slice(this.pos, this.pos+4).buffer, 0);
     return view.getUint32(0, littleEndian);
   }
 
   bytes(rlen=1) {
-    return this.data.slice(this.pos, this.pos += rlen);
+    return this.data.slice(this.pos, this.pos + rlen);
   }
 
   toString(rlen=1) {
-    return this.data.slice(this.pos, this.pos += rlen);
+    return this.data.slice(this.pos, this.pos + rlen);
   }
 }
 
