@@ -59,7 +59,6 @@ window.connectDevice = async () => {
 
       // Device information
       const activeSlot = await qdl.getActiveSlot();
-
       deviceDiv.innerHTML = `Serial Number: <code>${qdl.sahara.serial}</code><br>` +
         `Active Slot: <code>${activeSlot}</code>`;
 
@@ -69,7 +68,6 @@ window.connectDevice = async () => {
         const [guidGpt] = await qdl.getGpt(lun);
         if (guidGpt?.header) {
           const [backupGuidGpt] = await qdl.getGpt(lun, guidGpt.header.backupLba);
-
           lunInfos.push({
             lun,
             header: {
