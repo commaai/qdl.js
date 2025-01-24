@@ -14,7 +14,7 @@ const efiType = {
 }
 
 
-class structHelper {
+export class structHelper {
   constructor(data, pos = 0) {
     this.pos = pos;
     this.data = data;
