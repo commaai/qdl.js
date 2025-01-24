@@ -49,7 +49,7 @@ window.connectDevice = async () => {
     }
 
     // Initialize QDL device with programmer URL
-    const qdl = new qdlDevice("https://raw.githubusercontent.com/commaai/flash/master/src/QDL/programmer.bin");
+    const qdl = new qdlDevice("https://raw.githubusercontent.com/bkerler/Loaders/master/oneplus/0008b0e10051459b_dd7c5f2e53176bee_fhprg_op6t.bin");
 
     // Start the connection
     await qdl.connect();
