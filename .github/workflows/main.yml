@@ -22,6 +22,7 @@ jobs:
       - uses: oven-sh/setup-bun@v1
 
       - run: bun install
+      - run: bun lint
       - run: bun test
       - run: bun run build
 
