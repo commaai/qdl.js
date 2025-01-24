@@ -49,7 +49,6 @@ window.connectDevice = async () => {
       deviceDiv.innerHTML = `Serial Number: <code>${qdl.sahara.serial}</code><br>` +
         `Active Slot: <code>${activeSlot}</code>`;
 
-
       // Get GPT info for each LUN
       const lunInfos: LunInfo[] = [];
       for (const lun of qdl.firehose.luns) {
