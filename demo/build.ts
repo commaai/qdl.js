@@ -2,7 +2,8 @@ const build = await Bun.build({
   entrypoints: ["./src/index.html"],
   outdir: "./dist",
   sourcemap: "linked",
-  minify: true,
+  // https://github.com/oven-sh/bun/issues/16335
+  // minify: true,
 });
 
 const outputs = build.outputs.map(({ path, kind, size }) => ({ path, kind, "size (KiB)": (size / 1024).toFixed(1) }));
