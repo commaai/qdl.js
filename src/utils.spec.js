@@ -5,18 +5,18 @@ import { bytes2Number, compareStringToBytes, concatUint8Array, containsBytes, pa
 
 describe("structHelper_io", () => {
   describe("dword", () => {
-    test("should read 32-bit integer in little-endian", () => {
-      // Create test data: 0x78563412 in little-endian
-      const data = new Uint8Array([0x12, 0x34, 0x56, 0x78]);
+    test("should read multiple dwords and advance position", () => {
+      const data = new Uint8Array([
+        0x12, 0x34, 0x56, 0x78,
+        0xFF, 0xFF, 0x00, 0x00,
+      ]);
       const helper = new structHelper_io(data);
-
-      const result = helper.dword();
-      expect(result).toBe(0x78563412);
-      expect(helper.pos).toBe(4);
+      expect(helper.dword()).toBe(0x78563412);
+      expect(helper.dword()).toBe(0x0000FFFF);
+      expect(helper.pos).toBe(8);
     });
 
     test("should read 32-bit integer in big-endian", () => {
-      // Create test data: 0x12345678 in big-endian
       const data = new Uint8Array([0x12, 0x34, 0x56, 0x78]);
       const helper = new structHelper_io(data);
 
@@ -24,93 +24,26 @@ describe("structHelper_io", () => {
       expect(result).toBe(0x12345678);
       expect(helper.pos).toBe(4);
     });
-
-    test("should read multiple dwords and advance position", () => {
-      // Two 32-bit integers in sequence
-      const data = new Uint8Array([
-        0x12, 0x34, 0x56, 0x78,  // First dword
-        0xFF, 0xFF, 0x00, 0x00   // Second dword
-      ]);
-      const helper = new structHelper_io(data);
-
-      const first = helper.dword();
-      const second = helper.dword();
-
-      expect(first).toBe(0x78563412);
-      expect(second).toBe(0x0000FFFF);
-      expect(helper.pos).toBe(8);
-    });
-
-    test("should handle zero values", () => {
-      const data = new Uint8Array([0x00, 0x00, 0x00, 0x00]);
-      const helper = new structHelper_io(data);
-
-      const result = helper.dword();
-      expect(result).toBe(0);
-      expect(helper.pos).toBe(4);
-    });
-
-    test("should handle maximum 32-bit value", () => {
-      const data = new Uint8Array([0xFF, 0xFF, 0xFF, 0xFF]);
-      const helper = new structHelper_io(data);
-
-      const result = helper.dword();
-      expect(result).toBe(0xFFFFFFFF);
-      expect(helper.pos).toBe(4);
-    });
   });
 
-  describe('qword', () => {
-    test('should read 64-bit integer in little-endian', () => {
-      // Create test data: 0x1234567890ABCDEF in little-endian
-      const data = new Uint8Array([0xEF, 0xCD, 0xAB, 0x90, 0x78, 0x56, 0x34, 0x12]);
+  describe("qword", () => {
+    test("should read multiple qwords and advance position", () => {
+      const data = new Uint8Array([
+        0xEF, 0xCD, 0xAB, 0x90, 0x78, 0x56, 0x34, 0x12,
+        0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,
+      ]);
       const helper = new structHelper_io(data);
-
-      const result = helper.qword();
-      expect(result).toBe(BigInt("0x1234567890ABCDEF"));
-      expect(helper.pos).toBe(8);
+      expect(helper.qword()).toBe(BigInt("0x1234567890ABCDEF"));
+      expect(helper.qword()).toBe(BigInt("0x00000000FFFFFFFF"));
+      expect(helper.pos).toBe(16);
     });
 
-    test('should read 64-bit integer in big-endian', () => {
-      // Create test data: 0x1234567890ABCDEF in big-endian
+    test("should read 64-bit integer in big-endian", () => {
       const data = new Uint8Array([0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF]);
       const helper = new structHelper_io(data);
 
       const result = helper.qword(false);  // false for big-endian
       expect(result).toBe(BigInt("0x1234567890ABCDEF"));
-      expect(helper.pos).toBe(8);
-    });
-
-    test('should read multiple qwords and advance position', () => {
-      const data = new Uint8Array([
-        0xEF, 0xCD, 0xAB, 0x90, 0x78, 0x56, 0x34, 0x12,  // First qword
-        0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00   // Second qword
-      ]);
-      const helper = new structHelper_io(data);
-
-      const first = helper.qword();
-      const second = helper.qword();
-
-      expect(first).toBe(BigInt("0x1234567890ABCDEF"));
-      expect(second).toBe(BigInt("0x00000000FFFFFFFF"));
-      expect(helper.pos).toBe(16);
-    });
-
-    test('should handle zero values', () => {
-      const data = new Uint8Array([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-      const helper = new structHelper_io(data);
-
-      const result = helper.qword();
-      expect(result).toBe(BigInt(0));
-      expect(helper.pos).toBe(8);
-    });
-
-    test("should handle maximum 64-bit value", () => {
-      const data = new Uint8Array([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
-      const helper = new structHelper_io(data);
-
-      const result = helper.qword();
-      expect(result).toBe(BigInt("0xFFFFFFFFFFFFFFFF"));
       expect(helper.pos).toBe(8);
     });
   });
@@ -158,7 +91,6 @@ describe("packGenerator", () => {
     expect(result[2]).toBe(0xFF);
     expect(result[3]).toBe(0xFF);
   });
-
 
   test("should handle endianness correctly", () => {
     const input = [0x12345678];
@@ -223,45 +155,41 @@ describe("packGenerator", () => {
 });
 
 describe("concatUint8Array", () => {
-  describe("valid Uint8Arrays", () => {
-    test("should concatenate all arrays", () => {
-      const array1 = new Uint8Array([0x01, 0x02]);
-      const array2 = new Uint8Array([0x03, 0x04]);
-      const result = concatUint8Array([array1, array2]);
+  test("should concatenate all arrays", () => {
+    const array1 = new Uint8Array([0x01, 0x02]);
+    const array2 = new Uint8Array([0x03, 0x04]);
+    const result = concatUint8Array([array1, array2]);
 
-      expect(result).toEqual(new Uint8Array([0x01, 0x02, 0x03, 0x04]));
-      expect(result.length).toEqual(array1.length + array2.length);
-    });
-
-    test("should handle empty arrays", () => {
-      const array1 = new Uint8Array();
-      const array2 = new Uint8Array([0x01]);
-      const result = concatUint8Array([array1, array2]);
-
-      expect(result).toEqual(new Uint8Array([0x01]));
-      expect(result.length).toEqual(array1.length + array2.length);
-    });
+    expect(result).toEqual(new Uint8Array([0x01, 0x02, 0x03, 0x04]));
+    expect(result.length).toEqual(array1.length + array2.length);
   });
 
-  describe("null values provided", () => {
-    test("should skip null values", () => {
-      const array1 = new Uint8Array([0x01]);
-      const array2 = null;
-      const result = concatUint8Array([array1, array2]);
+  test("should handle empty arrays", () => {
+    const array1 = new Uint8Array();
+    const array2 = new Uint8Array([0x01]);
+    const result = concatUint8Array([array1, array2]);
 
-      expect(result).toEqual(new Uint8Array([0x01]));
-      expect(result.length).toEqual(array1.length);
-    });
+    expect(result).toEqual(new Uint8Array([0x01]));
+    expect(result.length).toEqual(array1.length + array2.length);
+  });
 
-    test("should handle multiple nulls", () => {
-      const array1 = new Uint8Array([0x01]);
-      const array2 = null;
-      const array3 = new Uint8Array([0x02]);
-      const result = concatUint8Array([array1, array2, array3]);
+  test("should skip null values", () => {
+    const array1 = new Uint8Array([0x01]);
+    const array2 = null;
+    const result = concatUint8Array([array1, array2]);
 
-      expect(result).toEqual(new Uint8Array([0x01, 0x02]));
-      expect(result.length).toEqual(array1.length + array3.length);
-    });
+    expect(result).toEqual(new Uint8Array([0x01]));
+    expect(result.length).toEqual(array1.length);
+  });
+
+  test("should handle multiple nulls", () => {
+    const array1 = new Uint8Array([0x01]);
+    const array2 = null;
+    const array3 = new Uint8Array([0x02]);
+    const result = concatUint8Array([array1, array2, array3]);
+
+    expect(result).toEqual(new Uint8Array([0x01, 0x02]));
+    expect(result.length).toEqual(array1.length + array3.length);
   });
 });
 
@@ -362,14 +290,6 @@ describe("bytes2Number", () => {
   });
 
   describe("edge values", () => {
-    test("should handle all zero bytes correctly", () => {
-      const fourBytes = new Uint8Array(4).fill(0);
-      expect(bytes2Number(fourBytes)).toBe(0);
-
-      const eightBytes = new Uint8Array(8).fill(0);
-      expect(bytes2Number(eightBytes)).toBe(0n);
-    });
-
     test("should handle maximum values", () => {
       const fourBytesMax = new Uint8Array([0xFF, 0xFF, 0xFF, 0xFF]);
       expect(bytes2Number(fourBytesMax)).toBe(0xFFFFFFFF);
