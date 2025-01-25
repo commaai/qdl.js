@@ -17,23 +17,14 @@ export class qdlDevice {
     this.cdc = new usbClass();
     this.sahara = new Sahara(this.cdc, programmerUrl);
     this.firehose = new Firehose(this.cdc);
-    this._connectResolve = null;
-    this._connectReject = null;
-  }
-
-  async waitForConnect() {
-    return await new Promise((resolve, reject) => {
-      this._connectResolve = resolve;
-      this._connectReject  = reject;
-    });
   }
 
   async connectToSahara() {
     while (!this.cdc.connected) {
-      await this.cdc?.connect();
+      await this.cdc.connect();
       if (this.cdc.connected) {
         console.log("QDL device detected");
-        let resp = await runWithTimeout(this.sahara?.connect(), 10000);
+        let resp = await runWithTimeout(this.sahara.connect(), 10000);
         if ("mode" in resp) {
           this.mode = resp.mode;
           console.log("Mode detected:", this.mode);
@@ -45,30 +36,15 @@ export class qdlDevice {
   }
 
   async connect() {
-    try {
-      let resp = await this.connectToSahara();
-      let mode = resp.mode;
-      if (mode === "sahara") {
-        await this.sahara?.uploadLoader();
-      } else if (mode === "error") {
-        throw "Error connecting to Sahara";
-      }
-      await this.firehose?.configure();
-      this.mode = "firehose";
-    } catch (error) {
-      if (this._connectReject !== null) {
-        this._connectReject(error);
-        this._connectResolve = null;
-        this._connectReject = null;
-      }
+    const resp = await this.connectToSahara();
+    const mode = resp.mode;
+    if (mode === "sahara") {
+      await this.sahara.uploadLoader();
+    } else if (mode === "error") {
+      throw "Error connecting to Sahara";
     }
-
-    if (this._connectResolve !== null) {
-      this._connectResolve(undefined);
-      this._connectResolve = null;
-      this._connectReject = null;
-    }
-    return true;
+    await this.firehose.configure();
+    this.mode = "firehose";
   }
 
   /**
