@@ -3,6 +3,10 @@ import { concatUint8Array, packGenerator, readBlobAsBuffer } from "./utils";
 
 
 export class Sahara {
+  /**
+   * @param {usbClass} cdc
+   * @param {string} programmerUrl
+   */
   constructor(cdc, programmerUrl) {
     this.cdc = cdc;
     this.programmerUrl = programmerUrl;
@@ -15,7 +19,7 @@ export class Sahara {
   }
 
   async connect() {
-    const v = await this.cdc?.read(0xC * 0x4);
+    const v = await this.cdc.read(0xC * 0x4);
     if (v.length > 1) {
       if (v[0] === 0x01) {
         let pkt = this.ch.pkt_cmd_hdr(v);
@@ -33,20 +37,20 @@ export class Sahara {
     const len = 0x30;
     const elements = [cmd, len, version, version_min, max_cmd_len, mode, 1, 2, 3, 4, 5, 6];
     const responseData = packGenerator(elements);
-    await this.cdc?.write(responseData);
+    await this.cdc.write(responseData);
     return true;
   }
 
   async cmdModeSwitch(mode) {
     const elements = [cmd_t.SAHARA_SWITCH_MODE, 0xC, mode];
     let data = packGenerator(elements);
-    await this.cdc?.write(data);
+    await this.cdc.write(data);
     return true;
   }
 
   async getResponse() {
     try {
-      let data = await this.cdc?.read();
+      let data = await this.cdc.read();
       let data_text = new TextDecoder('utf-8').decode(data.data);
       if (data.length === 0) {
         return {};
@@ -213,7 +217,7 @@ export class Sahara {
           programmer = concatUint8Array([programmer, fillerArray]);
         }
         let dataToSend = programmer.slice(dataOffset, dataOffset+dataLen);
-        await this.cdc?.write(dataToSend);
+        await this.cdc.write(dataToSend);
         datalen -= dataLen;
       } else if (cmd === cmd_t.SAHARA_END_TRANSFER) {
         let pkt = resp.data;

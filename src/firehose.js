@@ -29,6 +29,9 @@ class cfg {
 }
 
 export class Firehose {
+  /**
+   * @param {usbClass} cdc
+   */
   constructor(cdc) {
     this.cdc = cdc;
     this.xml = new xmlParser();
@@ -46,13 +49,13 @@ export class Firehose {
 
   async xmlSend(data, wait=true) {
     let dataToSend = new TextEncoder().encode(data).slice(0, this.cfg.MaxXMLSizeInBytes);
-    await this.cdc?.write(dataToSend, null, wait);
+    await this.cdc.write(dataToSend, null, wait);
 
     let rData = new Uint8Array();
     let counter = 0;
     let timeout = 3;
     while (!(containsBytes("<response value", rData))) {
-      let tmp = await this.cdc?.read();
+      let tmp = await this.cdc.read();
       if (compareStringToBytes("", tmp)) {
         counter += 1;
         await sleep(50);
