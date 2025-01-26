@@ -1,6 +1,6 @@
 import { buf as crc32 } from "crc-32"
 
-import { containsBytes, bytes2Number } from "./utils"
+import { containsBytes, bytes2Number, StructHelper } from "./utils"
 
 export const AB_FLAG_OFFSET = 6;
 export const AB_PARTITION_ATTR_SLOT_ACTIVE = (0x1 << 2);
@@ -14,50 +14,9 @@ const efiType = {
 }
 
 
-export class structHelper {
-  /**
-   * @param {Uint8Array} data
-   * @param {number} [pos]
-   */
-  constructor(data, pos = 0) {
-    this.data = data;
-    this.pos = pos;
-  }
-
-  /**
-   * @param {number} length
-   * @returns {Uint8Array}
-   */
-  sliceAndAdvance(length) {
-    const [start, end] = [this.pos, this.pos + length];
-    this.pos = end;
-    return this.data.slice(start, end);
-  }
-
-  qword(littleEndian=true) {
-    const view = new DataView(this.sliceAndAdvance(8).buffer, 0);
-    return Number(view.getBigUint64(0, littleEndian));
-  }
-
-  dword(littleEndian=true) {
-    let view = new DataView(this.sliceAndAdvance(4).buffer, 0);
-    return view.getUint32(0, littleEndian);
-  }
-
-  bytes(rlen=1) {
-    return this.sliceAndAdvance(rlen)
-  }
-
-  toString(rlen=1) {
-    // FIXME: what is the difference between this and bytes
-    return this.sliceAndAdvance(rlen)
-  }
-}
-
-
 class gptHeader {
   constructor(data) {
-    let sh = new structHelper(data);
+    const sh = new StructHelper(data);
     this.signature = sh.bytes(8);
     this.revision = sh.dword();
     this.headerSize = sh.dword();
@@ -78,7 +37,7 @@ class gptHeader {
 
 export class gptPartition {
   constructor(data) {
-    let sh = new structHelper(data)
+    const sh = new StructHelper(data)
     this.type = sh.bytes(16);
     this.unique = sh.bytes(16);
     this.firstLba = sh.qword();

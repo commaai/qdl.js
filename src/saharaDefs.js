@@ -1,4 +1,4 @@
-import { structHelper_io } from "./utils"
+import { StructHelper } from "./utils"
 
 
 export const cmd_t = {
@@ -34,12 +34,12 @@ export const status_t = {
 
 export class CommandHandler {
   pkt_cmd_hdr(data) {
-    let st = new structHelper_io(data);
+    const st = new StructHelper(data);
     return { cmd : st.dword(), len : st.dword() }
   }
 
   pkt_hello_req(data) {
-    let st = new structHelper_io(data);
+    const st = new StructHelper(data);
     return {
       cmd : st.dword(),
       len : st.dword(),
@@ -57,7 +57,7 @@ export class CommandHandler {
   }
 
   pkt_image_end(data) {
-    let st = new structHelper_io(data);
+    const st = new StructHelper(data);
     return {
       cmd : st.dword(),
       len : st.dword(),
@@ -67,7 +67,7 @@ export class CommandHandler {
   }
 
   pkt_done(data) {
-    let st = new structHelper_io(data);
+    const st = new StructHelper(data);
     return {
       cmd : st.dword(),
       len : st.dword(),
@@ -76,7 +76,7 @@ export class CommandHandler {
   }
 
   pkt_read_data_64(data) {
-    let st = new structHelper_io(data);
+    const st = new StructHelper(data);
     return {
       cmd : st.dword(),
       len : st.dword(),
@@ -87,7 +87,7 @@ export class CommandHandler {
   }
 
   pkt_execute_rsp_cmd(data) {
-    let st = new structHelper_io(data);
+    const st = new StructHelper(data);
     return {
         cmd : st.dword(),
         len : st.dword(),

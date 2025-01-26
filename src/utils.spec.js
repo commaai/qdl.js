@@ -1,24 +1,24 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { cmd_t, sahara_mode_t } from "./saharaDefs";
-import { bytes2Number, compareStringToBytes, concatUint8Array, containsBytes, packGenerator, readBlobAsBuffer, structHelper_io } from "./utils";
+import { bytes2Number, compareStringToBytes, concatUint8Array, containsBytes, packGenerator, readBlobAsBuffer, StructHelper } from "./utils";
 
-describe("structHelper_io", () => {
+describe("StructHelper", () => {
   describe("dword", () => {
-    test("should read multiple dwords and advance position", () => {
+    test("read multiple dwords and advance position", () => {
       const data = new Uint8Array([
         0x12, 0x34, 0x56, 0x78,
         0xFF, 0xFF, 0x00, 0x00,
       ]);
-      const helper = new structHelper_io(data);
+      const helper = new StructHelper(data);
       expect(helper.dword()).toBe(0x78563412);
       expect(helper.dword()).toBe(0x0000FFFF);
       expect(helper.pos).toBe(8);
     });
 
-    test("should read 32-bit integer in big-endian", () => {
+    test("read 32-bit integer in big-endian", () => {
       const data = new Uint8Array([0x12, 0x34, 0x56, 0x78]);
-      const helper = new structHelper_io(data);
+      const helper = new StructHelper(data);
 
       const result = helper.dword(false);  // false for big-endian
       expect(result).toBe(0x12345678);
@@ -27,25 +27,41 @@ describe("structHelper_io", () => {
   });
 
   describe("qword", () => {
-    test("should read multiple qwords and advance position", () => {
+    test("read multiple qwords and advance position", () => {
       const data = new Uint8Array([
         0xEF, 0xCD, 0xAB, 0x90, 0x78, 0x56, 0x34, 0x12,
         0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,
       ]);
-      const helper = new structHelper_io(data);
+      const helper = new StructHelper(data);
       expect(helper.qword()).toBe(BigInt("0x1234567890ABCDEF"));
       expect(helper.qword()).toBe(BigInt("0x00000000FFFFFFFF"));
       expect(helper.pos).toBe(16);
     });
 
-    test("should read 64-bit integer in big-endian", () => {
+    test("read 64-bit integer in big-endian", () => {
       const data = new Uint8Array([0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF]);
-      const helper = new structHelper_io(data);
+      const helper = new StructHelper(data);
 
       const result = helper.qword(false);  // false for big-endian
       expect(result).toBe(BigInt("0x1234567890ABCDEF"));
       expect(helper.pos).toBe(8);
     });
+  });
+
+  test("read specified number of bytes and update position", () => {
+    const data = new Uint8Array([0x01, 0x02, 0x03, 0x04, 0x05]);
+    const helper = new StructHelper(data);
+    expect(helper.bytes(3)).toEqual(new Uint8Array([0x01, 0x02, 0x03]));
+    expect(helper.pos).toBe(3);
+  });
+
+  test("track position across multiple operations", () => {
+    const data = new Uint8Array([0x78, 0x56, 0x34, 0x12, 0x41, 0x42]);
+    const helper = new StructHelper(data);
+    expect(helper.dword()).toBe(0x12345678);
+    expect(helper.pos).toBe(4);
+    expect(new TextDecoder().decode(helper.bytes(2))).toBe("AB");
+    expect(helper.pos).toBe(6);
   });
 });
 

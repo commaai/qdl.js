@@ -1,24 +1,45 @@
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 
-export class structHelper_io {
+export class StructHelper {
   /**
    * @param {Uint8Array} data
-   * @param {number} pos
    */
-  constructor(data, pos=0) {
-    this.pos = pos
+  constructor(data) {
     this.data = data;
+    this.length = data.length;
+    this.view = new DataView(this.data.buffer);
+    this.pos = 0;
+  }
+
+  /**
+   * @param size
+   * @returns {[number, number]}
+   * @private
+   */
+  #advance(size) {
+    const [start, end] = [this.pos, this.pos + size];
+    if (end > this.length) throw new Error("End of data reached");
+    this.pos = end;
+    return [start, end];
+  }
+
+  /**
+   * @param {number} length
+   * @returns {Uint8Array}
+   */
+  bytes(length) {
+    const [start, end] = this.#advance(length);
+    return this.data.slice(start, end);
   }
 
   /**
    * @param {boolean} littleEndian
    * @returns {number}
    */
-  dword(littleEndian=true) {
-    let view = new DataView(this.data.slice(this.pos, this.pos+4).buffer, 0);
-    this.pos += 4;
-    return view.getUint32(0, littleEndian);
+  dword(littleEndian = true) {
+    const [start] = this.#advance(4);
+    return this.view.getUint32(start, littleEndian);
   }
 
   /**
@@ -26,9 +47,8 @@ export class structHelper_io {
    * @returns {bigint}
    */
   qword(littleEndian=true) {
-    let view = new DataView(this.data.slice(this.pos, this.pos+8).buffer, 0);
-    this.pos += 8;
-    return view.getBigUint64(0, littleEndian);
+    const [start] = this.#advance(8);
+    return this.view.getBigUint64(start, littleEndian);
   }
 }
 

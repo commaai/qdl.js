@@ -49,10 +49,10 @@ export class qdlDevice {
 
   /**
    * @param {number} lun
-   * @param {number} startSector
+   * @param {BigInt} startSector
    * @returns {Promise<[gpt.gpt, Uint8Array] | [null, null]>}
    */
-  async getGpt(lun, startSector=1) {
+  async getGpt(lun, startSector=1n) {
     let resp;
     resp = await this.firehose.cmdReadBuffer(lun, 0, 1);
     if (!resp.resp) {
