@@ -138,20 +138,6 @@ describe("xmlParser", () => {
       expect(result).toEqual(["Test & debug <sample>"]);
     });
 
-    test("handle mixed response and log content", () => {
-      const xml = `<?xml version="1.0" ?>
-        <data>
-          <response value="ACK" status="progress"/>
-          <log value="Operation in progress"/>
-          <log value="Step 1 complete"/>
-        </data>`;
-      const logs = parser.getLog(encoder.encode(xml));
-      expect(logs).toEqual([
-        "Operation in progress",
-        "Step 1 complete",
-      ]);
-    });
-
     test("handle empty value", () => {
       const xml = "<?xml version=\"1.0\" ?><data><log value=\"\"/></data>";
       const result = parser.getLog(encoder.encode(xml));
@@ -190,21 +176,72 @@ describe("xmlParser", () => {
     });
 
     test("parse storage info response", () => {
-      const xml = `<?xml version="1.0" ?>
-        <data>
-          <response value="ACK"/>
-          <log value="UFS Inquiry Command Output: Unipro"/>
-          <log value="UFS Total Active LU: 0x3"/>
-          <log value="UFS Boot Partition Enabled: 0x1"/>
-          <log value="UFS Total Active LU: 0x3"/>
-        </data>`;
+      const xml = `<?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: Calling handler for getstorageinfo" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: Device Total Logical Blocks: 0xd7d800" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: Device Total Physical Partitions: 0x6" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: Device Manufacturer ID: 0x1ad" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: Device Serial Number: 0xe22af7f8" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: {&quot;storage_info&quot;: {&quot;total_blocks&quot;:14145536, &quot;block_size&quot;:4096, &quot;page_size&quot;:4096, &quot;num_physical&quot;:6, &quot;manufacturer_id&quot;:429, &quot;serial_num&quot;:3794466808, &quot;fw_version&quot;:&quot;205&quot;,&quot;mem_type&quot;:&quot;UFS&quot;,&quot;prod_name&quot;:&quot;H28S7Q302BMR&quot;}}" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: UFS fInitialized: 0x1" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: UFS Current LUN Number: = 0x0" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: UFS Total Active LU: 0x6" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: UFS Boot Partition Enabled: 0x1" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: UFS Raw Device Capacity: = 0x7738000" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: UFS Min Block Size: 0x8" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: UFS Erase Block Size: 0x2000" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: UFS Allocation Unit Size: 0x1" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: UFS RPMB ReadWrite Size: = 0x20" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: UFS Number of Allocation Uint for This LU: 0x35f6" /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<log value="INFO: UFS Inquiry Command Output: SKhynix H28S7Q302BMR    H205 " /></data><?xml version="1.0" encoding="UTF-8" ?>
+<data>
+<response value="ACK" rawmode="false" /></data>`;
+      const response = parser.getResponse(encoder.encode(xml));
+      expect(response).toMatchInlineSnapshot(`
+{
+  "rawmode": "false",
+  "value": "ACK",
+}
+`);
       const logs = parser.getLog(encoder.encode(xml));
-      expect(logs).toEqual([
-        "UFS Inquiry Command Output: Unipro",
-        "UFS Total Active LU: 0x3",
-        "UFS Boot Partition Enabled: 0x1",
-        "UFS Total Active LU: 0x3",
-      ]);
+      expect(logs).toMatchInlineSnapshot(`
+[
+  "INFO: Calling handler for getstorageinfo",
+  "INFO: Device Total Logical Blocks: 0xd7d800",
+  "INFO: Device Total Physical Partitions: 0x6",
+  "INFO: Device Manufacturer ID: 0x1ad",
+  "INFO: Device Serial Number: 0xe22af7f8",
+  "INFO: {"storage_info": {"total_blocks":14145536, "block_size":4096, "page_size":4096, "num_physical":6, "manufacturer_id":429, "serial_num":3794466808, "fw_version":"205","mem_type":"UFS","prod_name":"H28S7Q302BMR"}}",
+  "INFO: UFS fInitialized: 0x1",
+  "INFO: UFS Current LUN Number: = 0x0",
+  "INFO: UFS Total Active LU: 0x6",
+  "INFO: UFS Boot Partition Enabled: 0x1",
+  "INFO: UFS Raw Device Capacity: = 0x7738000",
+  "INFO: UFS Min Block Size: 0x8",
+  "INFO: UFS Erase Block Size: 0x2000",
+  "INFO: UFS Allocation Unit Size: 0x1",
+  "INFO: UFS RPMB ReadWrite Size: = 0x20",
+  "INFO: UFS Number of Allocation Uint for This LU: 0x35f6",
+  "INFO: UFS Inquiry Command Output: SKhynix H28S7Q302BMR    H205 ",
+]
+`);
     });
   });
 });

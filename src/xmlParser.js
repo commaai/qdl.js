@@ -4,10 +4,12 @@ export class xmlParser {
 
   /**
    * @param {Uint8Array} input
-   * @returns {Document}
+   * @yields {Document[]}
    */
-  #parseXmlDocument(input) {
-    return this.parser.parseFromString(this.decoder.decode(input), "text/xml");
+  * #parseXmlDocuments(input) {
+    for (const xml of this.decoder.decode(input).split("<?xml")) {
+      yield this.parser.parseFromString(`<?xml${xml}`, "text/xml");
+    }
   }
 
   /**
@@ -15,10 +17,11 @@ export class xmlParser {
    * @returns {Record<string, string>}
    */
   getResponse(input) {
-    const doc = this.#parseXmlDocument(input);
     const content = {};
-    for (const el of doc.querySelectorAll("response")) {
-      for (const attr of el.attributes) content[attr.name] = attr.value;
+    for (const doc of this.#parseXmlDocuments(input)) {
+      for (const el of doc.querySelectorAll("response")) {
+        for (const attr of el.attributes) content[attr.name] = attr.value;
+      }
     }
     return content;
   }
@@ -28,13 +31,14 @@ export class xmlParser {
    * @returns {string[]}
    */
   getLog(input) {
-    const doc = this.#parseXmlDocument(input);
     const data = [];
-    for (const el of doc.querySelectorAll("log")) {
-      for (const attr of el.attributes) {
-        if (attr.name !== "value") continue;
-        data.push(attr.value);
-        break;
+    for (const doc of this.#parseXmlDocuments(input)) {
+      for (const el of doc.querySelectorAll("log")) {
+        for (const attr of el.attributes) {
+          if (attr.name !== "value") continue;
+          data.push(attr.value);
+          break;
+        }
       }
     }
     return data;
