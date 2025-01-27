@@ -39,6 +39,14 @@
       pre:empty {
         display: none;
       }
+      select {
+        display: block;
+      }
+      #controls {
+        display: grid;
+        justify-items: start;
+        gap: 8px;
+      }
       table {
         border-collapse: collapse;
         width: 100%;
@@ -62,6 +70,9 @@
           font-weight: bold;
           font-size: x-large;
         }
+      }
+      #controls:before {
+        content: "Settings";
       }
       #device:before {
         content: "Device Information";
@@ -90,7 +101,15 @@
     <p>Make sure to run the script below in your terminal after plugging in your device.</p>
     <pre>for d in /sys/bus/usb/drivers/qcserial/*-*; do [ -e "$d" ] && echo -n "$(basename $d)" | sudo tee /sys/bus/usb/drivers/qcserial/unbind > /dev/null; done</pre>
 
-    <button onclick="connectDevice()">Connect & Read Info</button>
+    <section id="controls">
+      <label for="programmer">Select a device type</label>
+      <select id="programmer">
+        <option value="https://raw.githubusercontent.com/commaai/flash/master/src/QDL/programmer.bin">comma 3/3X</option>
+        <option value="https://raw.githubusercontent.com/bkerler/Loaders/master/oneplus/0008b0e10051459b_dd7c5f2e53176bee_fhprg_op6t.bin">OnePlus 6T</option>
+      </select>
+      <button onclick="connectDevice()">Connect & Read Info</button>
+    </section>
+
     <div id="status"></div>
     <section id="device"></section>
     <section id="partitions"></section>

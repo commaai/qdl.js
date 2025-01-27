@@ -35,12 +35,17 @@ declare global {
 }
 
 window.connectDevice = async () => {
+  const programmerSelect = document.getElementById("programmer") as HTMLSelectElement;
   const status = document.getElementById("status");
   const deviceDiv = document.getElementById("device");
   const partitionsDiv = document.getElementById("partitions");
-  if (!status || !deviceDiv || !partitionsDiv) throw "missing elements";
+  if (!programmerSelect || !status || !deviceDiv || !partitionsDiv) throw "missing elements";
 
   try {
+    if (!programmerSelect.value) {
+      throw new Error("Select a device");
+    }
+
     status.className = "";
     status.textContent = "Connecting...";
 
@@ -49,7 +54,7 @@ window.connectDevice = async () => {
     }
 
     // Initialize QDL device with programmer URL
-    const qdl = new qdlDevice("https://raw.githubusercontent.com/bkerler/Loaders/master/oneplus/0008b0e10051459b_dd7c5f2e53176bee_fhprg_op6t.bin");
+    const qdl = new qdlDevice(programmerSelect.value);
 
     // Start the connection
     await qdl.connect();
