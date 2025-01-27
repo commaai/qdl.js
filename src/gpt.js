@@ -43,7 +43,7 @@ export class gptPartition {
     this.firstLba = Number(sh.qword());
     this.lastLba = Number(sh.qword());
     this.flags = Number(sh.qword());
-    this.name = sh.toString(72);
+    this.name = sh.bytes(72);
   }
 
   create() {
