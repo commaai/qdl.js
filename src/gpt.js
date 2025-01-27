@@ -22,12 +22,12 @@ class gptHeader {
     this.headerSize = sh.dword();
     this.crc32 = sh.dword();
     this.reserved = sh.dword();
-    this.currentLba = sh.qword();
-    this.backupLba = sh.qword();
-    this.firstUsableLba = sh.qword();
-    this.lastUsableLba = sh.qword();
+    this.currentLba = Number(sh.qword());
+    this.backupLba = Number(sh.qword());
+    this.firstUsableLba = Number(sh.qword());
+    this.lastUsableLba = Number(sh.qword());
     this.diskGuid = sh.bytes(16);
-    this.partEntryStartLba = sh.qword();
+    this.partEntryStartLba = Number(sh.qword());
     this.numPartEntries = sh.dword();
     this.partEntrySize = sh.dword();
     this.crc32PartEntries = sh.dword();
@@ -40,9 +40,9 @@ export class gptPartition {
     const sh = new StructHelper(data)
     this.type = sh.bytes(16);
     this.unique = sh.bytes(16);
-    this.firstLba = sh.qword();
-    this.lastLba = sh.qword();
-    this.flags = sh.qword();
+    this.firstLba = Number(sh.qword());
+    this.lastLba = Number(sh.qword());
+    this.flags = Number(sh.qword());
     this.name = sh.toString(72);
   }
 
