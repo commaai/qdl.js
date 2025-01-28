@@ -34,12 +34,34 @@ declare global {
   }
 }
 
+function createCell(textContent: string) {
+  const el = document.createElement("td");
+  el.textContent = textContent;
+  el.style.cssText = 'padding: 8px; border-bottom: 1px solid #ddd;'
+  return el;
+}
+
+function createObjectTable(element: HTMLElement, data: Record<string, any>) {
+  if (!element || !data) return;
+  const table = document.createElement("table");
+  table.style.cssText = "border-collapse: collapse; width: 100%;";
+  for (const [key, value] of Object.entries(data)) {
+    const row = document.createElement("tr");
+    row.append(createCell(key), createCell(value));
+    table.appendChild(row);
+  }
+  element.innerHTML = "";
+  element.appendChild(table);
+  return table;
+}
+
 window.connectDevice = async () => {
   const programmerSelect = document.getElementById("programmer") as HTMLSelectElement;
   const status = document.getElementById("status");
   const deviceDiv = document.getElementById("device");
+  const storageDiv = document.getElementById("storage");
   const partitionsDiv = document.getElementById("partitions");
-  if (!programmerSelect || !status || !deviceDiv || !partitionsDiv) throw "missing elements";
+  if (!programmerSelect || !status || !deviceDiv || !storageDiv || !partitionsDiv) throw "missing elements";
 
   try {
     if (!programmerSelect.value) {
@@ -63,8 +85,13 @@ window.connectDevice = async () => {
 
     // Device information
     const activeSlot = await qdl.getActiveSlot();
-    deviceDiv.innerHTML = `Serial Number: <code>${qdl.sahara.serial}</code><br>` +
-      `Active Slot: <code>${activeSlot}</code>`;
+    const storageInfo = await qdl.getStorageInfo();
+    createObjectTable(deviceDiv, {
+      "Active Slot": activeSlot,
+      "SOC Serial Number": qdl.sahara.serial,
+      "UFS Serial Number": "0x"+storageInfo.serial_num.toString(16).padStart(8, "0"),
+    });
+    createObjectTable(storageDiv, storageInfo);
 
     // Get GPT info for each LUN
     const lunInfos: LunInfo[] = [];
