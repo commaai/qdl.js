@@ -56,7 +56,7 @@ export class StructHelper {
 /**
  * @param {number[]} elements
  * @param {boolean} littleEndian
- * @returns {Uint8Array<ArrayBuffer>}
+ * @returns {Uint8Array}
  */
 export function packGenerator(elements, littleEndian=true) {
   let n = elements.length;
@@ -71,7 +71,7 @@ export function packGenerator(elements, littleEndian=true) {
 
 /**
  * @param {Uint8Array[]} arrays
- * @returns {Uint8Array<ArrayBuffer>}
+ * @returns {Uint8Array}
  */
 export function concatUint8Array(arrays) {
   const length = arrays.filter(Boolean).reduce((sum, arr) => sum + arr.length, 0);

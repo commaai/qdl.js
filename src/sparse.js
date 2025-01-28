@@ -13,6 +13,10 @@ const ChunkType = {
 
 
 class QCSparse {
+  /**
+   * @param {Blob} blob
+   * @param header
+   */
   constructor(blob, header) {
     this.blob = blob;
     this.blockSize = header.blockSize;
@@ -122,6 +126,11 @@ export async function parseFileHeader(blobHeader) {
   }
 }
 
+/**
+ * @param chunks
+ * @param {number} blockSize
+ * @returns {Promise<Blob>}
+ */
 async function populate(chunks, blockSize) {
   const nBlocks = calcChunksBlocks(chunks);
   let ret = new Uint8Array(nBlocks * blockSize);
@@ -185,6 +194,10 @@ function calcChunksBlocks(chunks) {
 }
 
 
+/**
+ * @param {Blob} blob
+ * @param {number} splitSize
+ */
 export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTarget */) {
   const safeToSend = splitSize;
 

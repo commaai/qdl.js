@@ -88,6 +88,12 @@ export class qdlDevice {
     return [false];
   }
 
+  /**
+   * @param {string} partitionName
+   * @param {Blob} blob
+   * @param {progressCallback} onProgress
+   * @returns {Promise<boolean>}
+   */
   async flashBlob(partitionName, blob, onProgress=()=>{}) {
     let startSector = 0;
     let dp = await this.detectPartition(partitionName);
