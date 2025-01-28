@@ -340,7 +340,7 @@ export class Firehose {
    * @returns {Promise<string[]>}
    */
   async cmdGetStorageInfo() {
-    const data = '<?xml version="1.0" ?><data><getstorageinfo physical_partition_number="0" /></data>'
+    const data = '<?xml version="1.0" ?><data><getstorageinfo physical_partition_number="0" /></data>';
     const resp = await this.xmlSend(data);
     if (!resp.resp || !resp.log) throw new Error("Failed to get storage info", { cause: resp.error });
     return resp.log;
