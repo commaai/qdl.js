@@ -260,7 +260,7 @@ export class Firehose {
       }
     }
 
-    onProgress(1.0);
+    onProgress?.(1.0);
     return true;
   }
 
