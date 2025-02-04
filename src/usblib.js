@@ -102,49 +102,47 @@ export class usbClass {
   async read(length = undefined) {
     if (length) {
       /** @type {Uint8Array<ArrayBuffer>[]} */
-      const packets = [];
+      const chunks = [];
       let received = 0;
       while (received < length) {
-        const packet = await this.read();
-        if (packet.byteLength) {
-          packets.push(packet);
-          received += packet.byteLength;
+        const chunk = await this.read();
+        if (chunk.byteLength) {
+          chunks.push(chunk);
+          received += chunk.byteLength;
         } else {
           console.debug("[usblib] Received empty response");
         }
       }
-      return concatUint8Array(packets);
+      return concatUint8Array(chunks);
     } else {
       const result = await this.device?.transferIn(this.epIn?.endpointNumber, this.maxSize);
       return new Uint8Array(result.data?.buffer);
     }
   }
 
-  async write(cmdPacket, pktSize=null, wait=true) {
-    if (cmdPacket.length === 0) {
+  /**
+   * @param {Uint8Array} data
+   * @param {boolean} [wait=true]
+   * @returns {Promise<void>}
+   */
+  async write(data, wait = true) {
+    if (data.byteLength === 0) {
       try {
-        await this.device?.transferOut(this.epOut?.endpointNumber, cmdPacket);
-      } catch(error) {
-        await this.device?.transferOut(this.epOut?.endpointNumber, cmdPacket);
+        await this.device?.transferOut(this.epOut?.endpointNumber, data);
+      } catch {
+        await this.device?.transferOut(this.epOut?.endpointNumber, data);
       }
-      return true;
+      return;
     }
 
     let offset = 0;
-    if (pktSize === null) {
-      pktSize = BULK_TRANSFER_SIZE;
-    }
-    while (offset < cmdPacket.length) {
-      if (wait) {
-        await this.device?.transferOut(this.epOut?.endpointNumber, cmdPacket.slice(offset, offset + pktSize));
-      } else {
-        // this is a hack, webusb doesn't have timed out catching
-        // this only happens in sahara.configure(). The loader receive the packet but doesn't respond back (same as edl repo).
-        void this.device?.transferOut(this.epOut?.endpointNumber, cmdPacket.slice(offset, offset + pktSize));
-        await sleep(80);
-      }
-      offset += pktSize;
-    }
-    return true;
+    do {
+      const chunk = data.slice(offset, offset + BULK_TRANSFER_SIZE);
+      offset += chunk.byteLength;
+      const promise = this.device?.transferOut(this.epOut?.endpointNumber, chunk);
+      // this is a hack, webusb doesn't have timed out catching
+      // this only happens in sahara.configure(). The loader receive the packet but doesn't respond back (same as edl repo).
+      await (wait ? promise : sleep(80));
+    } while (offset < data.byteLength);
   }
 }
