@@ -4,7 +4,7 @@ import { concatUint8Array, sleep } from "./utils";
 /**
  * @type {USBDeviceFilter}
  */
-export const QDL_DEVICE_FILTER = {
+const QDL_DEVICE_FILTER = {
   vendorId: 0x05c6, productId: 0x9008, classCode: 0xff,
 };
 
@@ -54,6 +54,14 @@ export class usbClass {
     this.epIn = epIn;
     this.epOut = epOut;
     this.maxSize = epIn.packetSize;
+  }
+
+  static async create() {
+    const device = await navigator.usb.requestDevice({
+      filters: [QDL_DEVICE_FILTER],
+    });
+    console.info("[usblib] Using USB device:", device);
+    return new usbClass(device);
   }
 
   get connected() {
