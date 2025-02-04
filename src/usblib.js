@@ -76,19 +76,15 @@ export class usbClass {
     try {
       await this.device.open();
       await this.device.selectConfiguration(1);
-      try {
-        await this.device.claimInterface(0);
-      } catch (error) {
-        try {
-          await this.device.reset();
-          await this.device.forget();
-          await this.device.close();
-        } catch {
-          // ignored
-        }
-        throw error;
-      }
+      await this.device.claimInterface(0);
     } catch (error) {
+      try {
+        await this.device.reset();
+        await this.device.forget();
+        await this.device.close();
+      } catch {
+        // ignored
+      }
       throw new Error("Failed to connect to USB device", { cause: error });
     }
   }
