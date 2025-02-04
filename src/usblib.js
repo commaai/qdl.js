@@ -104,13 +104,13 @@ export class usbClass {
       /** @type {Uint8Array<ArrayBuffer>[]} */
       const chunks = [];
       let received = 0;
-      while (received < length) {
+      do {
         const chunk = await this.read();
         if (chunk.byteLength) {
           chunks.push(chunk);
           received += chunk.byteLength;
         }
-      }
+      } while (received < length);
       return concatUint8Array(chunks);
     } else {
       const result = await this.device?.transferIn(this.epIn?.endpointNumber, this.maxSize);
