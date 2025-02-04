@@ -33,6 +33,7 @@
     "@biomejs/biome": "1.9.4",
     "@happy-dom/global-registrator": "^16.7.2",
     "@types/bun": "latest",
+    "@types/w3c-web-serial": "^1.0.7",
     "@types/w3c-web-usb": "^1.0.10"
   },
   "//dependencies": {
