@@ -95,20 +95,29 @@ export class usbClass {
     await this._validateAndConnectDevice();
   }
 
-  async read(resplen=null) {
-    let respData = new Uint8Array();
-    let covered = 0;
-    if (resplen === null) {
-      resplen = this.epIn.packetSize;
+  /**
+   * @param {number|undefined} [length=undefined]
+   * @returns {Promise<Uint8Array<ArrayBuffer>>}
+   */
+  async read(length = undefined) {
+    if (length) {
+      /** @type {Uint8Array<ArrayBuffer>[]} */
+      const packets = [];
+      let received = 0;
+      while (received < length) {
+        const result = await this.device?.transferIn(this.epIn?.endpointNumber, Math.min(length - received, this.maxSize));
+        if (result.data?.byteLength) {
+          packets.push(new Uint8Array(result.data.buffer));
+          received += result.data.byteLength;
+        } else {
+          console.debug("[usblib] Received empty response");
+        }
+      }
+      return concatUint8Array(packets);
+    } else {
+      const result = await this.device?.transferIn(this.epIn?.endpointNumber, this.maxSize);
+      return new Uint8Array(result.data.buffer);
     }
-
-    while (covered < resplen) {
-      let respPacket = await this.device?.transferIn(this.epIn?.endpointNumber, resplen);
-      respData = concatUint8Array([respData, new Uint8Array(respPacket.data.buffer)]);
-      resplen = respData.length;
-      covered += respData.length;
-    }
-    return respData;
   }
 
   async write(cmdPacket, pktSize=null, wait=true) {

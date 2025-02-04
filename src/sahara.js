@@ -52,7 +52,7 @@ export class Sahara {
   async getResponse() {
     try {
       let data = await this.cdc.read();
-      let data_text = new TextDecoder('utf-8').decode(data.data);
+      let data_text = new TextDecoder('utf-8').decode(data);
       if (data.length === 0) {
         return {};
       } else if (data_text.includes("<?xml")) {
