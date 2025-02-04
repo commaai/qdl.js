@@ -12,50 +12,6 @@ const QDL_DEVICE_FILTER = {
 const BULK_TRANSFER_SIZE = 16384;
 
 
-/**
- * @param {USBDevice} device
- * @returns {{ epIn: USBEndpoint, epOut: USBEndpoint }}
- */
-function getEndpoints(device) {
-  const ife = device.configurations[0].interfaces[0].alternates[0];
-  if (ife.endpoints.length !== 2) {
-    throw "USB - Attempted to connect to null device";
-  }
-  let epIn = null;
-  let epOut = null;
-  for (const endpoint of ife.endpoints) {
-    if (endpoint.type !== "bulk") {
-      throw "USB - Interface endpoint is not bulk";
-    }
-    if (endpoint.direction === "in") {
-      if (epIn) {
-        throw "USB - Interface has multiple IN endpoints";
-      }
-      epIn = endpoint;
-    } else if (endpoint.direction === "out") {
-      if (epOut) {
-        throw "USB - Interface has multiple OUT endpoints";
-      }
-      epOut = endpoint;
-    }
-  }
-  console.debug("[usblib] endpoints: in =", epIn, ", out =", epOut);
-  return { epIn, epOut };
-}
-
-
-/**
- * @returns {Promise<usbClass>}
- */
-export async function requestDevice() {
-  const device = await navigator.usb.requestDevice({
-    filters: [QDL_DEVICE_FILTER],
-  });
-  console.info("[usblib] Using USB device:", device);
-  return new usbClass(device);
-}
-
-
 export class usbClass {
   /**
    * @param {USBDevice} device
@@ -137,4 +93,48 @@ export class usbClass {
       await (wait ? promise : sleep(80));
     } while (offset < data.byteLength);
   }
+}
+
+
+/**
+ * @param {USBDevice} device
+ * @returns {{ epIn: USBEndpoint, epOut: USBEndpoint }}
+ */
+function getEndpoints(device) {
+  const ife = device.configurations[0].interfaces[0].alternates[0];
+  if (ife.endpoints.length !== 2) {
+    throw "USB - Attempted to connect to null device";
+  }
+  let epIn = null;
+  let epOut = null;
+  for (const endpoint of ife.endpoints) {
+    if (endpoint.type !== "bulk") {
+      throw "USB - Interface endpoint is not bulk";
+    }
+    if (endpoint.direction === "in") {
+      if (epIn) {
+        throw "USB - Interface has multiple IN endpoints";
+      }
+      epIn = endpoint;
+    } else if (endpoint.direction === "out") {
+      if (epOut) {
+        throw "USB - Interface has multiple OUT endpoints";
+      }
+      epOut = endpoint;
+    }
+  }
+  console.debug("[usblib] endpoints: in =", epIn, ", out =", epOut);
+  return { epIn, epOut };
+}
+
+
+/**
+ * @returns {Promise<usbClass>}
+ */
+export async function requestDevice() {
+  const device = await navigator.usb.requestDevice({
+    filters: [QDL_DEVICE_FILTER],
+  });
+  console.info("[usblib] Using USB device:", device);
+  return new usbClass(device);
 }
