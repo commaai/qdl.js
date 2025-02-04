@@ -44,11 +44,11 @@ class cfg {
 }
 
 export class Firehose {
-  /**
-   * @param {usbClass} cdc
-   */
-  constructor(cdc) {
-    this.cdc = cdc;
+  constructor() {
+    /**
+     * @type {serialClass|usbClass|null}
+     */
+    this.cdc = null;
     this.xml = new xmlParser();
     this.cfg = new cfg();
     /** @type {number[]} */
@@ -63,7 +63,7 @@ export class Firehose {
   async xmlSend(command, wait = true) {
     // FIXME: warn if command is shortened
     const dataToSend = new TextEncoder().encode(command).slice(0, this.cfg.MaxXMLSizeInBytes);
-    await this.cdc.write(dataToSend, null, wait);
+    await this.cdc.write(dataToSend, wait);
 
     let rData = new Uint8Array();
     let counter = 0;
@@ -100,9 +100,12 @@ export class Firehose {
   }
 
   /**
+   * @param {serialClass|usbClass} cdc
    * @returns {Promise<boolean>}
    */
-  async configure() {
+  async configure(cdc) {
+    this.cdc = cdc;
+
     const connectCmd = `<?xml version="1.0" encoding="UTF-8" ?><data>` +
               `<configure MemoryName="${this.cfg.MemoryName}" ` +
               `Verbose="0" ` +
@@ -231,7 +234,7 @@ export class Firehose {
             wdata = concatUint8Array([wdata, fillArray]);
           }
           await this.cdc.write(wdata);
-          await this.cdc.write(new Uint8Array(0), null, true);
+          await this.cdc.write(new Uint8Array(0), true);
           offset += wlen;
           bytesWritten += wlen;
           bytesToWriteSplit -= wlen;
@@ -239,7 +242,7 @@ export class Firehose {
           // Need this for sparse image when the data.length < MaxPayloadSizeToTargetInBytes
           // Add ~2.4s to total flash time
           if (sparseformat && bytesWritten < total) {
-            await this.cdc.write(new Uint8Array(0), null, true);
+            await this.cdc.write(new Uint8Array(0), true);
           }
 
           if (i % 10 === 0) {
@@ -309,7 +312,7 @@ export class Firehose {
     const data = `<?xml version="1.0" ?><data>\n<setbootablestoragedrive value="${lun}" /></data>`;
     const val = await this.xmlSend(data);
     if (val.resp) {
-      console.log(`Successfully set bootID to lun ${lun}`);
+      console.debug(`[firehose] Successfully set bootID to lun ${lun}`);
       return true;
     } else {
       throw `Firehose - Failed to set boot lun ${lun}`;
@@ -323,7 +326,7 @@ export class Firehose {
     let data = '<?xml version="1.0" ?><data><power value="reset"/></data>';
     let val = await this.xmlSend(data);
     if (val.resp) {
-      console.log("Reset succeeded");
+      console.debug("[firehose] Reset succeeded");
       // Drain log buffer
       try {
         await this.waitForData();
