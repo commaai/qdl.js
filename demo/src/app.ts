@@ -1,5 +1,5 @@
 import { qdlDevice } from "@commaai/qdl";
-import { usbClass } from "@commaai/qdl/usblib";
+import { QDL_DEVICE_FILTER, usbClass } from "@commaai/qdl/usblib";
 
 interface PartitionInfo {
   name: string;
@@ -76,11 +76,16 @@ window.connectDevice = async () => {
       throw new Error("Browser missing WebUSB support");
     }
 
+    const device = await navigator.usb.requestDevice({
+      filters: [QDL_DEVICE_FILTER],
+    });
+    console.info("[app] Using USB device:", device);
+
     // Initialize QDL device with programmer URL
     const qdl = new qdlDevice(programmerSelect.value);
 
     // Start the connection
-    await qdl.connect(new usbClass());
+    await qdl.connect(new usbClass(device));
     status.className = "success";
     status.textContent = "Connected! Reading device info...";
 
