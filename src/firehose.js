@@ -63,7 +63,7 @@ export class Firehose {
   async xmlSend(command, wait = true) {
     // FIXME: warn if command is shortened
     const dataToSend = new TextEncoder().encode(command).slice(0, this.cfg.MaxXMLSizeInBytes);
-    await this.cdc.write(dataToSend, null, wait);
+    await this.cdc.write(dataToSend, wait);
 
     let rData = new Uint8Array();
     let counter = 0;
@@ -231,7 +231,7 @@ export class Firehose {
             wdata = concatUint8Array([wdata, fillArray]);
           }
           await this.cdc.write(wdata);
-          await this.cdc.write(new Uint8Array(0), null, true);
+          await this.cdc.write(new Uint8Array(0), true);
           offset += wlen;
           bytesWritten += wlen;
           bytesToWriteSplit -= wlen;
@@ -239,7 +239,7 @@ export class Firehose {
           // Need this for sparse image when the data.length < MaxPayloadSizeToTargetInBytes
           // Add ~2.4s to total flash time
           if (sparseformat && bytesWritten < total) {
-            await this.cdc.write(new Uint8Array(0), null, true);
+            await this.cdc.write(new Uint8Array(0), true);
           }
 
           if (i % 10 === 0) {

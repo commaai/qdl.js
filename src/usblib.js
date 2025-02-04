@@ -111,7 +111,7 @@ export class usbClass {
     return respData;
   }
 
-  async write(cmdPacket, pktSize=null, wait=true) {
+  async write(cmdPacket, wait = true) {
     if (cmdPacket.length === 0) {
       try {
         await this.device?.transferOut(this.epOut?.endpointNumber, cmdPacket);
@@ -122,19 +122,16 @@ export class usbClass {
     }
 
     let offset = 0;
-    if (pktSize === null) {
-      pktSize = BULK_TRANSFER_SIZE;
-    }
     while (offset < cmdPacket.length) {
       if (wait) {
-        await this.device?.transferOut(this.epOut?.endpointNumber, cmdPacket.slice(offset, offset + pktSize));
+        await this.device?.transferOut(this.epOut?.endpointNumber, cmdPacket.slice(offset, offset + BULK_TRANSFER_SIZE));
       } else {
         // this is a hack, webusb doesn't have timed out catching
         // this only happens in sahara.configure(). The loader receive the packet but doesn't respond back (same as edl repo).
-        void this.device?.transferOut(this.epOut?.endpointNumber, cmdPacket.slice(offset, offset + pktSize));
+        void this.device?.transferOut(this.epOut?.endpointNumber, cmdPacket.slice(offset, offset + BULK_TRANSFER_SIZE));
         await sleep(80);
       }
-      offset += pktSize;
+      offset += BULK_TRANSFER_SIZE;
     }
     return true;
   }
