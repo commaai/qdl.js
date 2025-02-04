@@ -1,7 +1,6 @@
 import { Firehose } from "./firehose"
 import * as gpt from "./gpt"
-import { Sahara } from  "./sahara"
-import { usbClass } from "./usblib"
+import { Sahara } from "./sahara";
 import { concatUint8Array, runWithTimeout, containsBytes } from "./utils"
 
 
@@ -13,37 +12,46 @@ export class qdlDevice {
     if (!programmerUrl) {
       throw "programmerUrl is required";
     }
-    this.mode = "";
-    this.cdc = new usbClass();
-    this.sahara = new Sahara(this.cdc, programmerUrl);
-    this.firehose = new Firehose(this.cdc);
+    this.programmerUrl = programmerUrl;
+    /**
+     * @type {string|null}
+     */
+    this.mode = null;
+    /**
+     * @type {string|null}
+     */
+    this.serial = null;
+    /**
+     * @type {Firehose|null}
+     */
+    this.firehose = null;
   }
 
-  async connectToSahara() {
-    while (!this.cdc.connected) {
-      await this.cdc.connect();
-      if (this.cdc.connected) {
-        console.log("QDL device detected");
-        let resp = await runWithTimeout(this.sahara.connect(), 10000);
-        if ("mode" in resp) {
-          this.mode = resp.mode;
-          console.log("Mode detected:", this.mode);
-          return resp;
-        }
-      }
+  /**
+   * @param {usbClass} cdc
+   * @returns {Promise<void>}
+   */
+  async connect(cdc) {
+    if (!cdc.connected) {
+      await cdc.connect();
     }
-    return {"mode" : "error"};
-  }
-
-  async connect() {
-    const resp = await this.connectToSahara();
-    const mode = resp.mode;
-    if (mode === "sahara") {
-      await this.sahara.uploadLoader();
-    } else if (mode === "error") {
-      throw "Error connecting to Sahara";
+    if (!cdc.connected) {
+      throw new Error("Could not connect to device");
     }
-    await this.firehose.configure();
+    console.debug("[qdl] QDL device detected");
+    const sahara = new Sahara(cdc, this.programmerUrl);
+    if (!await runWithTimeout(sahara.connect(), 10000)) {
+      throw new Error("Could not connect to Sahara");
+    }
+    console.debug("[qdl] Connected to Sahara");
+    this.mode = "sahara";
+    await sahara.uploadLoader();
+    this.serial = sahara.serial;
+    this.firehose = new Firehose(cdc);
+    if (!await this.firehose.configure()) {
+      throw new Error("Could not configure Firehose");
+    }
+    console.debug("[qdl] Firehose configured");
     this.mode = "firehose";
   }
 
@@ -53,6 +61,7 @@ export class qdlDevice {
    * @returns {Promise<[gpt.gpt, Uint8Array] | [null, null]>}
    */
   async getGpt(lun, startSector=1) {
+    if (!this.firehose) throw new Error("Firehose not configured");
     let resp;
     resp = await this.firehose.cmdReadBuffer(lun, 0, 1);
     if (!resp.resp) {
@@ -74,6 +83,7 @@ export class qdlDevice {
   }
 
   async detectPartition(partitionName, sendFull=false) {
+    if (!this.firehose) throw new Error("Firehose not configured");
     const luns = this.firehose.luns;
     for (const lun of luns) {
       const [guidGpt, data] = await this.getGpt(lun);
@@ -95,6 +105,7 @@ export class qdlDevice {
    * @returns {Promise<boolean>}
    */
   async flashBlob(partitionName, blob, onProgress=()=>{}) {
+    if (!this.firehose) throw new Error("Firehose not configured");
     let startSector = 0;
     let dp = await this.detectPartition(partitionName);
     const found = dp[0];
@@ -126,6 +137,7 @@ export class qdlDevice {
   }
 
   async erase(partitionName) {
+    if (!this.firehose) throw new Error("Firehose not configured");
     const luns = this.firehose.luns;
     for (const lun of luns) {
       let [guidGpt] = await this.getGpt(lun);
@@ -140,6 +152,7 @@ export class qdlDevice {
   }
 
   async getDevicePartitionsInfo() {
+    if (!this.firehose) throw new Error("Firehose not configured");
     const slots = [];
     const partitions = [];
     const luns = this.firehose.luns;
@@ -165,6 +178,7 @@ export class qdlDevice {
   }
 
   async getActiveSlot() {
+    if (!this.firehose) throw new Error("Firehose not configured");
     const luns = this.firehose.luns;
     for (const lun of luns) {
       const [guidGpt] = await this.getGpt(lun);
@@ -192,6 +206,7 @@ export class qdlDevice {
    * @returns {Promise<any>}
    */
   async getStorageInfo() {
+    if (!this.firehose) throw new Error("Firehose not configured");
     const log = (await this.firehose.cmdGetStorageInfo()).find((log) => log.includes("storage_info"));
     if (!log) throw new Error("Storage info JSON not returned - not implemented?");
     try {
@@ -221,6 +236,7 @@ export class qdlDevice {
   }
 
   async setActiveSlot(slot) {
+    if (!this.firehose) throw new Error("Firehose not configured");
     slot = slot.toLowerCase();
     const luns = this.firehose.luns
     let slot_a_status, slot_b_status;
@@ -317,6 +333,7 @@ export class qdlDevice {
   }
 
   async reset() {
+    if (!this.firehose) throw new Error("Firehose not configured");
     await this.firehose.cmdReset();
     return true;
   }

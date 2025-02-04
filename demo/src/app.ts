@@ -1,4 +1,5 @@
 import { qdlDevice } from "@commaai/qdl";
+import { usbClass } from "@commaai/qdl/usblib";
 
 interface PartitionInfo {
   name: string;
@@ -79,7 +80,7 @@ window.connectDevice = async () => {
     const qdl = new qdlDevice(programmerSelect.value);
 
     // Start the connection
-    await qdl.connect();
+    await qdl.connect(new usbClass());
     status.className = "success";
     status.textContent = "Connected! Reading device info...";
 
@@ -88,14 +89,14 @@ window.connectDevice = async () => {
     const storageInfo = await qdl.getStorageInfo();
     createObjectTable(deviceDiv, {
       "Active Slot": activeSlot,
-      "SOC Serial Number": qdl.sahara.serial,
+      "SOC Serial Number": qdl.serial,
       "UFS Serial Number": "0x"+storageInfo.serial_num.toString(16).padStart(8, "0"),
     });
     createObjectTable(storageDiv, storageInfo);
 
     // Get GPT info for each LUN
     const lunInfos: LunInfo[] = [];
-    for (const lun of qdl.firehose.luns) {
+    for (const lun of qdl.firehose!.luns) {
       const [guidGpt] = await qdl.getGpt(lun);
       if (guidGpt?.header) {
         const [backupGuidGpt] = await qdl.getGpt(lun, guidGpt.header.backupLba);

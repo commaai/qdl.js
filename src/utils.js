@@ -135,6 +135,12 @@ export function bytes2Number(array) {
 }
 
 
+/**
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {number} timeout
+ * @returns {Promise<T>}
+ */
 export function runWithTimeout(promise, timeout) {
   return new Promise((resolve, reject) => {
     let timedOut = false;

@@ -10,6 +10,10 @@
       "types": "./dist/qdl.d.ts",
       "import": "./dist/qdl.js"
     },
+    "./usblib": {
+      "types": "./dist/usblib.d.ts",
+      "import": "./dist/usblib.js"
+    },
     "./utils": {
       "types": "./dist/utils.d.ts",
       "import": "./dist/utils.js"

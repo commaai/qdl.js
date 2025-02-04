@@ -18,18 +18,19 @@ export class Sahara {
     this.rootDir = null;
   }
 
+  /**
+   * TODO: detect other modes
+   * @returns {Promise<boolean>}
+   */
   async connect() {
-    const v = await this.cdc.read(0xC * 0x4);
-    if (v.length > 1) {
-      if (v[0] === 0x01) {
-        let pkt = this.ch.pkt_cmd_hdr(v);
-        if (pkt.cmd === cmd_t.SAHARA_HELLO_REQ) {
-          const rsp = this.ch.pkt_hello_req(v);
-          return { "mode" : "sahara", "cmd" : cmd_t.SAHARA_HELLO_REQ, "data" : rsp };
-        }
+    const resp = await this.cdc.read(0xC * 0x4);
+    if (resp.length > 1 && resp[0] === 0x01) {
+      const pkt = this.ch.pkt_cmd_hdr(resp);
+      if (pkt.cmd === cmd_t.SAHARA_HELLO_REQ) {
+        return true;
       }
     }
-    throw "Sahara - Unable to connect to Sahara";
+    return false;
   }
 
   async cmdHello(mode, version=2, version_min=1, max_cmd_len=0) {
@@ -173,13 +174,12 @@ export class Sahara {
   async uploadLoader() {
     if (!(await this.enterCommandMode())) {
       throw "Sahara - Failed to enter command mode in Sahara";
-    } else {
-      this.serial = await this.cmdGetSerialNum();
-      await this.cmdModeSwitch(sahara_mode_t.SAHARA_MODE_COMMAND);
     }
+    this.serial = await this.cmdGetSerialNum();
+    await this.cmdModeSwitch(sahara_mode_t.SAHARA_MODE_COMMAND);
 
     await this.connect();
-    console.log("Uploading loader...");
+    console.debug("[sahara] Uploading loader...");
     await this.downloadLoader();
     const loaderBlob = await this.getLoader();
     let programmer = new Uint8Array(await readBlobAsBuffer(loaderBlob));
@@ -203,7 +203,7 @@ export class Sahara {
         if (this.id >= 0xC) {
           this.mode = "firehose";
           if (loop === 0) {
-            console.log("Firehose mode detected, uploading...");
+            console.debug("[sahara] Firehose mode detected, uploading...");
           }
         } else {
           throw "Sahara - Unknown sahara id";
@@ -223,7 +223,7 @@ export class Sahara {
         let pkt = resp.data;
         if (pkt.image_tx_status === status_t.SAHARA_STATUS_SUCCESS) {
           if (await this.cmdDone()) {
-            console.log("Loader successfully uploaded");
+            console.debug("[sahara] Loader successfully uploaded");
           } else {
             throw "Sahara - Failed to upload loader";
           }
