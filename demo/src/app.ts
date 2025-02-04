@@ -1,5 +1,5 @@
 import { qdlDevice } from "@commaai/qdl";
-import { usbClass } from "@commaai/qdl/usblib";
+import * as usblib from "@commaai/qdl/usblib";
 
 interface PartitionInfo {
   name: string;
@@ -77,7 +77,7 @@ window.connectDevice = async () => {
     }
 
     // Connect to USB
-    const cdc = await usbClass.create();
+    const cdc = await usblib.requestDevice();
 
     // Initialize QDL device with programmer URL
     const qdl = new qdlDevice(programmerSelect.value);

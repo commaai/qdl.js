@@ -44,6 +44,18 @@ function getEndpoints(device) {
 }
 
 
+/**
+ * @returns {Promise<usbClass>}
+ */
+export async function requestDevice() {
+  const device = await navigator.usb.requestDevice({
+    filters: [QDL_DEVICE_FILTER],
+  });
+  console.info("[usblib] Using USB device:", device);
+  return new usbClass(device);
+}
+
+
 export class usbClass {
   /**
    * @param {USBDevice} device
@@ -54,14 +66,6 @@ export class usbClass {
     this.epIn = epIn;
     this.epOut = epOut;
     this.maxSize = epIn.packetSize;
-  }
-
-  static async create() {
-    const device = await navigator.usb.requestDevice({
-      filters: [QDL_DEVICE_FILTER],
-    });
-    console.info("[usblib] Using USB device:", device);
-    return new usbClass(device);
   }
 
   get connected() {
