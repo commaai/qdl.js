@@ -109,8 +109,6 @@ export class usbClass {
         if (chunk.byteLength) {
           chunks.push(chunk);
           received += chunk.byteLength;
-        } else {
-          console.debug("[usblib] Received empty response");
         }
       }
       return concatUint8Array(chunks);
