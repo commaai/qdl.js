@@ -9,7 +9,7 @@ const SERIAL_OPTIONS = {
   dataBits: 8,
   stopBits: 1,
   parity: "none",
-  bufferSize: undefined,
+  bufferSize: 16384,
   flowControl: "hardware",  // RTS and CTS
 };
 
@@ -48,17 +48,18 @@ export class serialClass {
     try {
       await this.port.open(SERIAL_OPTIONS);
       this.opened = true;
+      console.debug("port opened", this.port);
     } catch (e) {
       throw new Error("Failed to connect to serial port", { cause: e });
     }
   }
 
   /**
-   * @param {number|null} [length=null]
+   * @param {number|null} length
    * @param {number|null} [timeout=null]
    * @returns {Promise<Uint8Array>}
    */
-  async read(length = null, timeout = null) {
+  async read(length, timeout = null) {
     if (!this.connected) throw new Error("Not connected");
     const packets = [];
     let covered = 0;
@@ -78,7 +79,7 @@ export class serialClass {
         }
         packets.push(value);
         covered += value.length;
-        if (covered >= length) {
+        if (length && covered >= length) {
           break;
         }
       }
@@ -87,9 +88,7 @@ export class serialClass {
     } finally {
       reader.releaseLock();
     }
-    const response = concatUint8Array(packets);
-    console.log("read", response);
-    return response;
+    return concatUint8Array(packets);
   }
 
   /**
@@ -115,10 +114,10 @@ export class serialClass {
    */
   async write(data, wait = true) {
     if (!this.connected) throw new Error("Not connected");
-    console.log("write", data);
     const promise = this.#write(data)
     if (wait) {
       await promise;
     }
+    return true;
   }
 }

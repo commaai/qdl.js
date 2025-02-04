@@ -14,6 +14,10 @@
       "types": "./dist/seriallib.d.ts",
       "import": "./dist/seriallib.js"
     },
+    "./usblib": {
+      "types": "./dist/usblib.d.ts",
+      "import": "./dist/usblib.js"
+    },
     "./utils": {
       "types": "./dist/utils.d.ts",
       "import": "./dist/utils.js"

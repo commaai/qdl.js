@@ -15,7 +15,7 @@ export class qdlDevice {
     /** @type {import('./usblib').usbClass|import('./seriallib').serialClass|null} */
     this.cdc = null;
     this.sahara = new Sahara(programmerUrl);
-    this.firehose = new Firehose(this.cdc);
+    this.firehose = new Firehose();
     this.mode = "";
   }
 
@@ -28,11 +28,11 @@ export class qdlDevice {
       await this.cdc.connect();
     }
     if (this.cdc.connected) {
-      console.log("QDL device detected");
+      console.debug("[qdl] QDL device detected");
       let resp = await runWithTimeout(this.sahara.connect(cdc), 10000);
       if ("mode" in resp) {
         this.mode = resp.mode;
-        console.log("Mode detected:", this.mode);
+        console.debug("[qdl] Mode detected:", this.mode);
         return resp;
       }
     }
@@ -44,6 +44,7 @@ export class qdlDevice {
    * @returns {Promise<void>}
    */
   async connect(cdc) {
+    console.debug("[qdl] connect");
     const resp = await this.#connectToSahara(cdc);
     const mode = resp.mode;
     if (mode === "sahara") {
@@ -51,7 +52,7 @@ export class qdlDevice {
     } else if (mode === "error") {
       throw "Error connecting to Sahara";
     }
-    await this.firehose.configure();
+    await this.firehose.configure(cdc);
     this.mode = "firehose";
   }
 
@@ -60,7 +61,7 @@ export class qdlDevice {
    * @param {number} startSector
    * @returns {Promise<[gpt.gpt, Uint8Array] | [null, null]>}
    */
-  async getGpt(lun, startSector=1) {
+  async getGpt(lun, startSector = 1) {
     let resp;
     resp = await this.firehose.cmdReadBuffer(lun, 0, 1);
     if (!resp.resp) {
@@ -81,7 +82,7 @@ export class qdlDevice {
     }
   }
 
-  async detectPartition(partitionName, sendFull=false) {
+  async #detectPartition(partitionName, sendFull=false) {
     const luns = this.firehose.luns;
     for (const lun of luns) {
       const [guidGpt, data] = await this.getGpt(lun);
@@ -103,8 +104,9 @@ export class qdlDevice {
    * @returns {Promise<boolean>}
    */
   async flashBlob(partitionName, blob, onProgress=()=>{}) {
+    console.debug("[qdl] flashBlob", partitionName);
     let startSector = 0;
-    let dp = await this.detectPartition(partitionName);
+    let dp = await this.#detectPartition(partitionName);
     const found = dp[0];
     if (found) {
       let lun = dp[1];
@@ -120,9 +122,9 @@ export class qdlDevice {
           return false;
         }
         startSector = partition.sector;
-        console.log(`Flashing ${partitionName}...`);
+        console.log(`[qdl] Flashing ${partitionName}...`);
         if (await this.firehose.cmdProgram(lun, startSector, blob, (progress) => onProgress(progress))) {
-          console.log(`partition ${partitionName}: startSector ${partition.sector}, sectors ${partition.sectors}`);
+          console.debug(`[qdl] partition ${partitionName}: startSector ${partition.sector}, sectors ${partition.sectors}`);
         } else {
           throw `Error while writing ${partitionName}`;
         }
@@ -134,6 +136,7 @@ export class qdlDevice {
   }
 
   async erase(partitionName) {
+    console.debug("[qdl] erase", partitionName);
     const luns = this.firehose.luns;
     for (const lun of luns) {
       let [guidGpt] = await this.getGpt(lun);
@@ -147,7 +150,11 @@ export class qdlDevice {
     return true;
   }
 
+  /**
+   * @returns {Promise<[number, string[]]>}
+   */
   async getDevicePartitionsInfo() {
+    console.debug("[qdl] getDevicePartitionsInfo");
     const slots = [];
     const partitions = [];
     const luns = this.firehose.luns;
@@ -172,7 +179,11 @@ export class qdlDevice {
     return [slots.length, partitions];
   }
 
+  /**
+   * @returns {Promise<"a"|"b">}
+   */
   async getActiveSlot() {
+    console.debug("[qdl] getActiveSlot");
     const luns = this.firehose.luns;
     for (const lun of luns) {
       const [guidGpt] = await this.getGpt(lun);
@@ -200,6 +211,7 @@ export class qdlDevice {
    * @returns {Promise<any>}
    */
   async getStorageInfo() {
+    console.debug("[qdl] getStorageInfo");
     const log = (await this.firehose.cmdGetStorageInfo()).find((log) => log.includes("storage_info"));
     if (!log) throw new Error("Storage info JSON not returned - not implemented?");
     try {
@@ -209,7 +221,7 @@ export class qdlDevice {
     }
   }
 
-  patchNewGptData(gptDataA, gptDataB, guidGpt, partA, partB, slot_a_status, slot_b_status, isBoot) {
+  #patchNewGptData(gptDataA, gptDataB, guidGpt, partA, partB, slot_a_status, slot_b_status, isBoot) {
     const partEntrySize = guidGpt.header.partEntrySize;
 
     const sdataA = gptDataA.slice(partA.entryOffset, partA.entryOffset+partEntrySize);
@@ -228,7 +240,12 @@ export class qdlDevice {
     return [pDataA, partA.entryOffset, pDataB, partB.entryOffset];
   }
 
+  /**
+   * @param {string} slot
+   * @returns {Promise<boolean>}
+   */
   async setActiveSlot(slot) {
+    console.debug("[qdl] setActiveSlot", slot);
     slot = slot.toLowerCase();
     const luns = this.firehose.luns
     let slot_a_status, slot_b_status;
@@ -269,7 +286,7 @@ export class qdlDevice {
             backupGptDataB = backupGptDataA;
             backupGuidGptB = backupGuidGptA;
           } else {
-            const resp = await this.detectPartition(partitionNameB, true);
+            const resp = await this.#detectPartition(partitionNameB, true);
             sts = resp[0];
             if (!sts) {
               throw `Cannot find partition ${partitionNameB}`;
@@ -294,7 +311,7 @@ export class qdlDevice {
         if (partitionNameA === "boot_a") {
           isBoot = true;
         }
-        const [pDataA, pOffsetA, pDataB, pOffsetB] = this.patchNewGptData(
+        const [pDataA, pOffsetA, pDataB, pOffsetB] = this.#patchNewGptData(
           gptDataA, gptDataB, guidGptA, partA, partB, slot_a_status, slot_b_status, isBoot
         );
 
@@ -324,8 +341,11 @@ export class qdlDevice {
     return true;
   }
 
+  /**
+   * @returns {Promise<boolean>}
+   */
   async reset() {
-    await this.firehose.cmdReset();
-    return true;
+    console.debug("[qdl] reset");
+    return this.firehose.cmdReset();
   }
 }
