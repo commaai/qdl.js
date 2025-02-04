@@ -1,4 +1,5 @@
 import { qdlDevice } from "@commaai/qdl";
+import { serialClass, QDL_SERIAL_FILTER } from "@commaai/qdl/seriallib";
 
 interface PartitionInfo {
   name: string;
@@ -71,15 +72,20 @@ window.connectDevice = async () => {
     status.className = "";
     status.textContent = "Connecting...";
 
-    if (!("usb" in navigator)) {
-      throw new Error("Browser missing WebUSB support");
+    if (!("serial" in navigator)) {
+      throw new Error("Browser missing Web Serial support");
     }
+
+    // Find serial port
+    const port = await navigator.serial.requestPort({
+      filters: [QDL_SERIAL_FILTER],
+    });
 
     // Initialize QDL device with programmer URL
     const qdl = new qdlDevice(programmerSelect.value);
 
     // Start the connection
-    await qdl.connect();
+    await qdl.connect(new serialClass(port));
     status.className = "success";
     status.textContent = "Connected! Reading device info...";
 

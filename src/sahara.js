@@ -4,11 +4,13 @@ import { concatUint8Array, packGenerator, readBlobAsBuffer } from "./utils";
 
 export class Sahara {
   /**
-   * @param {usbClass} cdc
    * @param {string} programmerUrl
    */
-  constructor(cdc, programmerUrl) {
-    this.cdc = cdc;
+  constructor(programmerUrl) {
+    /**
+     * @type {usbClass|serialClass|null}
+     */
+    this.cdc = null;
     this.programmerUrl = programmerUrl;
     this.ch = new CommandHandler();
     this.programmer = programmerUrl.substring(programmerUrl.lastIndexOf("/") + 1);
@@ -18,14 +20,18 @@ export class Sahara {
     this.rootDir = null;
   }
 
-  async connect() {
-    const v = await this.cdc.read(0xC * 0x4);
+  /**
+   * @param {import('./usblib').usbClass|import('./seriallib').serialClass} cdc
+   */
+  async connect(cdc) {
+    this.cdc = cdc;
+    const v = await this.cdc.read(0xC * 0x4, 1000);
     if (v.length > 1) {
       if (v[0] === 0x01) {
         let pkt = this.ch.pkt_cmd_hdr(v);
         if (pkt.cmd === cmd_t.SAHARA_HELLO_REQ) {
           const rsp = this.ch.pkt_hello_req(v);
-          return { "mode" : "sahara", "cmd" : cmd_t.SAHARA_HELLO_REQ, "data" : rsp };
+          return { "mode": "sahara", "cmd": cmd_t.SAHARA_HELLO_REQ, "data": rsp };
         }
       }
     }
@@ -178,7 +184,7 @@ export class Sahara {
       await this.cmdModeSwitch(sahara_mode_t.SAHARA_MODE_COMMAND);
     }
 
-    await this.connect();
+    await this.connect(this.cdc);
     console.log("Uploading loader...");
     await this.downloadLoader();
     const loaderBlob = await this.getLoader();

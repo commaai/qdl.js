@@ -1,7 +1,6 @@
 import { Firehose } from "./firehose"
 import * as gpt from "./gpt"
 import { Sahara } from  "./sahara"
-import { usbClass } from "./usblib"
 import { concatUint8Array, runWithTimeout, containsBytes } from "./utils"
 
 
@@ -13,30 +12,39 @@ export class qdlDevice {
     if (!programmerUrl) {
       throw "programmerUrl is required";
     }
-    this.mode = "";
-    this.cdc = new usbClass();
-    this.sahara = new Sahara(this.cdc, programmerUrl);
+    /** @type {import('./usblib').usbClass|import('./seriallib').serialClass|null} */
+    this.cdc = null;
+    this.sahara = new Sahara(programmerUrl);
     this.firehose = new Firehose(this.cdc);
+    this.mode = "";
   }
 
-  async connectToSahara() {
-    while (!this.cdc.connected) {
+  /**
+   * @param {import('./usblib').usbClass|import('./seriallib').serialClass} cdc
+   */
+  async #connectToSahara(cdc) {
+    this.cdc = cdc;
+    if (!this.cdc.connected) {
       await this.cdc.connect();
-      if (this.cdc.connected) {
-        console.log("QDL device detected");
-        let resp = await runWithTimeout(this.sahara.connect(), 10000);
-        if ("mode" in resp) {
-          this.mode = resp.mode;
-          console.log("Mode detected:", this.mode);
-          return resp;
-        }
+    }
+    if (this.cdc.connected) {
+      console.log("QDL device detected");
+      let resp = await runWithTimeout(this.sahara.connect(cdc), 10000);
+      if ("mode" in resp) {
+        this.mode = resp.mode;
+        console.log("Mode detected:", this.mode);
+        return resp;
       }
     }
     return {"mode" : "error"};
   }
 
-  async connect() {
-    const resp = await this.connectToSahara();
+  /**
+   * @param {import('./usblib').usbClass|import('./seriallib').serialClass} cdc
+   * @returns {Promise<void>}
+   */
+  async connect(cdc) {
+    const resp = await this.#connectToSahara(cdc);
     const mode = resp.mode;
     if (mode === "sahara") {
       await this.sahara.uploadLoader();

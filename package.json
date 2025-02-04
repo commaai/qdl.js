@@ -10,6 +10,10 @@
       "types": "./dist/qdl.d.ts",
       "import": "./dist/qdl.js"
     },
+    "./seriallib": {
+      "types": "./dist/seriallib.d.ts",
+      "import": "./dist/seriallib.js"
+    },
     "./utils": {
       "types": "./dist/utils.d.ts",
       "import": "./dist/utils.js"
