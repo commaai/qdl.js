@@ -38,24 +38,16 @@ export class qdlDevice {
    * @returns {Promise<void>}
    */
   async connect(cdc) {
-    if (!cdc.connected) {
-      await cdc.connect();
-    }
-    if (!cdc.connected) {
-      throw new Error("Could not connect to device");
-    }
+    if (!cdc.connected) await cdc.connect();
+    if (!cdc.connected) throw new Error("Could not connect to device");
     console.debug("[qdl] QDL device detected");
     this.sahara = new Sahara(cdc, this.programmerUrl);
-    if (!await runWithTimeout(this.sahara.connect(), 10000)) {
-      throw new Error("Could not connect to Sahara");
-    }
+    if (!await runWithTimeout(this.sahara.connect(), 10000)) throw new Error("Could not connect to Sahara");
     console.debug("[qdl] Connected to Sahara");
     this.mode = "sahara";
     await this.sahara.uploadLoader();
     this.#firehose = new Firehose(cdc);
-    if (!await this.firehose.configure()) {
-      throw new Error("Could not configure Firehose");
-    }
+    if (!await this.firehose.configure()) throw new Error("Could not configure Firehose");
     console.debug("[qdl] Firehose configured");
     this.mode = "firehose";
   }
