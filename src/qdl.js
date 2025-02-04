@@ -18,9 +18,9 @@ export class qdlDevice {
      */
     this.mode = null;
     /**
-     * @type {string|null}
+     * @type {Sahara|null}
      */
-    this.serial = null;
+    this.sahara = null;
     /**
      * @type {Firehose|null}
      */
@@ -39,14 +39,13 @@ export class qdlDevice {
       throw new Error("Could not connect to device");
     }
     console.debug("[qdl] QDL device detected");
-    const sahara = new Sahara(cdc, this.programmerUrl);
-    if (!await runWithTimeout(sahara.connect(), 10000)) {
+    this.sahara = new Sahara(cdc, this.programmerUrl);
+    if (!await runWithTimeout(this.sahara.connect(), 10000)) {
       throw new Error("Could not connect to Sahara");
     }
     console.debug("[qdl] Connected to Sahara");
     this.mode = "sahara";
-    await sahara.uploadLoader();
-    this.serial = sahara.serial;
+    await this.sahara.uploadLoader();
     this.firehose = new Firehose(cdc);
     if (!await this.firehose.configure()) {
       throw new Error("Could not configure Firehose");
