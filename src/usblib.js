@@ -91,10 +91,8 @@ export class usbClass {
     // TODO: is this event listener required?
     navigator.usb.addEventListener("connect", async (event) => {
       console.debug("[usblib] USB device connected:", event.device);
-      this.#validateDevice(event.device);
       await this.#connectDevice(event.device);
     });
-    this.#validateDevice(device);
     await this.#connectDevice(device);
   }
 
