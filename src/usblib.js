@@ -105,10 +105,10 @@ export class usbClass {
       const packets = [];
       let received = 0;
       while (received < length) {
-        const result = await this.device?.transferIn(this.epIn?.endpointNumber, Math.min(length - received, this.maxSize));
-        if (result.data?.byteLength) {
-          packets.push(new Uint8Array(result.data.buffer));
-          received += result.data.byteLength;
+        const packet = await this.read();
+        if (packet.byteLength) {
+          packets.push(packet);
+          received += packet.byteLength;
         } else {
           console.debug("[usblib] Received empty response");
         }
@@ -116,7 +116,7 @@ export class usbClass {
       return concatUint8Array(packets);
     } else {
       const result = await this.device?.transferIn(this.epIn?.endpointNumber, this.maxSize);
-      return new Uint8Array(result.data.buffer);
+      return new Uint8Array(result.data?.buffer);
     }
   }
 
