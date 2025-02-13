@@ -32,7 +32,7 @@ interface LunInfo {
 
 declare global {
   interface Window {
-    connectDevice: () => Promise<void>
+    connectDevice: (serial: boolean) => Promise<void>
   }
 }
 
@@ -57,7 +57,7 @@ function createObjectTable(element: HTMLElement, data: Record<string, any>) {
   return table;
 }
 
-window.connectDevice = async (serial = true) => {
+window.connectDevice = async (serial: boolean) => {
   const programmerSelect = document.getElementById("programmer") as HTMLSelectElement;
   const status = document.getElementById("status");
   const deviceDiv = document.getElementById("device");
