@@ -74,6 +74,9 @@ export class usbClass {
   }
 
   async connect() {
+    if (!("usb" in navigator)) {
+      throw new Error("Browser missing WebUSB support");
+    }
     const device = await navigator.usb.requestDevice({
       filters: [{
         vendorId: constants.VENDOR_ID,

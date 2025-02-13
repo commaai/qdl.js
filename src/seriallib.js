@@ -27,6 +27,9 @@ export class serialClass {
   }
 
   async connect() {
+    if (!("serial" in navigator)) {
+      throw new Error("Browser missing Web Serial support");
+    }
     const port = await navigator.serial.requestPort({
       filters: [{
         usbVendorId: constants.VENDOR_ID,

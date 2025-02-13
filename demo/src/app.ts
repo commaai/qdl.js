@@ -73,24 +73,11 @@ window.connectDevice = async (serial: boolean) => {
     status.className = "";
     status.textContent = "Connecting...";
 
-    let cdc: serialClass | usbClass;
-    if (serial) {
-      if (!("serial" in navigator)) {
-        throw new Error("Browser missing Web Serial support");
-      }
-      cdc = new serialClass();
-    } else {
-      if (!("usb" in navigator)) {
-        throw new Error("Browser missing WebUSB support");
-      }
-      cdc = new usbClass();
-    }
-
     // Initialize QDL device with programmer URL
     const qdl = new qdlDevice(programmerSelect.value);
 
     // Start the connection
-    await qdl.connect(cdc);
+    await qdl.connect(serial ? new serialClass() : new usbClass());
     status.className = "success";
     status.textContent = "Connected! Reading device info...";
 
