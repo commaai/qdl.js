@@ -1,15 +1,5 @@
+import * as constants from "./constants";
 import { concatUint8Array, sleep } from "./utils";
-
-
-/**
- * @type {USBDeviceFilter}
- */
-const QDL_DEVICE_FILTER = {
-  vendorId: 0x05c6, productId: 0x9008, classCode: 0xff,
-};
-
-
-const BULK_TRANSFER_SIZE = 16384;
 
 
 export class usbClass {
@@ -85,7 +75,11 @@ export class usbClass {
 
   async connect() {
     const device = await navigator.usb.requestDevice({
-      filters: [QDL_DEVICE_FILTER],
+      filters: [{
+        vendorId: constants.VENDOR_ID,
+        productId: constants.PRODUCT_ID,
+        classCode: constants.QDL_CLASS_CODE,
+      }],
     });
     console.debug("[usblib] Using USB device:", device);
     // TODO: is this event listener required?
@@ -136,7 +130,7 @@ export class usbClass {
 
     let offset = 0;
     do {
-      const chunk = data.slice(offset, offset + BULK_TRANSFER_SIZE);
+      const chunk = data.slice(offset, offset + constants.BULK_TRANSFER_SIZE);
       offset += chunk.byteLength;
       const promise = this.device?.transferOut(this.epOut?.endpointNumber, chunk);
       // this is a hack, webusb doesn't have timed out catching
