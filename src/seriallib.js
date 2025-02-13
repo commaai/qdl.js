@@ -53,9 +53,11 @@ export class serialClass {
    * @returns {Promise<Uint8Array>}
    */
   async read(length = 0, timeout = 0) {
+    console.debug("[seriallib] read", { length, timeout });
     if (!this.connected) throw new Error("Not connected");
     let canceled = false;
     if (timeout) setTimeout(() => {
+      console.debug("cancel read");
       canceled = true;
     }, timeout);
     /** @type {Uint8Array[]} */
@@ -65,8 +67,10 @@ export class serialClass {
       const reader = this.port.readable.getReader();
       try {
         do {
-          const { value, done } = await reader.read();
+          const readTimeout = new Promise((resolve) => setTimeout(() => resolve({ done: true })), timeout || 2000);
+          const { value, done } = await Promise.race([reader.read(), readTimeout]);
           if (done) {
+            console.debug("  read done");
             canceled = true;
             break;
           }
@@ -79,7 +83,9 @@ export class serialClass {
         reader.releaseLock();
       }
     }
-    return concatUint8Array(chunks);
+    const result = concatUint8Array(chunks);
+    console.log("  result:", result.toHexString());
+    return result;
   }
 
   /**
@@ -109,6 +115,7 @@ export class serialClass {
    */
   async write(data, wait = true) {
     if (!this.connected) throw new Error("Not connected");
+    console.debug("[seriallib] write", data.toHexString());
     const promise = this.#write(data);
     if (wait) await promise;
   }

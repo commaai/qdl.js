@@ -80,6 +80,7 @@ window.connectDevice = async (serial: boolean) => {
     await qdl.connect(serial ? new serialClass() : new usbClass());
     status.className = "success";
     status.textContent = "Connected! Reading device info...";
+    return;
 
     // Device information
     const activeSlot = await qdl.getActiveSlot();
@@ -87,9 +88,10 @@ window.connectDevice = async (serial: boolean) => {
     createObjectTable(deviceDiv, {
       "Active Slot": activeSlot,
       "SOC Serial Number": qdl.sahara!.serial,
-      "UFS Serial Number": "0x"+storageInfo.serial_num.toString(16).padStart(8, "0"),
+      "UFS Serial Number": "0x" + storageInfo.serial_num.toString(16).padStart(8, "0"),
     });
     createObjectTable(storageDiv, storageInfo);
+    return;
 
     // Get GPT info for each LUN
     const lunInfos: LunInfo[] = [];

@@ -93,27 +93,38 @@ export class usbClass {
     await this.#connectDevice(device);
   }
 
+  async #read() {
+    const result = await this.device?.transferIn(this.epIn?.endpointNumber, this.maxSize);
+    return new Uint8Array(result.data?.buffer);
+  }
+
   /**
    * @param {number} [length=0]
    * @returns {Promise<Uint8Array>}
    */
   async read(length = 0) {
+    console.debug("[usblib] read", { length });
+    let result;
     if (length) {
       /** @type {Uint8Array[]} */
       const chunks = [];
       let received = 0;
       do {
-        const chunk = await this.read();
+        const chunk = await this.#read();
         if (chunk.byteLength) {
           chunks.push(chunk);
           received += chunk.byteLength;
+        } else {
+          console.warn("  read empty");
+          break;
         }
       } while (received < length);
-      return concatUint8Array(chunks);
+      result = concatUint8Array(chunks);
     } else {
-      const result = await this.device?.transferIn(this.epIn?.endpointNumber, this.maxSize);
-      return new Uint8Array(result.data?.buffer);
+      result = await this.#read();
     }
+    console.debug("  result:", result.toHexString());
+    return result;
   }
 
   /**
@@ -122,6 +133,7 @@ export class usbClass {
    * @returns {Promise<void>}
    */
   async write(data, wait = true) {
+    console.debug("[usblib] write", data.toHexString());
     if (data.byteLength === 0) {
       try {
         await this.device?.transferOut(this.epOut?.endpointNumber, data);
