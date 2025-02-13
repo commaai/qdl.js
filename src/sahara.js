@@ -4,7 +4,7 @@ import { concatUint8Array, packGenerator, readBlobAsBuffer } from "./utils";
 
 export class Sahara {
   /**
-   * @param {usbClass} cdc
+   * @param {serialClass|usbClass} cdc
    * @param {string} programmerUrl
    */
   constructor(cdc, programmerUrl) {

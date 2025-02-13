@@ -45,7 +45,7 @@ class cfg {
 
 export class Firehose {
   /**
-   * @param {usbClass} cdc
+   * @param {serialClass|usbClass} cdc
    */
   constructor(cdc) {
     this.cdc = cdc;

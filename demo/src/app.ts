@@ -1,4 +1,5 @@
 import { qdlDevice } from "@commaai/qdl";
+import { serialClass } from "@commaai/qdl/seriallib";
 import { usbClass } from "@commaai/qdl/usblib";
 
 interface PartitionInfo {
@@ -56,7 +57,7 @@ function createObjectTable(element: HTMLElement, data: Record<string, any>) {
   return table;
 }
 
-window.connectDevice = async () => {
+window.connectDevice = async (serial = true) => {
   const programmerSelect = document.getElementById("programmer") as HTMLSelectElement;
   const status = document.getElementById("status");
   const deviceDiv = document.getElementById("device");
@@ -72,15 +73,24 @@ window.connectDevice = async () => {
     status.className = "";
     status.textContent = "Connecting...";
 
-    if (!("usb" in navigator)) {
-      throw new Error("Browser missing WebUSB support");
+    let cdc: serialClass | usbClass;
+    if (serial) {
+      if (!("serial" in navigator)) {
+        throw new Error("Browser missing Web Serial support");
+      }
+      cdc = new serialClass();
+    } else {
+      if (!("usb" in navigator)) {
+        throw new Error("Browser missing WebUSB support");
+      }
+      cdc = new usbClass();
     }
 
     // Initialize QDL device with programmer URL
     const qdl = new qdlDevice(programmerSelect.value);
 
     // Start the connection
-    await qdl.connect(new usbClass());
+    await qdl.connect(cdc);
     status.className = "success";
     status.textContent = "Connected! Reading device info...";
 
