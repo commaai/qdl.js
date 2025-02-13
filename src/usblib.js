@@ -97,12 +97,12 @@ export class usbClass {
   }
 
   /**
-   * @param {number|undefined} [length=undefined]
-   * @returns {Promise<Uint8Array<ArrayBuffer>>}
+   * @param {number} [length=0]
+   * @returns {Promise<Uint8Array>}
    */
-  async read(length = undefined) {
+  async read(length = 0) {
     if (length) {
-      /** @type {Uint8Array<ArrayBuffer>[]} */
+      /** @type {Uint8Array[]} */
       const chunks = [];
       let received = 0;
       do {
