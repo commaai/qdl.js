@@ -27,7 +27,13 @@
         "noUnnecessaryContinue": "off"
       },
       "style": {
-        "all": false
+        "noNonNullAssertion": "warn",
+        "noParameterAssign": "warn",
+        "noUnusedTemplateLiteral": "warn",
+        "noUselessElse": "warn",
+        "useConst": "warn",
+        "useSingleVarDeclarator": "off",
+        "useTemplate": "warn"
       },
       "suspicious": {
         "noExplicitAny": "off"
