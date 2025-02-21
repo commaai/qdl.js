@@ -1,5 +1,5 @@
 import * as Sparse from "./sparse"
-import { concatUint8Array, containsBytes, compareStringToBytes, sleep, readBlobAsBuffer } from "./utils"
+import { concatUint8Array, containsBytes, compareStringToBytes, sleep } from "./utils"
 import { xmlParser } from "./xmlParser"
 
 
@@ -223,7 +223,7 @@ export class Firehose {
 
         while (bytesToWriteSplit > 0) {
           const wlen = Math.min(bytesToWriteSplit, this.cfg.MaxPayloadSizeToTargetInBytes);
-          let wdata = new Uint8Array(await readBlobAsBuffer(split.slice(offset, offset + wlen)));
+          let wdata = new Uint8Array(await split.slice(offset, offset + wlen).arrayBuffer());
           if (wlen % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
             const fillLen = (Math.floor(wlen/this.cfg.SECTOR_SIZE_IN_BYTES) * this.cfg.SECTOR_SIZE_IN_BYTES) +
                           this.cfg.SECTOR_SIZE_IN_BYTES;

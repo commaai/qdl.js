@@ -1,5 +1,3 @@
-import { readBlobAsBuffer } from "./utils";
-
 const FILE_MAGIC = 0xed26ff3a;
 export const FILE_HEADER_SIZE = 28;
 const CHUNK_HEADER_SIZE = 12;
@@ -77,7 +75,7 @@ export async function getSparseRealSize(blob, header) {
 
 
 async function parseChunkHeader(blobChunkHeader) {
-  let chunkHeader = await readBlobAsBuffer(blobChunkHeader);
+  let chunkHeader = await blobChunkHeader.arrayBuffer();
   let view = new DataView(chunkHeader);
   return {
     type : view.getUint16(0, true),
@@ -88,7 +86,7 @@ async function parseChunkHeader(blobChunkHeader) {
 }
 
 export async function parseFileHeader(blobHeader) {
-  let header = await readBlobAsBuffer(blobHeader);
+  let header = await blobHeader.arrayBuffer();
   let view = new DataView(header);
 
   let magic = view.getUint32(0, true);
@@ -143,11 +141,11 @@ async function populate(chunks, blockSize) {
     const data = chunk.data;
 
     if (chunkType === ChunkType.Raw) {
-      let rawData = new Uint8Array(await readBlobAsBuffer(data));
+      let rawData = new Uint8Array(data.arrayBuffer());
       ret.set(rawData, offset);
       offset += blocks * blockSize;
     } else if (chunkType === ChunkType.Fill) {
-      const fillBin = new Uint8Array(await readBlobAsBuffer(data));
+      const fillBin = new Uint8Array(data.arrayBuffer());
       const bufferSize = blocks * blockSize;
       for (let i = 0; i < bufferSize; i += dataSize) {
         ret.set(fillBin, offset);
