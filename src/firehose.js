@@ -194,11 +194,11 @@ export class Firehose {
    */
   async cmdProgram(physicalPartitionNumber, startSector, blob, onProgress = undefined) {
     let total = blob.size;
-    let sparseformat = false;
+    let sparseFormat = false;
 
     const sparseHeader = await Sparse.parseFileHeader(blob.slice(0, Sparse.FILE_HEADER_SIZE));
     if (sparseHeader !== null) {
-      sparseformat = true;
+      sparseFormat = true;
       total = await Sparse.getSparseRealSize(blob, sparseHeader);
     }
 
@@ -238,7 +238,7 @@ export class Firehose {
 
           // Need this for sparse image when the data.length < MaxPayloadSizeToTargetInBytes
           // Add ~2.4s to total flash time
-          if (sparseformat && bytesWritten < total) {
+          if (sparseFormat && bytesWritten < total) {
             await this.cdc.write(new Uint8Array(0), true);
           }
 
