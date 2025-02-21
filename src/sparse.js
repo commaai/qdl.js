@@ -107,6 +107,7 @@ export async function parseFileHeader(blob) {
 function getChunkRealByteLength(chunk, blockSize) {
   switch (chunk.type) {
     case ChunkType.Raw:
+      console.trace({ chunk, blockSize });
       if (chunk.dataByteLength !== (chunk.blocks * blockSize)) throw "Sparse - Chunk input size does not match output size";
       return chunk.dataByteLength;
     case ChunkType.Fill:
@@ -271,7 +272,7 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
       chunksToProcess.push(originalChunk);
     }
     for (const chunk of chunksToProcess) {
-      const remainingBytes = splitSize - calcChunksRealByteLength(splitChunks);
+      const remainingBytes = splitSize - calcChunksRealByteLength(splitChunks, header.blockSize);
       const realChunkBytes = getChunkRealByteLength(chunk, header.blockSize);
       if (remainingBytes >= realChunkBytes) {
         splitChunks.push(chunk);
