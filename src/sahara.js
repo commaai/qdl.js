@@ -1,5 +1,5 @@
 import { CommandHandler, cmd_t, sahara_mode_t, status_t, exec_cmd_t } from "./saharaDefs"
-import { concatUint8Array, packGenerator, readBlobAsBuffer } from "./utils";
+import { concatUint8Array, packGenerator } from "./utils";
 
 
 export class Sahara {
@@ -182,7 +182,7 @@ export class Sahara {
     console.debug("[sahara] Uploading loader...");
     await this.downloadLoader();
     const loaderBlob = await this.getLoader();
-    let programmer = new Uint8Array(await readBlobAsBuffer(loaderBlob));
+    let programmer = new Uint8Array(await loaderBlob.arrayBuffer());
     if (!(await this.cmdHello(sahara_mode_t.SAHARA_MODE_IMAGE_TX_PENDING))) {
       throw "Sahara - Error while uploading loader";
     }

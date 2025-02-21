@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import { cmd_t, sahara_mode_t } from "./saharaDefs";
-import { bytes2Number, compareStringToBytes, concatUint8Array, containsBytes, packGenerator, readBlobAsBuffer, StructHelper } from "./utils";
+import { bytes2Number, compareStringToBytes, concatUint8Array, containsBytes, packGenerator, StructHelper } from "./utils";
 
 describe("StructHelper", () => {
   describe("dword", () => {
@@ -248,48 +248,6 @@ describe("compareStringToBytes", () => {
     expect(compareStringToBytes(undefined, input)).toBeFalse();
     expect(compareStringToBytes(null, input)).toBeFalse();
   })
-});
-
-describe("readBlobAsBuffer", () => {
-  let originalFileReader = global.FileReader;
-  beforeEach(() => {
-    global.FileReader = originalFileReader;
-  });
-
-  test("successfully reads blob with known data", async () => {
-    const originalArrayBuffer = new ArrayBuffer(2);
-    const view = new DataView(originalArrayBuffer);
-    view.setUint8(0, 0x12);
-    view.setUint8(1, 0x34);
-
-    const blob = new Blob([originalArrayBuffer]);
-
-    const result = await readBlobAsBuffer(blob);
-    const resultView = new DataView(result);
-
-    expect(resultView.getUint8(0)).toBe(0x12);
-    expect(resultView.getUint8(1)).toBe(0x34);
-  });
-
-  test("handles read errors", async () => {
-    const mockError = new DOMException("Read failed");
-    global.FileReader = class extends FileReader {
-      readAsArrayBuffer(blob) {
-        this.error = mockError;
-        this.onerror?.(null);
-      }
-    };
-
-    const blob = new Blob();
-    await expect(readBlobAsBuffer(blob)).rejects.toBe(mockError);
-  }, { timeout: 50 });
-
-  test("handles empty blobs", async () => {
-    const blob = new Blob();
-
-    const result = await readBlobAsBuffer(blob);
-    expect(result.byteLength).toBe(0);
-  });
 });
 
 describe("bytes2Number", () => {

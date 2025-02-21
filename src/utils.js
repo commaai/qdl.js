@@ -109,20 +109,6 @@ export function compareStringToBytes(compareString, array) {
 
 
 /**
- * @param {Blob} blob
- * @returns {Promise<ArrayBuffer>}
- */
-export function readBlobAsBuffer(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsArrayBuffer(blob);
-  });
-}
-
-
-/**
  * @param {Uint8Array} array
  * @returns {bigint|number}
  */
