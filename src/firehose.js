@@ -69,7 +69,7 @@ export class Firehose {
     let counter = 0;
     const timeout = 3;
     while (!(containsBytes("<response value", rData))) {
-      let tmp = await this.cdc.read();
+      const tmp = await this.cdc.read();
       if (compareStringToBytes("", tmp)) {
         counter += 1;
         await sleep(50);
@@ -138,7 +138,7 @@ export class Firehose {
     } else {
       let bytesToRead = this.cfg.SECTOR_SIZE_IN_BYTES * numPartitionSectors;
       while (bytesToRead > 0) {
-        let tmp = await this.cdc.read(Math.min(this.cdc.maxSize, bytesToRead));
+        const tmp = await this.cdc.read(Math.min(this.cdc.maxSize, bytesToRead));
         const size = tmp.length;
         bytesToRead -= size;
         resData = concatUint8Array([resData, tmp]);
@@ -172,7 +172,7 @@ export class Firehose {
     let timeout = 0;
 
     while (!containsBytes("response value", tmp)) {
-      let res = await this.cdc.read();
+      const res = await this.cdc.read();
       if (compareStringToBytes("", res)) {
         timeout += 1;
         if (timeout === 4) {
@@ -217,7 +217,7 @@ export class Firehose {
     const rsp = await this.xmlSend(data);
 
     if (rsp.resp) {
-      for await (let split of Sparse.splitBlob(blob)) {
+      for await (const split of Sparse.splitBlob(blob)) {
         let offset = 0;
         let bytesToWriteSplit = split.size;
 
@@ -282,7 +282,7 @@ export class Firehose {
 
     if (rsp.resp) {
       while (bytesToWrite > 0) {
-        let wlen = Math.min(bytesToWrite, this.cfg.MaxPayloadSizeToTargetInBytes);
+        const wlen = Math.min(bytesToWrite, this.cfg.MaxPayloadSizeToTargetInBytes);
         await this.cdc.write(empty.slice(0, wlen));
         bytesToWrite -= wlen;
         await this.cdc.write(new Uint8Array(0));
@@ -320,8 +320,8 @@ export class Firehose {
    * @returns {Promise<boolean>}
    */
   async cmdReset() {
-    let data = '<?xml version="1.0" ?><data><power value="reset"/></data>';
-    let val = await this.xmlSend(data);
+    const data = '<?xml version="1.0" ?><data><power value="reset"/></data>';
+    const val = await this.xmlSend(data);
     if (val.resp) {
       console.log("Reset succeeded");
       // Drain log buffer

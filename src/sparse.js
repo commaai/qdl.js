@@ -58,7 +58,7 @@ class QCSparse {
     this.blobOffset = FILE_HEADER_SIZE;
     let length = 0, chunk = 0;
     while (chunk < this.totalChunks) {
-      let tlen = await this.getChunkSize();
+      const tlen = await this.getChunkSize();
       length += tlen;
       chunk += 1;
     }
@@ -75,8 +75,8 @@ export async function getSparseRealSize(blob, header) {
 
 
 async function parseChunkHeader(blobChunkHeader) {
-  let chunkHeader = await blobChunkHeader.arrayBuffer();
-  let view = new DataView(chunkHeader);
+  const chunkHeader = await blobChunkHeader.arrayBuffer();
+  const view = new DataView(chunkHeader);
   return {
     type : view.getUint16(0, true),
     blocks : view.getUint32(4, true),
@@ -86,18 +86,18 @@ async function parseChunkHeader(blobChunkHeader) {
 }
 
 export async function parseFileHeader(blobHeader) {
-  let header = await blobHeader.arrayBuffer();
-  let view = new DataView(header);
+  const header = await blobHeader.arrayBuffer();
+  const view = new DataView(header);
 
-  let magic = view.getUint32(0, true);
-  let majorVersion = view.getUint16(4, true);
-  let minorVersion = view.getUint16(6, true);
-  let fileHeadrSize = view.getUint16(8, true);
-  let chunkHeaderSize = view.getUint16(10, true);
-  let blockSize = view.getUint32(12, true);
-  let totalBlocks = view.getUint32(16, true);
-  let totalChunks = view.getUint32(20, true);
-  let crc32 = view.getUint32(24, true);
+  const magic = view.getUint32(0, true);
+  const majorVersion = view.getUint16(4, true);
+  const minorVersion = view.getUint16(6, true);
+  const fileHeadrSize = view.getUint16(8, true);
+  const chunkHeaderSize = view.getUint16(10, true);
+  const blockSize = view.getUint32(12, true);
+  const totalBlocks = view.getUint32(16, true);
+  const totalChunks = view.getUint32(20, true);
+  const crc32 = view.getUint32(24, true);
 
   if (magic !== FILE_MAGIC) {
     return null;
@@ -131,7 +131,7 @@ export async function parseFileHeader(blobHeader) {
  */
 async function populate(chunks, blockSize) {
   const nBlocks = calcChunksBlocks(chunks);
-  let ret = new Uint8Array(nBlocks * blockSize);
+  const ret = new Uint8Array(nBlocks * blockSize);
   let offset = 0;
 
   for (const chunk of chunks) {
@@ -141,7 +141,7 @@ async function populate(chunks, blockSize) {
     const data = chunk.data;
 
     if (chunkType === ChunkType.Raw) {
-      let rawData = new Uint8Array(data.arrayBuffer());
+      const rawData = new Uint8Array(data.arrayBuffer());
       ret.set(rawData, offset);
       offset += blocks * blockSize;
     } else if (chunkType === ChunkType.Fill) {
@@ -152,8 +152,8 @@ async function populate(chunks, blockSize) {
         offset += dataSize;
       }
     } else if (chunkType === ChunkType.Skip) {
-      let byteToSend = blocks * blockSize;
-      let skipData = new Uint8Array(byteToSend).fill(0);
+      const byteToSend = blocks * blockSize;
+      const skipData = new Uint8Array(byteToSend).fill(0);
       ret.set(skipData, offset);
       offset += byteToSend;
     } else if (chunkType === ChunkType.Crc32) {
@@ -199,7 +199,7 @@ function calcChunksBlocks(chunks) {
 export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTarget */) {
   const safeToSend = splitSize;
 
-  let header = await parseFileHeader(blob.slice(0, FILE_HEADER_SIZE));
+  const header = await parseFileHeader(blob.slice(0, FILE_HEADER_SIZE));
   if (header === null) {
     yield blob;
     return;
@@ -209,11 +209,11 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
   blob = blob.slice(FILE_HEADER_SIZE);
   let splitChunks = [];
   for (let i = 0; i < header.totalChunks; i++) {
-    let originalChunk = await parseChunkHeader(blob.slice(0, CHUNK_HEADER_SIZE));
+    const originalChunk = await parseChunkHeader(blob.slice(0, CHUNK_HEADER_SIZE));
     originalChunk.data = blob.slice(CHUNK_HEADER_SIZE, CHUNK_HEADER_SIZE + originalChunk.dataBytes);
     blob = blob.slice(CHUNK_HEADER_SIZE + originalChunk.dataBytes);
 
-    let chunksToProcess = [];
+    const chunksToProcess = [];
     let realBytesToWrite = calcChunksRealDataBytes(originalChunk, header.blockSize)
 
     const isChunkTypeSkip = originalChunk.type === ChunkType.Skip;

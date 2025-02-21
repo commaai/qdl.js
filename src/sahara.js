@@ -44,21 +44,21 @@ export class Sahara {
 
   async cmdModeSwitch(mode) {
     const elements = [cmd_t.SAHARA_SWITCH_MODE, 0xC, mode];
-    let data = packGenerator(elements);
+    const data = packGenerator(elements);
     await this.cdc.write(data);
     return true;
   }
 
   async getResponse() {
     try {
-      let data = await this.cdc.read();
-      let data_text = new TextDecoder('utf-8').decode(data);
+      const data = await this.cdc.read();
+      const data_text = new TextDecoder('utf-8').decode(data);
       if (data.length === 0) {
         return {};
       } else if (data_text.includes("<?xml")) {
         return {"firehose" : "yes"};
       }
-      let pkt = this.ch.pkt_cmd_hdr(data);
+      const pkt = this.ch.pkt_cmd_hdr(data);
       if (pkt.cmd === cmd_t.SAHARA_HELLO_REQ) {
         return {"cmd" : pkt.cmd, "data" : this.ch.pkt_hello_req(data)};
       } else if (pkt.cmd === cmd_t.SAHARA_DONE_RSP) {
@@ -84,12 +84,12 @@ export class Sahara {
   async cmdExec(mcmd) {
     const dataToSend = packGenerator([cmd_t.SAHARA_EXECUTE_REQ, 0xC, mcmd]);
     await this.cdc.write(dataToSend);
-    let res = await this.getResponse();
+    const res = await this.getResponse();
     if ("cmd" in res) {
-      let cmd = res.cmd;
+      const cmd = res.cmd;
       if (cmd === cmd_t.SAHARA_EXECUTE_RSP) {
-        let pkt = res.data;
-        let data = packGenerator([cmd_t.SAHARA_EXECUTE_DATA, 0xC, mcmd]);
+        const pkt = res.data;
+        const data = packGenerator([cmd_t.SAHARA_EXECUTE_DATA, 0xC, mcmd]);
         await this.cdc.write(data);
         return await this.cdc.read(pkt.data_len);
       } else if (cmd === cmd_t.SAHARA_END_TRANSFER) {
@@ -101,11 +101,11 @@ export class Sahara {
   }
 
   async cmdGetSerialNum() {
-    let res = await this.cmdExec(exec_cmd_t.SAHARA_EXEC_CMD_SERIAL_NUM_READ);
+    const res = await this.cmdExec(exec_cmd_t.SAHARA_EXEC_CMD_SERIAL_NUM_READ);
     if (res === null) {
       throw "Sahara - Unable to get serial number of device";
     }
-    let data = new DataView(res.buffer, 0).getUint32(0, true);
+    const data = new DataView(res.buffer, 0).getUint32(0, true);
     return "0x"+data.toString(16).padStart(8,'0');
   }
 
@@ -113,7 +113,7 @@ export class Sahara {
     if (!await this.cmdHello(sahara_mode_t.SAHARA_MODE_COMMAND)) {
       return false;
     }
-    let res = await this.getResponse();
+    const res = await this.getResponse();
     if ("cmd" in res) {
       if (res.cmd === cmd_t.SAHARA_END_TRANSFER) {
         if ("data" in res) {
@@ -190,7 +190,7 @@ export class Sahara {
     let datalen = programmer.length;
     let loop    = 0;
     while (datalen >= 0) {
-      let resp = await this.getResponse();
+      const resp = await this.getResponse();
       let cmd;
       if ("cmd" in resp) {
         cmd = resp.cmd;
@@ -198,7 +198,7 @@ export class Sahara {
         throw "Sahara - Timeout while uploading loader. Wrong loader?";
       }
       if (cmd === cmd_t.SAHARA_64BIT_MEMORY_READ_DATA) {
-        let pkt = resp.data;
+        const pkt = resp.data;
         this.id = pkt.image_id;
         if (this.id >= 0xC) {
           this.mode = "firehose";
@@ -210,17 +210,17 @@ export class Sahara {
         }
 
         loop += 1;
-        let dataOffset = pkt.data_offset;
-        let dataLen    = pkt.data_len;
+        const dataOffset = pkt.data_offset;
+        const dataLen    = pkt.data_len;
         if (dataOffset + dataLen > programmer.length) {
           const fillerArray = new Uint8Array(dataOffset+dataLen-programmer.length).fill(0xff);
           programmer = concatUint8Array([programmer, fillerArray]);
         }
-        let dataToSend = programmer.slice(dataOffset, dataOffset+dataLen);
+        const dataToSend = programmer.slice(dataOffset, dataOffset+dataLen);
         await this.cdc.write(dataToSend);
         datalen -= dataLen;
       } else if (cmd === cmd_t.SAHARA_END_TRANSFER) {
-        let pkt = resp.data;
+        const pkt = resp.data;
         if (pkt.image_tx_status === status_t.SAHARA_STATUS_SUCCESS) {
           if (await this.cmdDone()) {
             console.debug("[sahara] Loader successfully uploaded");
@@ -237,14 +237,14 @@ export class Sahara {
   async cmdDone() {
     const toSendData = packGenerator([cmd_t.SAHARA_DONE_REQ, 0x8]);
     await this.cdc.write(toSendData);
-    let res = await this.getResponse();
+    const res = await this.getResponse();
     if ("cmd" in res) {
-      let cmd = res.cmd;
+      const cmd = res.cmd;
       if (cmd === cmd_t.SAHARA_DONE_RSP) {
         return true;
       } else if (cmd === cmd_t.SAHARA_END_TRANSFER) {
         if ("data" in res) {
-          let pkt = res.data;
+          const pkt = res.data;
           if (pkt.image_tx_status === status_t.SAHARA_NAK_INVALID_CMD) {
             console.error("Invalid transfer command received");
             return false;

@@ -47,8 +47,8 @@ export class gptPartition {
   }
 
   create() {
-    let buffer = new ArrayBuffer(16 + 16 + 8 + 8 + 8 + 72);
-    let view = new DataView(buffer);
+    const buffer = new ArrayBuffer(16 + 16 + 8 + 8 + 8 + 72);
+    const view = new DataView(buffer);
     let offset = 0;
     for (let i = 0; i < this.type.length; i++) {
       view.setUint8(offset++, this.type[i], true);
@@ -56,7 +56,7 @@ export class gptPartition {
     for (let i = 0; i < this.unique.length; i++) {
       view.setUint8(offset++, this.unique[i], true);
     }
-    let tmp = [BigInt(this.firstLba), BigInt(this.lastLba), BigInt(this.flags)];
+    const tmp = [BigInt(this.firstLba), BigInt(this.lastLba), BigInt(this.flags)];
     for (let i = 0; i < 3; i++) {
       view.setBigUint64(offset, tmp[i], true);
       offset += 8;
@@ -118,8 +118,8 @@ export class gpt {
         break;
       }
 
-      let partentry = new gptPartition(data);
-      let pa = new partf();
+      const partentry = new gptPartition(data);
+      const pa = new partf();
       const guid1 = new DataView(partentry.unique.slice(0, 0x4).buffer, 0).getUint32(0, true);
       const guid2 = new DataView(partentry.unique.slice(0x4, 0x6).buffer, 0).getUint16(0, true);
       const guid3 = new DataView(partentry.unique.slice(0x6, 0x8).buffer, 0).getUint16(0, true);
@@ -142,9 +142,9 @@ export class gpt {
       } else {
         pa.type = typeOfPartentry.toString(16);
       }
-      let nullIndex = Array.from(partentry.name).findIndex((element, index) => index % 2 === 0 && element === 0);
-      let nameWithoutNull = partentry.name.slice(0, nullIndex);
-      let decodedName = new TextDecoder('utf-16').decode(nameWithoutNull);
+      const nullIndex = Array.from(partentry.name).findIndex((element, index) => index % 2 === 0 && element === 0);
+      const nameWithoutNull = partentry.name.slice(0, nullIndex);
+      const decodedName = new TextDecoder('utf-16').decode(nameWithoutNull);
       pa.name = decodedName;
       if (pa.type === "EFI_UNUSED") {
         continue;
@@ -159,9 +159,9 @@ export class gpt {
     const partentryOffset = 2 * this.sectorSize;
     const partentrySize = this.header.numPartEntries * this.header.partEntrySize;
     const partdata = Uint8Array.from(data.slice(partentryOffset, partentryOffset + partentrySize));
-    let headerdata = Uint8Array.from(data.slice(headerOffset, headerOffset + this.header.headerSize));
+    const headerdata = Uint8Array.from(data.slice(headerOffset, headerOffset + this.header.headerSize));
 
-    let view = new DataView(new ArrayBuffer(4));
+    const view = new DataView(new ArrayBuffer(4));
     view.setInt32(0, crc32(partdata), true);
     headerdata.set(new Uint8Array(view.buffer), 0x58);
     view.setInt32(0, 0, true);

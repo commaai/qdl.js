@@ -31,7 +31,6 @@
         "noParameterAssign": "warn",
         "noUnusedTemplateLiteral": "warn",
         "noUselessElse": "warn",
-        "useConst": "warn",
         "useSingleVarDeclarator": "off",
         "useTemplate": "warn"
       },

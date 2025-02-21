@@ -59,7 +59,7 @@ export class StructHelper {
  * @returns {Uint8Array}
  */
 export function packGenerator(elements, littleEndian=true) {
-  let n = elements.length;
+  const n = elements.length;
   const buffer = new ArrayBuffer(n*4);
   const view = new DataView(buffer);
   for (let i = 0; i < n; i++) {
@@ -75,7 +75,7 @@ export function packGenerator(elements, littleEndian=true) {
  */
 export function concatUint8Array(arrays) {
   const length = arrays.filter(Boolean).reduce((sum, arr) => sum + arr.length, 0);
-  let concatArray = new Uint8Array(length);
+  const concatArray = new Uint8Array(length);
   let offset = 0;
   for (const array of arrays) {
     if (!array) continue;
@@ -92,7 +92,7 @@ export function concatUint8Array(arrays) {
  * @returns {boolean}
  */
 export function containsBytes(subString, array) {
-  let tArray = new TextDecoder().decode(array);
+  const tArray = new TextDecoder().decode(array);
   return tArray.includes(subString);
 }
 
@@ -103,7 +103,7 @@ export function containsBytes(subString, array) {
  * @returns {boolean}
  */
 export function compareStringToBytes(compareString, array) {
-  let tArray = new TextDecoder().decode(array);
+  const tArray = new TextDecoder().decode(array);
   return compareString === tArray;
 }
 
@@ -113,7 +113,7 @@ export function compareStringToBytes(compareString, array) {
  * @returns {bigint|number}
  */
 export function bytes2Number(array) {
-  let view = new DataView(array.buffer, 0);
+  const view = new DataView(array.buffer, 0);
   if (array.length !== 8 && array.length !== 4) {
     throw "Only convert to 64 and 32 bit Number";
   }
@@ -130,7 +130,7 @@ export function bytes2Number(array) {
 export function runWithTimeout(promise, timeout) {
   return new Promise((resolve, reject) => {
     let timedOut = false;
-    let tid = setTimeout(() => {
+    const tid = setTimeout(() => {
       timedOut = true;
       reject(new Error(`Timed out while trying to connect ${timeout}`));
     }, timeout);
