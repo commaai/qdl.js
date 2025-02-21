@@ -265,7 +265,7 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
           chunksToProcess.push(tmpChunk);
         }
         bytesToWrite -= toSend;
-        originalChunkData = originalChunkData?.slice(toSend);
+        originalChunkData = originalChunkData.slice(toSend);
       }
     } else {
       chunksToProcess.push(originalChunk);
