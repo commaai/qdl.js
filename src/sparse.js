@@ -125,16 +125,15 @@ function getChunkRealByteLength(chunk, blockSize) {
 
 /**
  * @param {Blob} blob
- * @returns {Promise<number|null>}
+ * @param {FileHeader} header
+ * @returns {Promise<number>}
  */
-export async function getFileRealByteLength(blob) {
-  const header = await parseFileHeader(blob);
-  if (!header) return null;
+export async function getFileRealByteLength(blob, header) {
   let byteOffset = FILE_HEADER_SIZE, chunk = 0, realSize = 0;
   while (chunk < header.totalChunks) {
     if (byteOffset + CHUNK_HEADER_SIZE > blob.size) {
-      console.warn('[sparse] Unexpectedly reached end of blob', { blob, header, chunk });
-      return null;
+      console.error('[sparse] Unexpectedly reached end of blob', { blob, header, chunk });
+      throw "Sparse - Unexpectedly reached end of blob";
     }
     const { byteLength, ...chunkHeader } = parseChunkHeader(blob.slice(byteOffset, byteOffset + CHUNK_HEADER_SIZE));
     byteOffset += byteLength;
