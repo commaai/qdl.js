@@ -4,7 +4,7 @@ import { concatUint8Array, packGenerator } from "./utils";
 
 export class Sahara {
   /**
-   * @param {usbClass} cdc
+   * @param {serialClass|usbClass} cdc
    * @param {string} programmerUrl
    */
   constructor(cdc, programmerUrl) {
@@ -23,6 +23,7 @@ export class Sahara {
    * @returns {Promise<boolean>}
    */
   async connect() {
+    console.debug("[sahara] connect");
     const resp = await this.cdc.read(0xC * 0x4);
     if (resp.length > 1 && resp[0] === 0x01) {
       const pkt = this.ch.pkt_cmd_hdr(resp);
@@ -111,18 +112,23 @@ export class Sahara {
 
   async enterCommandMode() {
     if (!await this.cmdHello(sahara_mode_t.SAHARA_MODE_COMMAND)) {
+      console.log("no hello")
       return false;
     }
     let res = await this.getResponse();
+    console.log("got response", res);
     if ("cmd" in res) {
       if (res.cmd === cmd_t.SAHARA_END_TRANSFER) {
+        console.debug("sahara end transfer", res);
         if ("data" in res) {
           return false;
         }
       } else if (res.cmd === cmd_t.SAHARA_CMD_READY) {
+        console.debug("sahara ready");
         return true;
       }
     }
+    console.debug("something else", res);
     return false;
   }
 
@@ -179,6 +185,7 @@ export class Sahara {
     await this.cmdModeSwitch(sahara_mode_t.SAHARA_MODE_COMMAND);
 
     await this.connect();
+    throw "Done";
     console.debug("[sahara] Uploading loader...");
     await this.downloadLoader();
     const loaderBlob = await this.getLoader();

@@ -34,7 +34,7 @@ export class qdlDevice {
   }
 
   /**
-   * @param {usbClass} cdc
+   * @param {serialClass|usbClass} cdc
    * @returns {Promise<void>}
    */
   async connect(cdc) {

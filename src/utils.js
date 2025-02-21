@@ -149,3 +149,9 @@ export function runWithTimeout(promise, timeout) {
       });
   });
 }
+
+Uint8Array.prototype.toHexString = function() {
+  return Array.from(this)
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join(' ');
+};

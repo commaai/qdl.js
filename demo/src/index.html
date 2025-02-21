@@ -110,7 +110,8 @@
         <option value="https://raw.githubusercontent.com/commaai/flash/master/src/QDL/programmer.bin">comma 3/3X</option>
         <option value="https://raw.githubusercontent.com/bkerler/Loaders/master/oneplus/0008b0e10051459b_dd7c5f2e53176bee_fhprg_op6t.bin">OnePlus 6T</option>
       </select>
-      <button onclick="connectDevice()">Connect & Read Info</button>
+      <button onclick="connectDevice(false)">Connect with WebUSB</button>
+      <button onclick="connectDevice(true)">Connect with Web Serial</button>
     </section>
 
     <div id="status"></div>

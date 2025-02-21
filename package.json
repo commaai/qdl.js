@@ -10,6 +10,10 @@
       "types": "./dist/qdl.d.ts",
       "import": "./dist/qdl.js"
     },
+    "./seriallib": {
+      "types": "./dist/seriallib.d.ts",
+      "import": "./dist/seriallib.js"
+    },
     "./usblib": {
       "types": "./dist/usblib.d.ts",
       "import": "./dist/usblib.js"
@@ -33,6 +37,7 @@
     "@biomejs/biome": "1.9.4",
     "@happy-dom/global-registrator": "^16.7.2",
     "@types/bun": "latest",
+    "@types/w3c-web-serial": "^1.0.7",
     "@types/w3c-web-usb": "^1.0.10"
   },
   "//dependencies": {

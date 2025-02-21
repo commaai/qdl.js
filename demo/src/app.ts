@@ -1,4 +1,5 @@
 import { qdlDevice } from "@commaai/qdl";
+import { serialClass } from "@commaai/qdl/seriallib";
 import { usbClass } from "@commaai/qdl/usblib";
 
 interface PartitionInfo {
@@ -31,7 +32,7 @@ interface LunInfo {
 
 declare global {
   interface Window {
-    connectDevice: () => Promise<void>
+    connectDevice: (serial: boolean) => Promise<void>
   }
 }
 
@@ -56,7 +57,7 @@ function createObjectTable(element: HTMLElement, data: Record<string, any>) {
   return table;
 }
 
-window.connectDevice = async () => {
+window.connectDevice = async (serial: boolean) => {
   const programmerSelect = document.getElementById("programmer") as HTMLSelectElement;
   const status = document.getElementById("status");
   const deviceDiv = document.getElementById("device");
@@ -72,17 +73,14 @@ window.connectDevice = async () => {
     status.className = "";
     status.textContent = "Connecting...";
 
-    if (!("usb" in navigator)) {
-      throw new Error("Browser missing WebUSB support");
-    }
-
     // Initialize QDL device with programmer URL
     const qdl = new qdlDevice(programmerSelect.value);
 
     // Start the connection
-    await qdl.connect(new usbClass());
+    await qdl.connect(serial ? new serialClass() : new usbClass());
     status.className = "success";
     status.textContent = "Connected! Reading device info...";
+    return;
 
     // Device information
     const activeSlot = await qdl.getActiveSlot();
@@ -90,9 +88,10 @@ window.connectDevice = async () => {
     createObjectTable(deviceDiv, {
       "Active Slot": activeSlot,
       "SOC Serial Number": qdl.sahara!.serial,
-      "UFS Serial Number": "0x"+storageInfo.serial_num.toString(16).padStart(8, "0"),
+      "UFS Serial Number": "0x" + storageInfo.serial_num.toString(16).padStart(8, "0"),
     });
     createObjectTable(storageDiv, storageInfo);
+    return;
 
     // Get GPT info for each LUN
     const lunInfos: LunInfo[] = [];
