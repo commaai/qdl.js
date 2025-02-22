@@ -34,13 +34,16 @@ const ChunkType = {
  * @returns {Promise<ChunkHeader>}
  */
 async function parseChunkHeader(blob) {
-  if (blob.size > CHUNK_HEADER_SIZE) {
-    console.trace("[sparse] Large blob passed to parseChunkHeader", blob);
+  if (blob.size !== CHUNK_HEADER_SIZE) {
+    console.trace("Sparse - Incorrectly sized blob passed to parseChunkHeader", blob);
+    throw "Sparse - Incorrectly sized blob passed to parseChunkHeader";
   }
   const view = new DataView(await blob.arrayBuffer());
+  const type = view.getUint16(0, true);
   const byteLength = view.getUint32(8, true);
   return {
-    type: view.getUint16(0, true),
+    type,
+    _typeName: Object.entries(ChunkType).find((it) => it[1] === type)?.[0],
     blocks: view.getUint32(4, true),
     byteLength,
     dataByteLength: byteLength - CHUNK_HEADER_SIZE,
@@ -115,6 +118,7 @@ function getChunkRealByteLength(chunk, blockSize) {
       if (chunk.dataByteLength !== 4) throw "Sparse - CRC32 chunk should have 4 bytes";
       return 0;
     default:
+      console.trace("Sparse - Unknown chunk type", chunk);
       throw `Sparse - Unknown chunk type: ${chunk.type}`;
   }
 }
@@ -129,7 +133,7 @@ export async function getFileRealByteLength(blob, header) {
   let byteOffset = FILE_HEADER_SIZE, chunk = 0, realSize = 0;
   while (chunk < header.totalChunks) {
     if (byteOffset + CHUNK_HEADER_SIZE > blob.size) {
-      console.error("[sparse] Unexpectedly reached end of blob", { blob, header, chunk });
+      console.trace("Sparse - Unexpectedly reached end of blob", { blob, header, chunk });
       throw "Sparse - Unexpectedly reached end of blob";
     }
     const { byteLength, ...chunkHeader } = parseChunkHeader(blob.slice(byteOffset, byteOffset + CHUNK_HEADER_SIZE));
@@ -138,7 +142,7 @@ export async function getFileRealByteLength(blob, header) {
     realSize += getChunkRealByteLength(chunkHeader, header.blockSize);
   }
   if (byteOffset < blob.size) {
-    console.warn("[sparse] Blob contains extra data", { blob, header });
+    console.trace("Sparse - Blob contains extra data", { blob, header });
   }
   return realSize;
 }
@@ -221,12 +225,14 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
   let splitChunks = [];
   for (let i = 0; i < header.totalChunks; i++) {
     const originalChunk = await parseChunkHeader(blob.slice(0, CHUNK_HEADER_SIZE));
+    console.log("originalChunk", originalChunk);
     originalChunk.data = blob.slice(CHUNK_HEADER_SIZE, CHUNK_HEADER_SIZE + originalChunk.byteLength);
     blob = blob.slice(CHUNK_HEADER_SIZE + originalChunk.byteLength);
 
     /** @type {Chunk[]} */
     const chunksToProcess = [];
     let realBytesToWrite = getChunkRealByteLength(originalChunk, header.blockSize);
+    console.log("realBytesToWrite", realBytesToWrite);
 
     const isChunkTypeSkip = originalChunk.type === ChunkType.Skip;
     const isChunkTypeFill = originalChunk.type === ChunkType.Fill;
