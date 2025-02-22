@@ -39,8 +39,7 @@
         "noConsole": "off",
         "noConsoleLog": "error",
         "noExplicitAny": "off",
-        "noSkippedTests": "off",
-        "useAwait": "error"
+        "noSkippedTests": "off"
       }
     }
   },
