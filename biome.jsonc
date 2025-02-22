@@ -35,7 +35,12 @@
         "useTemplate": "warn"
       },
       "suspicious": {
-        "noExplicitAny": "off"
+        "all": true,
+        "noConsole": "off",
+        "noConsoleLog": "error",
+        "noExplicitAny": "off",
+        "noSkippedTests": "off",
+        "useAwait": "error"
       }
     }
   },

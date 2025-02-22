@@ -9,4 +9,4 @@ const server = Bun.serve({
     return new Response("404!");
   },
 });
-console.log(`Running on http://${server.hostname}:${server.port}`);
+console.info(`Running on http://${server.hostname}:${server.port}`);

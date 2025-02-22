@@ -117,9 +117,9 @@ export class qdlDevice {
           return false;
         }
         startSector = partition.sector;
-        console.log(`Flashing ${partitionName}...`);
+        console.info(`Flashing ${partitionName}...`);
         if (await this.firehose.cmdProgram(lun, startSector, blob, (progress) => onProgress(progress))) {
-          console.log(`partition ${partitionName}: startSector ${partition.sector}, sectors ${partition.sectors}`);
+          console.debug(`partition ${partitionName}: startSector ${partition.sector}, sectors ${partition.sectors}`);
         } else {
           throw `Error while writing ${partitionName}`;
         }
@@ -136,9 +136,9 @@ export class qdlDevice {
       const [guidGpt] = await this.getGpt(lun);
       if (partitionName in guidGpt.partentries) {
         const partition = guidGpt.partentries[partitionName];
-        console.log(`Erasing ${partitionName}...`);
+        console.info(`Erasing ${partitionName}...`);
         await this.firehose.cmdErase(lun, partition.sector, partition.sectors);
-        console.log(`Erased ${partitionName} starting at sector ${partition.sector} with sectors ${partition.sectors}`);
+        console.debug(`Erased ${partitionName} starting at sector ${partition.sector} with sectors ${partition.sectors}`);
       }
     }
     return true;
@@ -317,7 +317,7 @@ export class qdlDevice {
     }
     const activeBootLunId = (slot === "a") ? 1 : 2;
     await this.firehose.cmdSetBootLunId(activeBootLunId);
-    console.log(`Successfully set slot ${slot} active`);
+    console.info(`Successfully set slot ${slot} active`);
     return true;
   }
 
