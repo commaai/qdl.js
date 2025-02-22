@@ -92,7 +92,7 @@ export async function parseFileHeader(blobHeader) {
   const magic = view.getUint32(0, true);
   const majorVersion = view.getUint16(4, true);
   const minorVersion = view.getUint16(6, true);
-  const fileHeadrSize = view.getUint16(8, true);
+  const fileHeaderSize = view.getUint16(8, true);
   const chunkHeaderSize = view.getUint16(10, true);
   const blockSize = view.getUint32(12, true);
   const totalBlocks = view.getUint32(16, true);
@@ -102,8 +102,8 @@ export async function parseFileHeader(blobHeader) {
   if (magic !== FILE_MAGIC) {
     return null;
   }
-  if (fileHeadrSize !== FILE_HEADER_SIZE) {
-    console.error(`The file header size was expected to be 28, but is ${fileHeadrSize}.`);
+  if (fileHeaderSize !== FILE_HEADER_SIZE) {
+    console.error(`The file header size was expected to be 28, but is ${fileHeaderSize}.`);
     return null;
   }
   if (chunkHeaderSize !== CHUNK_HEADER_SIZE) {
@@ -115,7 +115,7 @@ export async function parseFileHeader(blobHeader) {
     magic : magic,
     majorVersion : majorVersion,
     minorVersion : minorVersion,
-    fileHeadrSize : fileHeadrSize,
+    fileHeaderSize : fileHeaderSize,
     chunkHeaderSize : chunkHeaderSize,
     blockSize : blockSize,
     totalBlocks : totalBlocks,
