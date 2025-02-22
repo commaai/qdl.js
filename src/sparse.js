@@ -35,7 +35,7 @@ const ChunkType = {
  */
 async function parseChunkHeader(blob) {
   if (blob.size > CHUNK_HEADER_SIZE) {
-    console.trace('[sparse] Large blob passed to parseChunkHeader', blob);
+    console.trace("[sparse] Large blob passed to parseChunkHeader", blob);
   }
   const view = new DataView(await blob.arrayBuffer());
   const byteLength = view.getUint32(8, true);
@@ -67,10 +67,7 @@ async function parseChunkHeader(blob) {
  * @returns {Promise<FileHeader|null>}
  */
 export async function parseFileHeader(blob) {
-  if (blob.size > FILE_HEADER_SIZE) {
-    console.trace('[sparse] Large blob passed to parseFileHeader', blob);
-  }
-  const view = new DataView(await blob.arrayBuffer());
+  const view = new DataView(await blob.slice(0, FILE_HEADER_SIZE).arrayBuffer());
   const magic = view.getUint32(0, true);
   if (magic !== FILE_MAGIC) {
     return null;
@@ -107,7 +104,6 @@ export async function parseFileHeader(blob) {
 function getChunkRealByteLength(chunk, blockSize) {
   switch (chunk.type) {
     case ChunkType.Raw:
-      console.trace({ chunk, blockSize });
       if (chunk.dataByteLength !== (chunk.blocks * blockSize)) throw "Sparse - Chunk input size does not match output size";
       return chunk.dataByteLength;
     case ChunkType.Fill:
@@ -119,7 +115,7 @@ function getChunkRealByteLength(chunk, blockSize) {
       if (chunk.dataByteLength !== 4) throw "Sparse - CRC32 chunk should have 4 bytes";
       return 0;
     default:
-      throw "Sparse - Unknown chunk type";
+      throw `Sparse - Unknown chunk type: ${chunk.type}`;
   }
 }
 
@@ -133,7 +129,7 @@ export async function getFileRealByteLength(blob, header) {
   let byteOffset = FILE_HEADER_SIZE, chunk = 0, realSize = 0;
   while (chunk < header.totalChunks) {
     if (byteOffset + CHUNK_HEADER_SIZE > blob.size) {
-      console.error('[sparse] Unexpectedly reached end of blob', { blob, header, chunk });
+      console.error("[sparse] Unexpectedly reached end of blob", { blob, header, chunk });
       throw "Sparse - Unexpectedly reached end of blob";
     }
     const { byteLength, ...chunkHeader } = parseChunkHeader(blob.slice(byteOffset, byteOffset + CHUNK_HEADER_SIZE));
@@ -142,7 +138,7 @@ export async function getFileRealByteLength(blob, header) {
     realSize += getChunkRealByteLength(chunkHeader, header.blockSize);
   }
   if (byteOffset < blob.size) {
-    console.warn('[sparse] Blob contains extra data', { blob, header })
+    console.warn("[sparse] Blob contains extra data", { blob, header });
   }
   return realSize;
 }
@@ -182,7 +178,7 @@ async function populate(chunks, blockSize) {
         break;
       }
       case ChunkType.Crc32:
-        break
+        break;
       default:
         throw "Sparse - Unknown chunk type";
     }
