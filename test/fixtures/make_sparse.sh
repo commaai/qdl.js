@@ -11,8 +11,6 @@ sparse2img -d sparse.img
 
 # sanity check
 sparse2img sparse.img raw.img
-
-ls -la test.bin sparse.img raw.img
 cmp test.bin raw.img && echo "Success" || echo "Failure"
 
 rm raw.bin fill.bin skip.bin test.bin
