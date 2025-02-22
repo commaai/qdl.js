@@ -141,11 +141,11 @@ async function populate(chunks, blockSize) {
     const data = chunk.data;
 
     if (chunkType === ChunkType.Raw) {
-      const rawData = new Uint8Array(data.arrayBuffer());
+      const rawData = new Uint8Array(await data.arrayBuffer());
       ret.set(rawData, offset);
       offset += blocks * blockSize;
     } else if (chunkType === ChunkType.Fill) {
-      const fillBin = new Uint8Array(data.arrayBuffer());
+      const fillBin = new Uint8Array(await data.arrayBuffer());
       const bufferSize = blocks * blockSize;
       for (let i = 0; i < bufferSize; i += dataSize) {
         ret.set(fillBin, offset);
@@ -162,7 +162,7 @@ async function populate(chunks, blockSize) {
       throw "Sparse - Unknown chunk type";
     }
   }
-  return new Blob([ret.buffer]);
+  return new Blob([ret]);
 }
 
 
