@@ -185,6 +185,17 @@ export class Firehose {
     return tmp;
   }
 
+
+  /**
+   * @param {Uint8Array} data
+   * @param {number} splitSize
+   * @returns {Iterator<Uint8Array>}
+   * @private
+   */
+  *splitData(data, splitSize) {
+    for (let i = 0; i < data.length; i+= splitSize) yield data.slice(i, i + splitSize);
+  }
+
   /**
    * @param {number} physicalPartitionNumber
    * @param {number} startSector
@@ -196,7 +207,7 @@ export class Firehose {
     let total = blob.size;
     let sparseFormat = false;
 
-    const sparseHeader = await Sparse.parseFileHeader(blob.slice(0, Sparse.FILE_HEADER_SIZE));
+    const sparseHeader = await Sparse.parseSparseHeader(blob.slice(0, Sparse.SPARSE_HEADER_SIZE));
     if (sparseHeader !== null) {
       sparseFormat = true;
       total = await Sparse.getFileRealByteLength(blob, sparseHeader);
@@ -219,11 +230,11 @@ export class Firehose {
     if (rsp.resp) {
       for await (const split of Sparse.splitBlob(blob)) {
         let offset = 0;
-        let bytesToWriteSplit = split.size;
+        let bytesToWriteSplit = split.byteLength;
 
         while (bytesToWriteSplit > 0) {
           const wlen = Math.min(bytesToWriteSplit, this.cfg.MaxPayloadSizeToTargetInBytes);
-          let wdata = new Uint8Array(await split.slice(offset, offset + wlen).arrayBuffer());
+          let wdata = split.slice(offset, offset + wlen);
           if (wlen % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
             const fillLen = (Math.floor(wlen/this.cfg.SECTOR_SIZE_IN_BYTES) * this.cfg.SECTOR_SIZE_IN_BYTES) +
                           this.cfg.SECTOR_SIZE_IN_BYTES;
