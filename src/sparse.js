@@ -3,11 +3,11 @@ export const FILE_HEADER_SIZE = 28;
 const CHUNK_HEADER_SIZE = 12;
 
 const ChunkType = {
-  Raw : 0xCAC1,
-  Fill : 0xCAC2,
-  Skip : 0xCAC3,
-  Crc32 : 0xCAC4,
-}
+  Raw: 0xCAC1,
+  Fill: 0xCAC2,
+  Skip: 0xCAC3,
+  Crc32: 0xCAC4,
+};
 
 
 class QCSparse {
@@ -78,11 +78,11 @@ async function parseChunkHeader(blobChunkHeader) {
   const chunkHeader = await blobChunkHeader.arrayBuffer();
   const view = new DataView(chunkHeader);
   return {
-    type : view.getUint16(0, true),
-    blocks : view.getUint32(4, true),
-    dataBytes : view.getUint32(8, true) - CHUNK_HEADER_SIZE,
-    data : null,
-  }
+    type: view.getUint16(0, true),
+    blocks: view.getUint32(4, true),
+    dataBytes: view.getUint32(8, true) - CHUNK_HEADER_SIZE,
+    data: null,
+  };
 }
 
 export async function parseFileHeader(blobHeader) {
@@ -112,16 +112,16 @@ export async function parseFileHeader(blobHeader) {
   }
 
   return {
-    magic : magic,
-    majorVersion : majorVersion,
-    minorVersion : minorVersion,
-    fileHeaderSize : fileHeaderSize,
-    chunkHeaderSize : chunkHeaderSize,
-    blockSize : blockSize,
-    totalBlocks : totalBlocks,
-    totalChunks : totalChunks,
-    crc32 : crc32,
-  }
+    magic: magic,
+    majorVersion: majorVersion,
+    minorVersion: minorVersion,
+    fileHeaderSize: fileHeaderSize,
+    chunkHeaderSize: chunkHeaderSize,
+    blockSize: blockSize,
+    totalBlocks: totalBlocks,
+    totalChunks: totalChunks,
+    crc32: crc32,
+  };
 }
 
 /**
@@ -214,7 +214,7 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
     blob = blob.slice(CHUNK_HEADER_SIZE + originalChunk.dataBytes);
 
     const chunksToProcess = [];
-    let realBytesToWrite = calcChunksRealDataBytes(originalChunk, header.blockSize)
+    let realBytesToWrite = calcChunksRealDataBytes(originalChunk, header.blockSize);
 
     const isChunkTypeSkip = originalChunk.type === ChunkType.Skip;
     const isChunkTypeFill = originalChunk.type === ChunkType.Fill;
@@ -231,28 +231,28 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
           while (realBytesToWrite > 0) {
             const realSend = Math.min(safeToSend, realBytesToWrite);
             tmpChunk = {
-              type : originalChunk.type,
-              blocks : realSend / header.blockSize,
-              dataBytes : isChunkTypeSkip ? 0 : toSend,
-              data : isChunkTypeSkip ? new Blob([]) : originalChunkData.slice(0, toSend),
-            }
+              type: originalChunk.type,
+              blocks: realSend / header.blockSize,
+              dataBytes: isChunkTypeSkip ? 0 : toSend,
+              data: isChunkTypeSkip ? new Blob([]) : originalChunkData.slice(0, toSend),
+            };
             chunksToProcess.push(tmpChunk);
             realBytesToWrite -= realSend;
           }
         } else {
           tmpChunk = {
-            type : originalChunk.type,
-            blocks : toSend / header.blockSize,
-            dataBytes : toSend,
-            data : originalChunkData.slice(0, toSend),
-          }
+            type: originalChunk.type,
+            blocks: toSend / header.blockSize,
+            dataBytes: toSend,
+            data: originalChunkData.slice(0, toSend),
+          };
           chunksToProcess.push(tmpChunk);
         }
         bytesToWrite -= toSend;
         originalChunkData = originalChunkData?.slice(toSend);
       }
     } else {
-      chunksToProcess.push(originalChunk)
+      chunksToProcess.push(originalChunk);
     }
     for (const chunk of chunksToProcess) {
       const remainingBytes = splitSize - calcChunksSize(splitChunks);
