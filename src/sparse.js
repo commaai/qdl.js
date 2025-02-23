@@ -10,10 +10,33 @@ const ChunkType = {
 };
 
 
-class QCSparse {
+/**
+ * @typedef {object} Header
+ * @property {number} magic
+ * @property {number} versionMajor
+ * @property {number} versionMinor
+ * @property {number} fileHeaderSize
+ * @property {number} chunkHeaderSize
+ * @property {number} blockSize
+ * @property {number} totalBlocks
+ * @property {number} totalChunks
+ * @property {number} crc32
+ */
+
+
+/**
+ * @typedef {object} Chunk
+ * @property {number} type
+ * @property {number} blocks
+ * @property {number} dataBytes
+ * @property {Blob|null} data
+ */
+
+
+class Sparse {
   /**
    * @param {Blob} blob
-   * @param header
+   * @param {Header} header
    */
   constructor(blob, header) {
     this.blob = blob;
@@ -22,6 +45,9 @@ class QCSparse {
     this.blobOffset = 0;
   }
 
+  /**
+   * @returns {Promise<number>}
+   */
   async getChunkSize() {
     const chunkHeader = await parseChunkHeader(this.blob.slice(this.blobOffset, this.blobOffset + CHUNK_HEADER_SIZE));
     const chunkType = chunkHeader.type;
@@ -54,6 +80,9 @@ class QCSparse {
     }
   }
 
+  /**
+   * @returns {Promise<number>}
+   */
   async getSize() {
     this.blobOffset = FILE_HEADER_SIZE;
     let length = 0, chunk = 0;
@@ -68,15 +97,27 @@ class QCSparse {
 }
 
 
+/**
+ * @param {Blob} blob
+ * @param {Header} header
+ * @returns {Promise<number>}
+ */
 export async function getSparseRealSize(blob, header) {
-  const sparseImage = new QCSparse(blob, header);
+  const sparseImage = new Sparse(blob, header);
   return await sparseImage.getSize();
 }
 
 
-async function parseChunkHeader(blobChunkHeader) {
-  const chunkHeader = await blobChunkHeader.arrayBuffer();
-  const view = new DataView(chunkHeader);
+/**
+ * @param {Blob} blob
+ * @returns {Promise<Chunk>}
+ */
+async function parseChunkHeader(blob) {
+  if (blob.size !== CHUNK_HEADER_SIZE) {
+    console.trace("Sparse - Incorrectly sized blob passed to parseChunkHeader", blob);
+    throw "Sparse - Incorrectly sized blob passed to parseChunkHeader";
+  }
+  const view = new DataView(await blob.arrayBuffer());
   return {
     type: view.getUint16(0, true),
     blocks: view.getUint32(4, true),
@@ -85,23 +126,19 @@ async function parseChunkHeader(blobChunkHeader) {
   };
 }
 
-export async function parseFileHeader(blobHeader) {
-  const header = await blobHeader.arrayBuffer();
-  const view = new DataView(header);
 
+/**
+ * @param {Blob} blob
+ * @returns {Promise<Header|null>}
+ */
+export async function parseFileHeader(blob) {
+  const view = new DataView(await blob.slice(0, FILE_HEADER_SIZE).arrayBuffer());
   const magic = view.getUint32(0, true);
-  const majorVersion = view.getUint16(4, true);
-  const minorVersion = view.getUint16(6, true);
-  const fileHeaderSize = view.getUint16(8, true);
-  const chunkHeaderSize = view.getUint16(10, true);
-  const blockSize = view.getUint32(12, true);
-  const totalBlocks = view.getUint32(16, true);
-  const totalChunks = view.getUint32(20, true);
-  const crc32 = view.getUint32(24, true);
-
   if (magic !== FILE_MAGIC) {
     return null;
   }
+  const fileHeaderSize = view.getUint16(8, true);
+  const chunkHeaderSize = view.getUint16(10, true);
   if (fileHeaderSize !== FILE_HEADER_SIZE) {
     console.error(`The file header size was expected to be 28, but is ${fileHeaderSize}.`);
     return null;
@@ -110,22 +147,21 @@ export async function parseFileHeader(blobHeader) {
     console.error(`The chunk header size was expected to be 12, but is ${chunkHeaderSize}.`);
     return null;
   }
-
   return {
     magic: magic,
-    majorVersion: majorVersion,
-    minorVersion: minorVersion,
+    majorVersion: view.getUint16(4, true),
+    minorVersion: view.getUint16(6, true),
     fileHeaderSize: fileHeaderSize,
     chunkHeaderSize: chunkHeaderSize,
-    blockSize: blockSize,
-    totalBlocks: totalBlocks,
-    totalChunks: totalChunks,
-    crc32: crc32,
+    blockSize: view.getUint32(12, true),
+    totalBlocks: view.getUint32(16, true),
+    totalChunks: view.getUint32(20, true),
+    crc32: view.getUint32(24, true),
   };
 }
 
 /**
- * @param chunks
+ * @param {Chunk[]} chunks
  * @param {number} blockSize
  * @returns {Promise<Blob>}
  */
@@ -166,6 +202,11 @@ async function populate(chunks, blockSize) {
 }
 
 
+/**
+ * @param {Chunk} chunk
+ * @param {number} blockSize
+ * @returns {number}
+ */
 function calcChunksRealDataBytes(chunk, blockSize) {
   switch (chunk.type) {
     case ChunkType.Raw:
@@ -182,11 +223,20 @@ function calcChunksRealDataBytes(chunk, blockSize) {
 }
 
 
+/**
+ * @param {Chunk[]} chunks
+ * @param {number} blockSize
+ * @returns {number}
+ */
 function calcChunksSize(chunks, blockSize) {
   return chunks.map((chunk) => calcChunksRealDataBytes(chunk, blockSize)).reduce((total, c) => total + c, 0);
 }
 
 
+/**
+ * @param {Chunk[]} chunks
+ * @returns {number}
+ */
 function calcChunksBlocks(chunks) {
   return chunks.map((chunk) => chunk.blocks).reduce((total, c) => total + c, 0);
 }
@@ -207,12 +257,14 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
 
   header.crc32 = 0;
   blob = blob.slice(FILE_HEADER_SIZE);
+  /** @type {Chunk[]} */
   let splitChunks = [];
   for (let i = 0; i < header.totalChunks; i++) {
     const originalChunk = await parseChunkHeader(blob.slice(0, CHUNK_HEADER_SIZE));
     originalChunk.data = blob.slice(CHUNK_HEADER_SIZE, CHUNK_HEADER_SIZE + originalChunk.dataBytes);
     blob = blob.slice(CHUNK_HEADER_SIZE + originalChunk.dataBytes);
 
+    /** @type {Chunk[]} */
     const chunksToProcess = [];
     let realBytesToWrite = calcChunksRealDataBytes(originalChunk, header.blockSize);
 
@@ -225,6 +277,7 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
 
       while (bytesToWrite > 0) {
         const toSend = Math.min(safeToSend, bytesToWrite);
+        /** @type {Chunk} */
         let tmpChunk;
 
         if (isChunkTypeFill || isChunkTypeSkip) {
