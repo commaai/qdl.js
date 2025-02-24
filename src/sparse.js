@@ -246,7 +246,7 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
       chunksToProcess.push(originalChunk);
     }
     for (const chunk of chunksToProcess) {
-      const remainingBytes = safeToSend - splitChunks.map((chunk) => sparse.calcChunkRealSize(chunk)).reduce((total, c) => total + c, 0);
+      const remainingBytes = splitSize - splitChunks.reduce((total, c) => total + sparse.calcChunkRealSize(c), 0);
       const realChunkBytes = sparse.calcChunkRealSize(chunk);
       if (remainingBytes >= realChunkBytes) {
         splitChunks.push(chunk);
