@@ -1,6 +1,27 @@
 import { describe, expect, test } from "bun:test";
 
-import { xmlParser } from "./xmlParser";
+import { toXml, xmlParser } from "./xml.js";
+
+
+describe("toXml", () => {
+  test("strings", () => {
+    const expected = `<?xml version="1.0" ?><data><power value="reset" /></data>`;
+    expect(toXml("power", { value: "reset" })).toBe(expected);
+  });
+  test("numbers", () => {
+    const expected = `<?xml version="1.0" ?><data><program SECTOR_SIZE_IN_BYTES="4096" num_partition_sectors="500" physical_partition_number="0" start_sector="0" /></data>`;
+    expect(toXml("program", {
+      SECTOR_SIZE_IN_BYTES: 4096,
+      num_partition_sectors: 500,
+      physical_partition_number: 0,
+      start_sector: 0,
+    })).toBe(expected);
+  });
+  test("empty", () => {
+    const expected = `<?xml version="1.0" ?><data><empty /></data>`;
+    expect(toXml("empty")).toBe(expected);
+  });
+});
 
 
 describe("xmlParser", () => {

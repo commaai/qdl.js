@@ -1,6 +1,6 @@
 import * as Sparse from "./sparse"
 import { concatUint8Array, containsBytes, compareStringToBytes, sleep } from "./utils"
-import { xmlParser } from "./xmlParser"
+import { toXml, xmlParser } from "./xml.js"
 
 
 /**
@@ -207,11 +207,12 @@ export class Firehose {
       numPartitionSectors += 1;
     }
 
-    const data = `<?xml version="1.0" ?><data>\n` +
-              `<program SECTOR_SIZE_IN_BYTES="${this.cfg.SECTOR_SIZE_IN_BYTES}"` +
-              ` num_partition_sectors="${numPartitionSectors}"` +
-              ` physical_partition_number="${physicalPartitionNumber}"` +
-              ` start_sector="${startSector}" />\n</data>`;
+    const data = toXml("program", {
+      SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
+      num_physical_sectors: numPartitionSectors,
+      physical_partition_number: physicalPartitionNumber,
+      start_sector: startSector,
+    });
     let i = 0;
     let bytesWritten = 0;
     const rsp = await this.xmlSend(data);

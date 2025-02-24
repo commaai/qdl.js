@@ -1,3 +1,13 @@
+/**
+ * @param {string} tagName
+ * @param {Record<string, any>} [attributes={}]
+ * @returns {string}
+ */
+export function toXml(tagName, attributes = {}) {
+  const attrs = Object.entries(attributes).map(([key, value]) => `${key}="${value}"`).join(" ");
+  return `<?xml version="1.0" ?><data><${tagName}${attrs ? ` ${attrs}` : ''} /></data>`;
+}
+
 export class xmlParser {
   decoder = new TextDecoder();
   parser = new DOMParser();
