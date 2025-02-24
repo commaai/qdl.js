@@ -150,30 +150,26 @@ async function populate(chunks, blockSize) {
   const ret = new Uint8Array(blockCount * blockSize);
   let offset = 0;
 
-  for (const { type, blocks, data } of chunks) {
-    switch (type) {
-      case ChunkType.Raw:
-        ret.set(new Uint8Array(await data.arrayBuffer()), offset);
-        offset += blocks * blockSize;
-        break;
-      case ChunkType.Fill:{
-        const fillBin = new Uint8Array(await data.arrayBuffer());
-        for (let i = 0; i < blocks * blockSize; i += data.size) {
-          ret.set(fillBin, offset);
-          offset += data.size;
-        }
-        break;
+  for (const chunk of chunks) {
+    const { type: chunkType, blocks, data } = chunk;
+
+    if (chunkType === ChunkType.Raw) {
+      ret.set(new Uint8Array(await data.arrayBuffer()), offset);
+      offset += blocks * blockSize;
+    } else if (chunkType === ChunkType.Fill) {
+      const fillBin = new Uint8Array(await data.arrayBuffer());
+      for (let i = 0; i < blocks * blockSize; i += data.size) {
+        ret.set(fillBin, offset);
+        offset += data.size;
       }
-      case ChunkType.Skip: {
-        const byteToSend = blocks * blockSize;
-        ret.set(new Uint8Array(byteToSend).fill(0), offset);
-        offset += byteToSend;
-        break;
-      }
-      case ChunkType.Crc32:
-        break;
-      default:
-        throw "Sparse - Unknown chunk type";
+    } else if (chunkType === ChunkType.Skip) {
+      const byteToSend = blocks * blockSize;
+      ret.set(new Uint8Array(byteToSend).fill(0), offset);
+      offset += byteToSend;
+    } else if (chunkType === ChunkType.Crc32) {
+      continue;
+    } else {
+      throw "Sparse - Unknown chunk type";
     }
   }
   return new Blob([ret]);
