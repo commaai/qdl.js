@@ -1,5 +1,5 @@
 import * as Bun from "bun";
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 
 import * as Sparse from "./sparse";
 
@@ -18,6 +18,30 @@ describe("sparse", () => {
       totalBlocks: 5,
       totalChunks: 5,
       crc32: 0,
+    });
+  });
+
+  describe("Sparse", async () => {
+    /** @type {Sparse.Sparse} */
+    let sparse;
+
+    beforeAll(async () => {
+      const header = await Sparse.parseFileHeader(inputData);
+      sparse = new Sparse.Sparse(inputData, header);
+    });
+
+    test("properties", () => {
+      expect(sparse.blockSize).toBe(4096);
+      expect(sparse.totalChunks).toBe(5);
+    });
+
+    test("chunk iterator", async () => {
+      const chunks = await Array.fromAsync(sparse);
+      expect(chunks.length).toBe(5);
+    });
+
+    test("getSize", async () => {
+      expect(await sparse.getSize()).toBe(20480);
     });
   });
 
