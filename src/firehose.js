@@ -103,17 +103,17 @@ export class Firehose {
    * @returns {Promise<boolean>}
    */
   async configure() {
-    const connectCmd = `<?xml version="1.0" encoding="UTF-8" ?><data>` +
-              `<configure MemoryName="${this.cfg.MemoryName}" ` +
-              `Verbose="0" ` +
-              `AlwaysValidate="0" ` +
-              `MaxDigestTableSizeInBytes="2048" ` +
-              `MaxPayloadSizeToTargetInBytes="${this.cfg.MaxPayloadSizeToTargetInBytes}" ` +
-              `ZLPAwareHost="${this.cfg.ZLPAwareHost}" ` +
-              `SkipStorageInit="${this.cfg.SkipStorageInit}" ` +
-              `SkipWrite="${this.cfg.SkipWrite}"/>` +
-              `</data>`
-
+    // FIXME: is encoding="UTF-8" required?
+    const connectCmd = toXml("configure", {
+      MemoryName: this.cfg.MemoryName,
+      Verbose: 0,
+      AlwaysValidate: 0,
+      MaxDigestTableSizeInBytes: 2048,
+      MaxPayloadSizeToTargetInBytes: this.cfg.MaxPayloadSizeToTargetInBytes,
+      ZLPAwareHost: this.cfg.ZLPAwareHost,
+      SkipStorageInit: this.cfg.SkipStorageInit,
+      SkipWrite: this.cfg.SkipWrite,
+    });
     await this.xmlSend(connectCmd, false);
     this.luns = Array.from({length: this.cfg.maxlun}, (x, i) => i);
     return true;
@@ -126,12 +126,12 @@ export class Firehose {
    * @returns {Promise<response>}
    */
   async cmdReadBuffer(physicalPartitionNumber, startSector, numPartitionSectors) {
-    const data = `<?xml version="1.0" ?><data><read SECTOR_SIZE_IN_BYTES="${this.cfg.SECTOR_SIZE_IN_BYTES}"` +
-        ` num_partition_sectors="${numPartitionSectors}"` +
-        ` physical_partition_number="${physicalPartitionNumber}"` +
-        ` start_sector="${startSector}"/>\n</data>`
-
-    let rsp = await this.xmlSend(data);
+    let rsp = await this.xmlSend(toXml("read", {
+      SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
+      num_partition_sectors: numPartitionSectors,
+      physical_partition_number: physicalPartitionNumber,
+      start_sector: startSector,
+    }));
     let resData = new Uint8Array();
     if (!rsp.resp) {
       return rsp;
@@ -207,17 +207,17 @@ export class Firehose {
       numPartitionSectors += 1;
     }
 
-    const data = toXml("program", {
+    const rsp = await this.xmlSend(toXml("program", {
       SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
       num_physical_sectors: numPartitionSectors,
       physical_partition_number: physicalPartitionNumber,
       start_sector: startSector,
-    });
+    }));
     let i = 0;
     let bytesWritten = 0;
-    const rsp = await this.xmlSend(data);
 
     if (rsp.resp) {
+
       for await (const split of Sparse.splitBlob(blob)) {
         let offset = 0;
         let bytesToWriteSplit = split.size;
@@ -272,12 +272,12 @@ export class Firehose {
    * @returns {Promise<boolean>}
    */
   async cmdErase(physicalPartitionNumber, startSector, numPartitionSectors) {
-    const data = `<?xml version="1.0" ?><data>\n` +
-          `<program SECTOR_SIZE_IN_BYTES="${this.cfg.SECTOR_SIZE_IN_BYTES}"` +
-          ` num_partition_sectors="${numPartitionSectors}"` +
-          ` physical_partition_number="${physicalPartitionNumber}"` +
-          ` start_sector="${startSector}" />\n</data>`;
-    const rsp = await this.xmlSend(data);
+    const rsp = await this.xmlSend(toXml("program", {
+      SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
+      num_partition_sectors: numPartitionSectors,
+      physical_partition_number: physicalPartitionNumber,
+      start_sector: startSector,
+    }));
     let bytesToWrite = this.cfg.SECTOR_SIZE_IN_BYTES * numPartitionSectors;
     const empty = new Uint8Array(this.cfg.MaxPayloadSizeToTargetInBytes).fill(0);
 
@@ -307,8 +307,7 @@ export class Firehose {
    * @returns {Promise<boolean>}
    */
   async cmdSetBootLunId(lun) {
-    const data = `<?xml version="1.0" ?><data>\n<setbootablestoragedrive value="${lun}" /></data>`;
-    const val = await this.xmlSend(data);
+    const val = await this.xmlSend(toXml("setbootablestoragedrive", { value: lun }));
     if (val.resp) {
       console.info(`Successfully set bootID to lun ${lun}`);
       return true;
@@ -321,8 +320,7 @@ export class Firehose {
    * @returns {Promise<boolean>}
    */
   async cmdReset() {
-    const data = '<?xml version="1.0" ?><data><power value="reset"/></data>';
-    const val = await this.xmlSend(data);
+    const val = await this.xmlSend(toXml("power", { value: "reset" }));
     if (val.resp) {
       console.info("Reset succeeded");
       // Drain log buffer
@@ -341,8 +339,7 @@ export class Firehose {
    * @returns {Promise<string[]>}
    */
   async cmdGetStorageInfo() {
-    const data = '<?xml version="1.0" ?><data><getstorageinfo physical_partition_number="0" /></data>';
-    const resp = await this.xmlSend(data);
+    const resp = await this.xmlSend(toXml("getstorageinfo", { physical_partition_number: 0 }));
     if (!resp.resp || !resp.log) throw new Error("Failed to get storage info", { cause: resp.error });
     return resp.log;
   }
