@@ -152,19 +152,23 @@ async function populate(chunks, blockSize) {
 
   for (const chunk of chunks) {
     const { type: chunkType, blocks, data } = chunk;
+    const dataSize = data.size;
 
     if (chunkType === ChunkType.Raw) {
-      ret.set(new Uint8Array(await data.arrayBuffer()), offset);
+      const rawData = new Uint8Array(await data.arrayBuffer());
+      ret.set(rawData, offset);
       offset += blocks * blockSize;
     } else if (chunkType === ChunkType.Fill) {
       const fillBin = new Uint8Array(await data.arrayBuffer());
-      for (let i = 0; i < blocks * blockSize; i += data.size) {
+      const bufferSize = blocks * blockSize;
+      for (let i = 0; i < bufferSize; i += dataSize) {
         ret.set(fillBin, offset);
-        offset += data.size;
+        offset += dataSize;
       }
     } else if (chunkType === ChunkType.Skip) {
       const byteToSend = blocks * blockSize;
-      ret.set(new Uint8Array(byteToSend).fill(0), offset);
+      const skipData = new Uint8Array(byteToSend).fill(0);
+      ret.set(skipData, offset);
       offset += byteToSend;
     } else if (chunkType === ChunkType.Crc32) {
       continue;
