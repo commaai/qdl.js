@@ -1,6 +1,6 @@
 import * as Sparse from "./sparse"
 import { concatUint8Array, containsBytes, compareStringToBytes, sleep } from "./utils"
-import { toXml, xmlParser } from "./xml.js"
+import { toXml, xmlParser } from "./xml"
 
 
 /**

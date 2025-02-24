@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { toXml, xmlParser } from "./xml.js";
+import { toXml, xmlParser } from "./xml";
 
 
 describe("toXml", () => {
