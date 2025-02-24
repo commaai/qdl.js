@@ -103,7 +103,6 @@ export class Firehose {
    * @returns {Promise<boolean>}
    */
   async configure() {
-    // FIXME: is encoding="UTF-8" required?
     const connectCmd = toXml("configure", {
       MemoryName: this.cfg.MemoryName,
       Verbose: 0,
