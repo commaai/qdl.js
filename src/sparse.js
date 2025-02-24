@@ -71,7 +71,7 @@ export class Sparse {
         return 0;
       }
     } else {
-      throw `Sparse - Unknown chunk type: ${chunkType}`;
+      throw "Sparse - Unknown chunk type";
     }
   }
 
