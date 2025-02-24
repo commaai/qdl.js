@@ -49,8 +49,8 @@ export class Sparse {
    */
   calcChunkRealSize(chunk) {
     const { type: chunkType, blocks, data } = chunk;
-    const dataSize = chunk.data.size;
-    if (chunkType === ChunkType.Raw){
+    const dataSize = data.size;
+    if (chunkType === ChunkType.Raw) {
       if (dataSize !== (blocks * this.blockSize)) {
         throw "Sparse - Chunk input size does not match output size";
       } else {
