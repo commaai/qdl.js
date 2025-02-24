@@ -185,6 +185,8 @@ async function populate(chunks, blockSize) {
  * @param {number} splitSize
  */
 export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTarget */) {
+  const safeToSend = splitSize;
+
   const header = await parseFileHeader(blob.slice(0, FILE_HEADER_SIZE));
   if (header === null) {
     yield blob;
@@ -202,14 +204,14 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
     const isChunkTypeSkip = originalChunk.type === ChunkType.Skip;
     const isChunkTypeFill = originalChunk.type === ChunkType.Fill;
 
-    if (realBytesToWrite > splitSize) {
+    if (realBytesToWrite > safeToSend) {
       let bytesToWrite = isChunkTypeSkip ? 1 : originalChunk.dataBytes;
 
       while (bytesToWrite > 0) {
-        const toSend = Math.min(splitSize, bytesToWrite);
+        const toSend = Math.min(safeToSend, bytesToWrite);
         if (isChunkTypeFill || isChunkTypeSkip) {
           while (realBytesToWrite > 0) {
-            const realSend = Math.min(splitSize, realBytesToWrite);
+            const realSend = Math.min(safeToSend, realBytesToWrite);
             chunksToProcess.push({
               type: originalChunk.type,
               blocks: realSend / header.blockSize,
@@ -233,7 +235,7 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
       chunksToProcess.push(originalChunk);
     }
     for (const chunk of chunksToProcess) {
-      const remainingBytes = splitSize - splitChunks.map((chunk) => sparse.calcChunkRealSize(chunk)).reduce((total, c) => total + c, 0);
+      const remainingBytes = safeToSend - splitChunks.map((chunk) => sparse.calcChunkRealSize(chunk)).reduce((total, c) => total + c, 0);
       const realChunkBytes = sparse.calcChunkRealSize(chunk);
       if (remainingBytes >= realChunkBytes) {
         splitChunks.push(chunk);
