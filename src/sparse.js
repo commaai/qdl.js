@@ -49,17 +49,27 @@ export class Sparse {
    */
   calcChunkRealSize(chunk) {
     const { type: chunkType, blocks, data } = chunk;
+    const dataSize = chunk.data.size;
     if (chunkType === ChunkType.Raw){
-      if (data.size !== (blocks * this.blockSize)) throw "Sparse - Chunk input size does not match output size";
-      return data.size;
+      if (dataSize !== (blocks * this.blockSize)) {
+        throw "Sparse - Chunk input size does not match output size";
+      } else {
+        return dataSize;
+      }
     } else if (chunkType === ChunkType.Fill) {
-      if (data.size !== 4) throw "Sparse - Fill chunk should have 4 bytes";
-      return blocks * this.blockSize;
+      if (dataSize !== 4) {
+        throw "Sparse - Fill chunk should have 4 bytes";
+      } else {
+        return blocks * this.blockSize;
+      }
     } else if (chunkType === ChunkType.Skip) {
       return blocks * this.blockSize;
     } else if (chunkType === ChunkType.Crc32) {
-      if (data.size !== 4) throw "Sparse - CRC32 chunk should have 4 bytes";
-      return 0;
+      if (dataSize !== 4) {
+        throw "Sparse - CRC32 chunk should have 4 bytes";
+      } else {
+        return 0;
+      }
     } else {
       throw `Sparse - Unknown chunk type: ${chunkType}`;
     }
