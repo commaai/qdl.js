@@ -208,7 +208,7 @@ export class Firehose {
 
     const rsp = await this.xmlSend(toXml("program", {
       SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
-      num_physical_sectors: numPartitionSectors,
+      num_partition_sectors: numPartitionSectors,
       physical_partition_number: physicalPartitionNumber,
       start_sector: startSector,
     }));
