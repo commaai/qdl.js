@@ -90,7 +90,9 @@ export class Sparse {
    */
   async getSize() {
     let length = 0;
-    for await (const chunk of this) length += this.calcChunkRealSize(chunk);
+    for await (const chunk of this) {
+      length += this.calcChunkRealSize(chunk);
+    }
     return length;
   }
 }
