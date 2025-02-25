@@ -21,7 +21,7 @@ describe("sparse", () => {
     });
   });
 
-  describe("Sparse", async () => {
+  describe("Sparse", () => {
     /** @type {Sparse.Sparse} */
     let sparse;
 
