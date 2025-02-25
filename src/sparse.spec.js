@@ -32,6 +32,7 @@ describe("sparse", () => {
     test("splitSize", async () => {
       const splitSize = 1024;
       for await (const part of Sparse.splitBlob(inputData, splitSize)) {
+        expect(part.size).toBeGreaterThan(0);
         expect(part.size).toBeLessThanOrEqual(splitSize);
       }
     });
