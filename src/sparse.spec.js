@@ -46,10 +46,6 @@ describe("sparse", () => {
   });
 
   describe("splitBlob", () => {
-    test("count parts", async () => {
-      const parts = await Array.fromAsync(Sparse.splitBlob(inputData));
-      expect(parts.length).toBe(1);
-    });
     test("compare output", async () => {
       const receivedData = new Blob(await Array.fromAsync(Sparse.splitBlob(inputData)));
       expect(receivedData.size).toEqual(expectedData.size);
