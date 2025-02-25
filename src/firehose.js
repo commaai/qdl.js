@@ -198,7 +198,8 @@ export class Firehose {
     const sparseHeader = await Sparse.parseFileHeader(blob.slice(0, Sparse.FILE_HEADER_SIZE));
     if (sparseHeader !== null) {
       sparseformat = true;
-      total = await Sparse.getSparseRealSize(blob, sparseHeader);
+      const sparse = new Sparse.Sparse(blob, sparseHeader);
+      total = await sparse.getSize();
     }
 
     let numPartitionSectors = Math.floor(total / this.cfg.SECTOR_SIZE_IN_BYTES);

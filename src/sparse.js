@@ -39,8 +39,7 @@ export class Sparse {
    */
   constructor(blob, header) {
     this.blob = blob;
-    this.blockSize = header.blockSize;
-    this.totalChunks = header.totalChunks;
+    this.header = header;
   }
 
   /**
@@ -51,7 +50,7 @@ export class Sparse {
     const { type: chunkType, blocks, data } = chunk;
     const dataSize = data.size;
     if (chunkType === ChunkType.Raw) {
-      if (dataSize !== (blocks * this.blockSize)) {
+      if (dataSize !== (blocks * this.header.blockSize)) {
         throw "Sparse - Chunk input size does not match output size";
       } else {
         return dataSize;
@@ -60,10 +59,10 @@ export class Sparse {
       if (dataSize !== 4) {
         throw "Sparse - Fill chunk should have 4 bytes";
       } else {
-        return blocks * this.blockSize;
+        return blocks * this.header.blockSize;
       }
     } else if (chunkType === ChunkType.Skip) {
-      return blocks * this.blockSize;
+      return blocks * this.header.blockSize;
     } else if (chunkType === ChunkType.Crc32) {
       if (dataSize !== 4) {
         throw "Sparse - CRC32 chunk should have 4 bytes";
@@ -80,7 +79,7 @@ export class Sparse {
    */
   async *[Symbol.asyncIterator]() {
     let blobOffset = FILE_HEADER_SIZE;
-    for (let i = 0; i < this.totalChunks; i++) {
+    for (let i = 0; i < this.header.totalChunks; i++) {
       const chunk = await this.blob.slice(blobOffset, blobOffset + CHUNK_HEADER_SIZE).arrayBuffer();
       const view = new DataView(chunk);
       const totalBytes = view.getUint32(8, true);
@@ -103,17 +102,6 @@ export class Sparse {
     }
     return length;
   }
-}
-
-
-/**
- * @param {Blob} blob
- * @param {Header} header
- * @returns {Promise<number>}
- */
-export async function getSparseRealSize(blob, header) {
-  const sparseImage = new Sparse(blob, header);
-  return await sparseImage.getSize();
 }
 
 

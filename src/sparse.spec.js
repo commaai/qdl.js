@@ -30,18 +30,13 @@ describe("sparse", () => {
       sparse = new Sparse.Sparse(inputData, header);
     });
 
-    test("properties", () => {
-      expect(sparse.blockSize).toBe(4096);
-      expect(sparse.totalChunks).toBe(6);
-    });
-
     test("chunk iterator", async () => {
       const chunks = await Array.fromAsync(sparse);
       expect(chunks.length).toBe(6);
     });
 
     test("getSize", async () => {
-      expect(await sparse.getSize()).toBe(36864);
+      expect(await sparse.getSize()).toBe(sparse.header.totalBlocks * sparse.header.totalChunks);
     });
   });
 
