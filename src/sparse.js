@@ -301,7 +301,7 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
     }
     for (const chunk of chunksToProcess) {
       const remainingBytes = splitSize - calcChunksSize(splitChunks);
-      const realChunkBytes = calcChunksRealDataBytes(chunk);
+      const realChunkBytes = calcChunksRealDataBytes(chunk, header.blockSize);
       if (remainingBytes >= realChunkBytes) {
         splitChunks.push(chunk);
       } else {
