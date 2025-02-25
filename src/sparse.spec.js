@@ -42,9 +42,15 @@ describe("sparse", () => {
 
   describe("splitBlob", () => {
     test("compare output", async () => {
-      const receivedData = new Blob(await Array.fromAsync(Sparse.splitBlob(inputData)));
-      expect(receivedData.size).toEqual(expectedData.size);
-      expect(Buffer.from(new Uint8Array(await receivedData.arrayBuffer())).compare(new Uint8Array(await expectedData.arrayBuffer()))).toBe(0);
+      let offset = 0;
+      for await (const blob of Sparse.splitBlob(inputData)) {
+        const receivedChunkBuffer = Buffer.from(new Uint8Array(await blob.arrayBuffer()));
+        const expectedSlice = expectedData.slice(offset, offset + blob.size);
+        const expectedChunkBuffer = Buffer.from(new Uint8Array(await expectedSlice.arrayBuffer()));
+        expect(receivedChunkBuffer.compare(expectedChunkBuffer), `range ${offset} to ${offset + blob.size}`).toBe(0);
+        offset += blob.size;
+      }
+      expect(offset).toEqual(expectedData.size);
     });
     test.each([1024, 8192])("splitSize: %p", async (splitSize) => {
       let prevSize = 0;
