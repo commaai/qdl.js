@@ -23,8 +23,7 @@ describe("sparse", () => {
 
   describe("splitBlob", () => {
     test("compare output", async () => {
-      const parts = await Array.fromAsync(Sparse.splitBlob(inputData));
-      const receivedData = new Blob(parts);
+      const receivedData = new Blob(await Array.fromAsync(Sparse.splitBlob(inputData)));
       expect(receivedData.size).toEqual(expectedData.size);
       expect(Buffer.from(new Uint8Array(await receivedData.arrayBuffer())).compare(new Uint8Array(await expectedData.arrayBuffer()))).toBe(0);
     });
