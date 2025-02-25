@@ -212,7 +212,7 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
     const isChunkTypeFill = originalChunk.type === ChunkType.Fill;
 
     if (realBytesToWrite > safeToSend) {
-      let bytesToWrite = isChunkTypeSkip ? 1 : originalChunk.dataBytes;
+      let bytesToWrite = isChunkTypeSkip ? 1 : originalChunk.data.size;
 
       while (bytesToWrite > 0) {
         const toSend = Math.min(safeToSend, bytesToWrite);
