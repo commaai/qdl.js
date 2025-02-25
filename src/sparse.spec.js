@@ -5,6 +5,8 @@ import * as Sparse from "./sparse";
 
 const inputData = Bun.file("./test/fixtures/sparse.img");
 const expectedData = Bun.file("./test/fixtures/raw.img");
+// const inputData = Bun.file("/home/cameron/comma/agnos-builder/output/system.img");
+// const expectedData = Bun.file("/home/cameron/comma/agnos-builder/output/system-raw2.img");
 
 describe("sparse", () => {
   /** @type {import("./sparse").Header} */
@@ -51,10 +53,16 @@ describe("sparse", () => {
       let offset = 0;
       for await (const blob of Sparse.splitBlob(inputData)) {
         const receivedChunkBuffer = Buffer.from(new Uint8Array(await blob.arrayBuffer()));
-        const expectedSlice = expectedData.slice(offset, offset + blob.size);
-        const expectedChunkBuffer = Buffer.from(new Uint8Array(await expectedSlice.arrayBuffer()));
-        expect(receivedChunkBuffer.compare(expectedChunkBuffer), `range ${offset} to ${offset + blob.size}`).toBe(0);
+        const [start, end] = [offset, offset + blob.size];
         offset += blob.size;
+        const expectedSlice = expectedData.slice(start, end);
+        const expectedChunkBuffer = Buffer.from(new Uint8Array(await expectedSlice.arrayBuffer()));
+        const result = receivedChunkBuffer.compare(expectedChunkBuffer);
+        if (result) {
+          console.debug("Expected:", expectedChunkBuffer.toString("hex"));
+          console.debug("Received:", receivedChunkBuffer.toString("hex"));
+        }
+        expect(result, `range ${start} to ${end} differs`).toBe(0);
       }
       expect(offset).toEqual(expectedData.size);
     });
