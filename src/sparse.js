@@ -77,9 +77,12 @@ export class Sparse {
   /**
    * @returns {AsyncIterator<Chunk>}
    */
-  async *[Symbol.asyncIterator]() {
+  async* [Symbol.asyncIterator]() {
     let blobOffset = FILE_HEADER_SIZE;
     for (let i = 0; i < this.header.totalChunks; i++) {
+      if (blobOffset + CHUNK_HEADER_SIZE >= this.blob.size) {
+        throw "Sparse - Chunk out of bounds";
+      }
       const chunk = await this.blob.slice(blobOffset, blobOffset + CHUNK_HEADER_SIZE).arrayBuffer();
       const view = new DataView(chunk);
       const totalBytes = view.getUint32(8, true);
@@ -89,6 +92,9 @@ export class Sparse {
         data: this.blob.slice(blobOffset + CHUNK_HEADER_SIZE, blobOffset + totalBytes),
       };
       blobOffset += totalBytes;
+    }
+    if (blobOffset !== this.blob.size) {
+      console.warn("Sparse - Backing data larger expected");
     }
   }
 
