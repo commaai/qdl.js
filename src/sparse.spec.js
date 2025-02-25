@@ -21,9 +21,19 @@ describe("sparse", () => {
     });
   });
 
-  test("splitBlob", async () => {
-    const receivedData = new Blob(await Array.fromAsync(Sparse.splitBlob(inputData)));
-    expect(receivedData.size).toEqual(expectedData.size);
-    expect(Buffer.from(new Uint8Array(await receivedData.arrayBuffer())).compare(new Uint8Array(await expectedData.arrayBuffer()))).toBe(0);
+  describe("splitBlob", () => {
+    test("compare output", async () => {
+      const parts = await Array.fromAsync(Sparse.splitBlob(inputData));
+      const receivedData = new Blob(parts);
+      expect(receivedData.size).toEqual(expectedData.size);
+      expect(Buffer.from(new Uint8Array(await receivedData.arrayBuffer())).compare(new Uint8Array(await expectedData.arrayBuffer()))).toBe(0);
+    });
+
+    test("splitSize", async () => {
+      const splitSize = 1024;
+      for await (const part of Sparse.splitBlob(inputData, splitSize)) {
+        expect(part.size).toBeLessThanOrEqual(splitSize);
+      }
+    });
   });
 });
