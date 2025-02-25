@@ -23,7 +23,7 @@ describe("sparse", () => {
 
   test("getSparseRealSize", async () => {
     const header = await Sparse.parseFileHeader(inputData);
-    expect(await Sparse.getSparseRealSize(inputData, header)).toBe(36864);
+    expect(await Sparse.getSparseRealSize(inputData, header)).toBe(9 * 4096);
   });
 
   describe("splitBlob", () => {
