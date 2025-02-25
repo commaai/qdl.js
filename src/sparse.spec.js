@@ -32,23 +32,23 @@ describe("sparse", () => {
 
     test("properties", () => {
       expect(sparse.blockSize).toBe(4096);
-      expect(sparse.totalChunks).toBe(5);
+      expect(sparse.totalChunks).toBe(6);
     });
 
     test("chunk iterator", async () => {
       const chunks = await Array.fromAsync(sparse);
-      expect(chunks.length).toBe(5);
+      expect(chunks.length).toBe(6);
     });
 
     test("getSize", async () => {
-      expect(await sparse.getSize()).toBe(20480);
+      expect(await sparse.getSize()).toBe(36864);
     });
   });
 
   describe("splitBlob", () => {
     test("count parts", async () => {
       const parts = await Array.fromAsync(Sparse.splitBlob(inputData));
-      expect(parts.length).toBe(5);
+      expect(parts.length).toBe(1);
     });
     test("compare output", async () => {
       const receivedData = new Blob(await Array.fromAsync(Sparse.splitBlob(inputData)));
