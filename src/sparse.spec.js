@@ -5,8 +5,6 @@ import * as Sparse from "./sparse";
 
 const inputData = Bun.file("./test/fixtures/sparse.img");
 const expectedData = Bun.file("./test/fixtures/raw.img");
-// const inputData = Bun.file("/home/cameron/comma/agnos-builder/output/system.img");
-// const expectedData = Bun.file("/home/cameron/comma/agnos-builder/output/system-raw2.img");
 
 describe("sparse", () => {
   /** @type {import("./sparse").Header} */
