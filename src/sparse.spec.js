@@ -7,8 +7,15 @@ const inputData = Bun.file("./test/fixtures/sparse.img");
 const expectedData = Bun.file("./test/fixtures/raw.img");
 
 describe("sparse", () => {
-  test("parseFileHeader", async () => {
-    expect(await Sparse.parseFileHeader(inputData)).toEqual({
+  /** @type {import("./sparse").Header} */
+  let header;
+
+  beforeAll(async () => {
+    header = await Sparse.parseFileHeader(inputData);
+  });
+
+  test("parseFileHeader", () => {
+    expect(header).toEqual({
       magic: 0xED26FF3A,
       majorVersion: 1,
       minorVersion: 0,
@@ -25,14 +32,13 @@ describe("sparse", () => {
     /** @type {Sparse.Sparse} */
     let sparse;
 
-    beforeAll(async () => {
-      const header = await Sparse.parseFileHeader(inputData);
+    beforeAll(() => {
       sparse = new Sparse.Sparse(inputData, header);
     });
 
     test("chunk iterator", async () => {
       const chunks = await Array.fromAsync(sparse);
-      expect(chunks.length).toBe(6);
+      expect(chunks.length).toBe(sparse.header.totalChunks);
     });
 
     test("getSize", async () => {
