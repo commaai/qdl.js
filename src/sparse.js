@@ -81,11 +81,14 @@ export class Sparse {
     let blobOffset = FILE_HEADER_SIZE;
     for (let i = 0; i < this.header.totalChunks; i++) {
       if (blobOffset + CHUNK_HEADER_SIZE >= this.blob.size) {
-        throw "Sparse - Chunk out of bounds";
+        throw "Sparse - Chunk header out of bounds";
       }
       const chunk = await this.blob.slice(blobOffset, blobOffset + CHUNK_HEADER_SIZE).arrayBuffer();
       const view = new DataView(chunk);
       const totalBytes = view.getUint32(8, true);
+      if (blobOffset + totalBytes > this.blob.size) {
+        throw "Sparse - Chunk data out of bounds";
+      }
       yield {
         type: view.getUint16(0, true),
         blocks: view.getUint32(4, true),
