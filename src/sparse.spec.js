@@ -36,7 +36,7 @@ describe("sparse", () => {
     });
 
     test("getSize", async () => {
-      expect(await sparse.getSize()).toBe(sparse.header.totalBlocks * sparse.header.totalChunks);
+      expect(await sparse.getSize()).toBe(sparse.header.totalBlocks * sparse.header.blockSize);
     });
   });
 
