@@ -84,13 +84,12 @@ export class Sparse {
       const chunk = await this.blob.slice(blobOffset, blobOffset + CHUNK_HEADER_SIZE).arrayBuffer();
       const view = new DataView(chunk);
       const totalBytes = view.getUint32(8, true);
-      const data = this.blob.slice(blobOffset + CHUNK_HEADER_SIZE, blobOffset + totalBytes);
-      blobOffset += totalBytes;
       yield {
         type: view.getUint16(0, true),
         blocks: view.getUint32(4, true),
-        data,
+        data: this.blob.slice(blobOffset + CHUNK_HEADER_SIZE, blobOffset + totalBytes),
       };
+      blobOffset += totalBytes;
     }
   }
 
