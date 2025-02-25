@@ -15,8 +15,8 @@ describe("sparse", () => {
       fileHeaderSize: 28,
       chunkHeaderSize: 12,
       blockSize: 4096,
-      totalBlocks: 5,
-      totalChunks: 5,
+      totalBlocks: 9,
+      totalChunks: 6,
       crc32: 0,
     });
   });
