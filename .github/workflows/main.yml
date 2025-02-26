@@ -41,7 +41,9 @@ jobs:
         run: |
           url=$(curl https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/agnos.json | jq -r ".[] | select(.name == \"system\") | .url")
           curl -L $url | unxz > system.img
-          simg2img system.img system-raw.img
+
+      - name: generate raw system image
+        run: simg2img system.img system-raw.img
 
       - name: run sparse benchmark
         run: bun scripts/sparse-benchmark.js system.img system-raw.img
