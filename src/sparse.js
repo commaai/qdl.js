@@ -47,30 +47,20 @@ export class Sparse {
    * @returns {number}
    */
   calcChunkRealSize(chunk) {
-    const { type: chunkType, blocks, data } = chunk;
-    const dataSize = data.size;
-    if (chunkType === ChunkType.Raw) {
-      if (dataSize !== (blocks * this.header.blockSize)) {
-        throw "Sparse - Chunk input size does not match output size";
-      } else {
-        return dataSize;
-      }
-    } else if (chunkType === ChunkType.Fill) {
-      if (dataSize !== 4) {
-        throw "Sparse - Fill chunk should have 4 bytes";
-      } else {
-        return blocks * this.header.blockSize;
-      }
-    } else if (chunkType === ChunkType.Skip) {
-      return blocks * this.header.blockSize;
-    } else if (chunkType === ChunkType.Crc32) {
-      if (dataSize !== 4) {
-        throw "Sparse - CRC32 chunk should have 4 bytes";
-      } else {
+    switch (chunk.type) {
+      case ChunkType.Raw:
+        if (chunk.data.size !== (chunk.blocks * this.header.blockSize)) throw "Sparse - Chunk input size does not match output size";
+        return chunk.data.size;
+      case ChunkType.Fill:
+        if (chunk.data.size !== 4) throw "Sparse - Fill chunk should have 4 bytes";
+        return chunk.blocks * this.header.blockSize;
+      case ChunkType.Skip:
+        return chunk.blocks * this.header.blockSize;
+      case ChunkType.Crc32:
+        if (chunk.data.size !== 4) throw "Sparse - CRC32 chunk should have 4 bytes";
         return 0;
-      }
-    } else {
-      throw "Sparse - Unknown chunk type";
+      default:
+        throw "Sparse - Unknown chunk type";
     }
   }
 
@@ -147,6 +137,7 @@ export async function parseFileHeader(blob) {
   };
 }
 
+
 /**
  * @param {Chunk[]} chunks
  * @param {number} blockSize
@@ -156,31 +147,19 @@ async function populate(chunks, blockSize) {
   const blockCount = chunks.reduce((total, chunk) => total + chunk.blocks, 0);
   const ret = new Uint8Array(blockCount * blockSize);
   let offset = 0;
-
-  for (const chunk of chunks) {
-    const { type: chunkType, blocks, data } = chunk;
-    const dataSize = data.size;
-
-    if (chunkType === ChunkType.Raw) {
-      const rawData = new Uint8Array(await data.arrayBuffer());
-      ret.set(rawData, offset);
+  for (const { type, blocks, data } of chunks) {
+    if (type === ChunkType.Raw) {
+      ret.set(new Uint8Array(await data.arrayBuffer()), offset);
+      offset += data.size;
+    } else if (type === ChunkType.Fill) {
+      const fill = new Uint8Array(await data.arrayBuffer());
+      const end = offset + blocks * blockSize;
+      for (; offset < end; offset += data.size) ret.set(fill, offset);
+    } else if (type === ChunkType.Skip) {
+      ret.set(new Uint8Array(blocks * blockSize), offset);
       offset += blocks * blockSize;
-    } else if (chunkType === ChunkType.Fill) {
-      const fillBin = new Uint8Array(await data.arrayBuffer());
-      const bufferSize = blocks * blockSize;
-      for (let i = 0; i < bufferSize; i += dataSize) {
-        ret.set(fillBin, offset);
-        offset += dataSize;
-      }
-    } else if (chunkType === ChunkType.Skip) {
-      const byteToSend = blocks * blockSize;
-      const skipData = new Uint8Array(byteToSend).fill(0);
-      ret.set(skipData, offset);
-      offset += byteToSend;
-    } else if (chunkType === ChunkType.Crc32) {
-      continue;
     } else {
-      throw "Sparse - Unknown chunk type";
+      throw "Sparse - Unhandled chunk type";
     }
   }
   return new Blob([ret]);
@@ -204,6 +183,8 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
   let splitChunks = [];
   const sparse = new Sparse(blob, header);
   for await (const originalChunk of sparse) {
+    if (originalChunk.type === ChunkType.Crc32) continue;
+
     /** @type {Chunk[]} */
     const chunksToProcess = [];
     let realBytesToWrite = sparse.calcChunkRealSize(originalChunk);
@@ -222,7 +203,6 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
             chunksToProcess.push({
               type: originalChunk.type,
               blocks: realSend / header.blockSize,
-              dataBytes: isChunkTypeSkip ? 0 : toSend,
               data: isChunkTypeSkip ? new Blob([]) : originalChunk.data.slice(0, toSend),
             });
             realBytesToWrite -= realSend;
@@ -231,7 +211,6 @@ export async function* splitBlob(blob, splitSize = 1048576 /* maxPayloadSizeToTa
           chunksToProcess.push({
             type: originalChunk.type,
             blocks: toSend / header.blockSize,
-            dataBytes: toSend,
             data: originalChunk.data.slice(0, toSend),
           });
         }
