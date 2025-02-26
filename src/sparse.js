@@ -113,10 +113,6 @@ export class Sparse {
           for (let i = 0; i < buffer.byteLength; i += 4) buffer.set(fill, i);
         }
         yield* builder.append(new Blob([buffer]));
-      } else if (type === ChunkType.Crc32) {
-        continue;
-      } else {
-        throw "Sparse - Unhandled chunk type";
       }
     }
     yield* builder.flush();
