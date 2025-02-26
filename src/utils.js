@@ -168,8 +168,7 @@ export class BlobBuilder {
   async *append(data) {
     let dataOffset = 0;
     while (dataOffset < data.size) {
-      const maxChunkSize = this.maxSize - this.offset;
-      const chunkData = data.slice(dataOffset, dataOffset + maxChunkSize);
+      const chunkData = data.slice(dataOffset, this.maxSize - this.offset + dataOffset);
       dataOffset += chunkData.size;
       this.buffer.set(new Uint8Array(await chunkData.arrayBuffer()), this.offset);
       this.offset += chunkData.size;
