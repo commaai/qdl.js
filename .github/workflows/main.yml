@@ -40,7 +40,7 @@ jobs:
       - name: download system image
         run: |
           url=$(curl https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/agnos.json | jq -r ".[] | select(.name == \"system\") | .url")
-          wget -O system.img $url
+          curl -L $url | unxz > system.img
           simg2img system.img system-raw.img
 
       - name: run sparse benchmark
