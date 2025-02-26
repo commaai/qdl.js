@@ -35,7 +35,7 @@ jobs:
       - run: bun install
 
       - name: install sparse image tool
-        run: apt-get update && apt-get install -y simg2img
+        run: sudo apt-get update && sudo apt-get install -y simg2img
 
       - name: download system image
         run: |
