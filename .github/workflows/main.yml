@@ -26,6 +26,26 @@ jobs:
       - run: bun test
       - run: bun run build
 
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+      - run: bun install
+
+      - name: install sparse image tool
+        run: apt-get update && apt-get install -y simg2img
+
+      - name: download system image
+        run: |
+          url=$(curl https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/agnos.json | jq -r ".[] | select(.name == \"system\") | .url")
+          wget -O system.img $url
+          simg2img system.img system-raw.img
+
+      - name: run sparse benchmark
+        run: bun scripts/sparse-benchmark.js system.img system-raw.img
+
   demo:
     runs-on: ubuntu-24.04
     timeout-minutes: 1
