@@ -37,10 +37,24 @@ jobs:
       - name: install sparse image tool
         run: sudo apt-get update && sudo apt-get install -y android-sdk-libsparse-utils
 
-      - name: download system image
+      - id: image
         run: |
-          url=$(curl https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/agnos.json | jq -r ".[] | select(.name == \"system\") | .url")
-          curl -L $url | unxz > system.img
+          meta=$(curl https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/agnos.json | jq ".[] | select(.name == \"system\")")
+          echo hash=$(jq -r '.hash' <<< "$meta") >> $GITHUB_OUTPUT
+          echo url=$(jq -r '.url' <<< "$meta") >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        id: cache-system-image
+        with:
+          path: system.img.xz
+          key: system-image-${{ steps.image.outputs.hash }}
+
+      - name: download system image
+        if: steps.cache-system-image.outputs.cache-hit != 'true'
+        run: curl -L ${{ steps.image.outputs.url }} > system.img.xz
+
+      - name: unpack system image
+        run: cat system.img.xz | unxz > system.img
 
       - name: generate raw system image
         run: simg2img system.img system-raw.img
