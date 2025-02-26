@@ -149,3 +149,42 @@ export function runWithTimeout(promise, timeout) {
       });
   });
 }
+
+
+export class BlobBuilder {
+  /**
+   * @param {number} maxSize
+   */
+  constructor(maxSize) {
+    this.maxSize = maxSize;
+    this.buffer = new Uint8Array(maxSize);
+    this.offset = 0;
+  }
+
+  /**
+   * @param {Blob} data
+   * @returns {AsyncIterator<Uint8Array>}
+   */
+  async *append(data) {
+    let dataOffset = 0;
+    while (dataOffset < data.size) {
+      const maxChunkSize = this.maxSize - this.offset;
+      const chunkData = data.slice(dataOffset, dataOffset + maxChunkSize);
+      dataOffset += chunkData.size;
+      this.buffer.set(new Uint8Array(await chunkData.arrayBuffer()), this.offset);
+      this.offset += chunkData.size;
+      if (this.offset === this.maxSize) yield* this.flush();
+    }
+  }
+
+  /**
+   * @returns {Iterator<Uint8Array>}
+   */
+  *flush() {
+    if (this.offset) {
+      yield this.buffer.slice(0, this.offset);
+      this.buffer = new Uint8Array(this.maxSize);
+      this.offset = 0;
+    }
+  }
+}

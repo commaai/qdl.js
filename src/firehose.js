@@ -192,13 +192,12 @@ export class Firehose {
    * @returns {Promise<boolean>}
    */
   async cmdProgram(physicalPartitionNumber, startSector, blob, onProgress = undefined) {
+    let sparseFormat = false;
     let total = blob.size;
-    let sparseformat = false;
 
-    const sparseHeader = await Sparse.parseFileHeader(blob.slice(0, Sparse.FILE_HEADER_SIZE));
-    if (sparseHeader !== null) {
-      sparseformat = true;
-      const sparse = new Sparse.Sparse(blob, sparseHeader);
+    const sparse = await Sparse.from(blob);
+    if (sparse) {
+      sparseFormat = true;
       total = await sparse.getSize();
     }
 
@@ -217,14 +216,13 @@ export class Firehose {
     let bytesWritten = 0;
 
     if (rsp.resp) {
-
-      for await (const split of Sparse.splitBlob(blob)) {
+      for await (const data of sparse.read()) {
         let offset = 0;
-        let bytesToWriteSplit = split.size;
+        let bytesToWrite = data.byteLength;
 
-        while (bytesToWriteSplit > 0) {
-          const wlen = Math.min(bytesToWriteSplit, this.cfg.MaxPayloadSizeToTargetInBytes);
-          let wdata = new Uint8Array(await split.slice(offset, offset + wlen).arrayBuffer());
+        while (bytesToWrite > 0) {
+          const wlen = Math.min(bytesToWrite, this.cfg.MaxPayloadSizeToTargetInBytes);
+          let wdata = new Uint8Array(data.slice(offset, offset + wlen));
           if (wlen % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
             const fillLen = (Math.floor(wlen/this.cfg.SECTOR_SIZE_IN_BYTES) * this.cfg.SECTOR_SIZE_IN_BYTES) +
                           this.cfg.SECTOR_SIZE_IN_BYTES;
@@ -235,11 +233,11 @@ export class Firehose {
           await this.cdc.write(new Uint8Array(0), true);
           offset += wlen;
           bytesWritten += wlen;
-          bytesToWriteSplit -= wlen;
+          bytesToWrite -= wlen;
 
           // Need this for sparse image when the data.length < MaxPayloadSizeToTargetInBytes
           // Add ~2.4s to total flash time
-          if (sparseformat && bytesWritten < total) {
+          if (sparseFormat && bytesWritten < total) {
             await this.cdc.write(new Uint8Array(0), true);
           }
 
