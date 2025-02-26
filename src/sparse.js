@@ -101,7 +101,6 @@ export class Sparse {
     if (maxSize % this.header.blockSize !== 0) {
       throw `Sparse - Read ${maxSize} must be a multiple of block size ${this.header.blockSize}`;
     }
-
     const builder = new BlobBuilder(maxSize);
     for await (const { type, blocks, data } of this.chunks()) {
       if (type === ChunkType.Raw) {
