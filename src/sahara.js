@@ -63,7 +63,6 @@ export class Sahara {
     this.id = null;
     this.serial = "";
     this.mode = "";
-    this.rootDir = null;
   }
 
   /**
