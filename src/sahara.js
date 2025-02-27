@@ -2,6 +2,55 @@ import { CommandHandler, cmd_t, sahara_mode_t, status_t, exec_cmd_t } from "./sa
 import { concatUint8Array, packGenerator } from "./utils";
 
 
+class localFile {
+  constructor(url) {
+    this.url = url;
+    this.filename = url.substring(url.lastIndexOf("/") + 1);
+  }
+
+  async download() {
+    const rootDir = await navigator.storage.getDirectory();
+    let writable;
+    try {
+      const fileHandle = await rootDir.getFileHandle(this.filename, { create: true });
+      writable = await fileHandle.createWritable();
+    } catch (error) {
+      throw `Sahara - Error getting file handle ${error}`;
+    }
+    const response = await fetch(this.url, { mode: "cors" })
+    if (!response.ok || !response.body) {
+      throw `Sahara - Failed to fetch loader: ${response.status} ${response.statusText}`;
+    }
+    try {
+      const reader = response.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        await writable.write(value);
+      }
+    } catch (error) {
+      throw `Sahara - Could not read response body: ${error}`;
+    }
+    try {
+      await writable.close();
+    } catch (error) {
+      throw `Sahara - Error closing file handle: ${error}`;
+    }
+  }
+
+  async get() {
+    const rootDir = await navigator.storage.getDirectory();
+    let fileHandle;
+    try {
+      fileHandle = await rootDir.getFileHandle(this.filename);
+    } catch (error) {
+      throw `Sahara - Error getting file handle: ${error}`;
+    }
+    return await fileHandle.getFile();
+  }
+}
+
+
 export class Sahara {
   /**
    * @param {usbClass} cdc
@@ -9,9 +58,8 @@ export class Sahara {
    */
   constructor(cdc, programmerUrl) {
     this.cdc = cdc;
-    this.programmerUrl = programmerUrl;
+    this.programmer = new localFile(programmerUrl);
     this.ch = new CommandHandler();
-    this.programmer = programmerUrl.substring(programmerUrl.lastIndexOf("/") + 1);
     this.id = null;
     this.serial = "";
     this.mode = "";
@@ -126,51 +174,6 @@ export class Sahara {
     return false;
   }
 
-  async downloadLoader() {
-    this.rootDir = await navigator.storage.getDirectory();
-    let writable;
-    try {
-      const fileHandle = await this.rootDir.getFileHandle(this.programmer, { create: true });
-      writable = await fileHandle.createWritable();
-    } catch (error) {
-      throw `Sahara - ${error}`;
-    }
-
-    const response = await fetch(this.programmerUrl, { mode: 'cors' })
-    if (!response.ok) {
-      throw `Sahara - Failed to fetch loader: ${response.status} ${response.statusText}`;
-    }
-
-    try {
-      const reader = response.body.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
-        await writable.write(value);
-      }
-    } catch (error) {
-      throw `Sahara - Could not read response body: ${error}`;
-    }
-
-    try {
-      await writable.close()
-    } catch (error) {
-      throw `Sahara - Error closing file handle: ${error}`;
-    }
-  }
-
-  async getLoader() {
-    let fileHandle;
-    try {
-      fileHandle = await this.rootDir.getFileHandle(this.programmer, { create: false })
-    } catch (error) {
-      throw `Sahara - Error getting file handle: ${error}`;
-    }
-    return await fileHandle.getFile();
-  }
-
   async uploadLoader() {
     if (!(await this.enterCommandMode())) {
       throw "Sahara - Failed to enter command mode in Sahara";
@@ -180,8 +183,8 @@ export class Sahara {
 
     await this.connect();
     console.debug("[sahara] Uploading loader...");
-    await this.downloadLoader();
-    const loaderBlob = await this.getLoader();
+    await this.programmer.download();
+    const loaderBlob = await this.programmer.get();
     let programmer = new Uint8Array(await loaderBlob.arrayBuffer());
     if (!(await this.cmdHello(sahara_mode_t.SAHARA_MODE_IMAGE_TX_PENDING))) {
       throw "Sahara - Error while uploading loader";
