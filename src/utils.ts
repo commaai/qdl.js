@@ -1,79 +1,54 @@
-export const sleep = ms => new Promise(r => setTimeout(r, ms));
+export const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 
 export class StructHelper {
-  /**
-   * @param {Uint8Array} data
-   */
-  constructor(data) {
-    this.data = data;
-    this.length = data.length;
+  private view: DataView;
+  private _pos = 0;
+
+  constructor(private data: Uint8Array) {
     this.view = new DataView(this.data.buffer);
-    this.pos = 0;
   }
 
-  /**
-   * @param size
-   * @returns {[number, number]}
-   * @private
-   */
-  #advance(size) {
-    const [start, end] = [this.pos, this.pos + size];
-    if (end > this.length) throw new Error("End of data reached");
-    this.pos = end;
+  public get pos(): number {
+    return this._pos;
+  }
+
+  #advance(size: number): [number, number] {
+    const [start, end] = [this._pos, this._pos + size];
+    if (end > this.data.length) throw new Error("End of data reached");
+    this._pos = end;
     return [start, end];
   }
 
-  /**
-   * @param {number} length
-   * @returns {Uint8Array}
-   */
-  bytes(length) {
+  bytes(length: number): Uint8Array {
     const [start, end] = this.#advance(length);
     return this.data.slice(start, end);
   }
 
-  /**
-   * @param {boolean} littleEndian
-   * @returns {number}
-   */
-  dword(littleEndian = true) {
+  dword(littleEndian = true): number {
     const [start] = this.#advance(4);
     return this.view.getUint32(start, littleEndian);
   }
 
-  /**
-   * @param {boolean} littleEndian
-   * @returns {bigint}
-   */
-  qword(littleEndian=true) {
+  qword(littleEndian = true): bigint {
     const [start] = this.#advance(8);
     return this.view.getBigUint64(start, littleEndian);
   }
 }
 
 
-/**
- * @param {number[]} elements
- * @param {boolean} littleEndian
- * @returns {Uint8Array}
- */
-export function packGenerator(elements, littleEndian=true) {
+export function packGenerator(elements: number[], littleEndian = true): Uint8Array {
   const n = elements.length;
-  const buffer = new ArrayBuffer(n*4);
+  const buffer = new ArrayBuffer(n * 4);
   const view = new DataView(buffer);
   for (let i = 0; i < n; i++) {
-    view.setUint32(i*4, elements[i], littleEndian);
+    view.setUint32(i * 4, elements[i], littleEndian);
   }
   return new Uint8Array(view.buffer);
 }
 
 
-/**
- * @param {Uint8Array[]} arrays
- * @returns {Uint8Array}
- */
-export function concatUint8Array(arrays) {
+export function concatUint8Array(arrays: Uint8Array[]): Uint8Array {
   const length = arrays.filter(Boolean).reduce((sum, arr) => sum + arr.length, 0);
   const concatArray = new Uint8Array(length);
   let offset = 0;
@@ -86,33 +61,19 @@ export function concatUint8Array(arrays) {
 }
 
 
-/**
- * @param {string} subString
- * @param {Uint8Array} array
- * @returns {boolean}
- */
-export function containsBytes(subString, array) {
+export function containsBytes(subString: string, array: Uint8Array): boolean {
   const tArray = new TextDecoder().decode(array);
   return tArray.includes(subString);
 }
 
 
-/**
- * @param {string} compareString
- * @param {Uint8Array} array
- * @returns {boolean}
- */
-export function compareStringToBytes(compareString, array) {
+export function compareStringToBytes(compareString: string, array: Uint8Array): boolean {
   const tArray = new TextDecoder().decode(array);
   return compareString === tArray;
 }
 
 
-/**
- * @param {Uint8Array} array
- * @returns {bigint|number}
- */
-export function bytes2Number(array) {
+export function bytes2Number(array: Uint8Array): number | bigint {
   const view = new DataView(array.buffer, 0);
   if (array.length !== 8 && array.length !== 4) {
     throw "Only convert to 64 and 32 bit Number";
@@ -121,13 +82,7 @@ export function bytes2Number(array) {
 }
 
 
-/**
- * @template T
- * @param {Promise<T>} promise
- * @param {number} timeout
- * @returns {Promise<T>}
- */
-export function runWithTimeout(promise, timeout) {
+export function runWithTimeout<T>(promise: Promise<T>, timeout: number): Promise<T> {
   return new Promise((resolve, reject) => {
     let timedOut = false;
     const tid = setTimeout(() => {
@@ -152,34 +107,27 @@ export function runWithTimeout(promise, timeout) {
 
 
 export class BlobBuilder {
-  /**
-   * @param {number} maxSize
-   */
-  constructor(maxSize) {
-    this.maxSize = maxSize;
+  private buffer: Uint8Array;
+  private offset = 0;
+
+  constructor(private maxSize: number) {
     this.buffer = new Uint8Array(maxSize);
-    this.offset = 0;
   }
 
-  /**
-   * @param {Blob} data
-   * @returns {AsyncIterator<Uint8Array>}
-   */
-  async *append(data) {
+  async* append(data: Blob): AsyncIterable<Uint8Array> {
     let dataOffset = 0;
     while (dataOffset < data.size) {
       const chunkData = data.slice(dataOffset, this.maxSize - this.offset + dataOffset);
       dataOffset += chunkData.size;
       this.buffer.set(new Uint8Array(await chunkData.arrayBuffer()), this.offset);
       this.offset += chunkData.size;
-      if (this.offset === this.maxSize) yield* this.flush();
+      if (this.offset === this.maxSize) for (const chunk of this.flush()) {
+        yield chunk;
+      }
     }
   }
 
-  /**
-   * @returns {Iterator<Uint8Array>}
-   */
-  *flush() {
+  * flush(): Iterable<Uint8Array> {
     if (this.offset) {
       yield this.buffer.slice(0, this.offset);
       this.buffer = new Uint8Array(this.maxSize);

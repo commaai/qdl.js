@@ -17,10 +17,10 @@ for await (const data of sparse.read()) {
     const receivedChunkBuffer = Buffer.from(data);
     const [start, end] = [offset, offset + data.byteLength];
     const expectedSlice = expectedRawImage.slice(start, end);
-    const expectedChunkBuffer = Buffer.from(new Uint8Array(await expectedSlice.arrayBuffer()));
+    const expectedChunkBuffer = new Uint8Array(await expectedSlice.arrayBuffer());
     const result = receivedChunkBuffer.compare(expectedChunkBuffer);
     if (result) {
-      console.debug("Expected:", expectedChunkBuffer.toString("hex"));
+      console.debug("Expected:", Buffer.from(expectedChunkBuffer).toString("hex"));
       console.debug("Received:", receivedChunkBuffer.toString("hex"));
       throw `range ${start} to ${end} differs`;
     }

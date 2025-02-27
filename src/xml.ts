@@ -1,33 +1,20 @@
-/**
- * @param {string} tagName
- * @param {Record<string, any>} [attributes={}]
- * @returns {string}
- */
-export function toXml(tagName, attributes = {}) {
+export function toXml(tagName: string, attributes: Record<string, any> = {}) {
   const attrs = Object.entries(attributes).map(([key, value]) => `${key}="${value}"`).join(" ");
-  return `<?xml version="1.0" ?><data><${tagName}${attrs ? ` ${attrs}` : ''} /></data>`;
+  return `<?xml version="1.0" ?><data><${tagName}${attrs ? ` ${attrs}` : ""} /></data>`;
 }
 
 export class xmlParser {
-  decoder = new TextDecoder();
-  parser = new DOMParser();
+  private decoder = new TextDecoder();
+  private parser = new DOMParser();
 
-  /**
-   * @param {Uint8Array} input
-   * @yields {Document[]}
-   */
-  * #parseXmlDocuments(input) {
+  * #parseXmlDocuments(input: Uint8Array): Iterable<Document> {
     for (const xml of this.decoder.decode(input).split("<?xml")) {
       yield this.parser.parseFromString(`<?xml${xml}`, "text/xml");
     }
   }
 
-  /**
-   * @param {Uint8Array} input
-   * @returns {Record<string, string>}
-   */
-  getResponse(input) {
-    const content = {};
+  getResponse(input: Uint8Array) {
+    const content: Record<string, string> = {};
     for (const doc of this.#parseXmlDocuments(input)) {
       for (const el of doc.querySelectorAll("response")) {
         for (const attr of el.attributes) content[attr.name] = attr.value;
@@ -36,12 +23,8 @@ export class xmlParser {
     return content;
   }
 
-  /**
-   * @param {Uint8Array} input
-   * @returns {string[]}
-   */
-  getLog(input) {
-    const data = [];
+  getLog(input: Uint8Array) {
+    const data: string[] = [];
     for (const doc of this.#parseXmlDocuments(input)) {
       for (const el of doc.querySelectorAll("log")) {
         for (const attr of el.attributes) {

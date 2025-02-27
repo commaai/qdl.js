@@ -111,7 +111,11 @@ describe("xmlParser", () => {
     });
 
     test("handle special byte sequence", () => {
-      const xml = Buffer.from("<?xml version=\"1.0\" ?>\xf0\xe9\x88\x14<data><response value=\"ACK\"/></data>", "binary");
+      const xml = new Uint8Array([
+        ...encoder.encode("<?xml version=\"1.0\" ?>"),
+        0xf0, 0xe9, 0x88, 0x14,
+        ...encoder.encode("<data><response value=\"ACK\"/></data>"),
+      ]);
       const result = parser.getResponse(xml);
       expect(result).toEqual({ value: "ACK" });
     });

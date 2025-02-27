@@ -22,11 +22,10 @@ describe("sparse", () => {
   });
 
   describe("Sparse", () => {
-    /** @type {Sparse.Sparse} */
-    let sparse;
+    let sparse: Sparse.Sparse;
 
     beforeAll(async () => {
-      sparse = await Sparse.from(inputData);
+      sparse = (await Sparse.from(inputData))!;
     });
 
     test("chunks", async () => {
@@ -46,10 +45,10 @@ describe("sparse", () => {
           const [start, end] = [offset, offset + data.byteLength];
           offset += data.byteLength;
           const expectedSlice = expectedData.slice(start, end);
-          const expectedChunkBuffer = Buffer.from(new Uint8Array(await expectedSlice.arrayBuffer()));
+          const expectedChunkBuffer = new Uint8Array(await expectedSlice.arrayBuffer());
           const result = receivedChunkBuffer.compare(expectedChunkBuffer);
           if (result) {
-            console.debug("Expected:", expectedChunkBuffer.toString("hex"));
+            console.debug("Expected:", Buffer.from(expectedChunkBuffer).toString("hex"));
             console.debug("Received:", receivedChunkBuffer.toString("hex"));
           }
           expect(result, `range ${start} to ${end} differs`).toBe(0);

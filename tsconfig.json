@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     // Enable latest features
-    "lib": ["ESNext", "DOM"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
     "target": "ESNext",
     "module": "ESNext",
     "moduleDetection": "force",
@@ -28,6 +28,6 @@
     "noUnusedParameters": true,
     "noPropertyAccessFromIndexSignature": true
   },
-  "include": ["src/*.js"],
-  "exclude": ["src/*.spec.js", "demo", "dist", "node_modules"],
+  "include": ["src/*.ts", "test/*.ts"],
+  "exclude": ["demo", "dist", "node_modules"],
 }

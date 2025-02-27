@@ -119,9 +119,7 @@ describe("packGenerator", () => {
   });
 
   test("should handle empty input array", () => {
-    const input = [];
-    const result = packGenerator(input);
-
+    const result = packGenerator([]);
     expect(result).toBeInstanceOf(Uint8Array);
     expect(result.length).toBe(0);
   });
@@ -135,7 +133,7 @@ describe("packGenerator", () => {
       0x1,                     // version_min = 1
       0x0,                     // max_cmd_len = 0
       sahara_mode_t.SAHARA_MODE_IMAGE_TX_PENDING,  // mode = 0x0
-      1, 2, 3, 4, 5, 6         // reserved values
+      1, 2, 3, 4, 5, 6,         // reserved values
     ];
     const result = packGenerator(elements);
 
@@ -192,7 +190,7 @@ describe("concatUint8Array", () => {
   test("should skip null values", () => {
     const array1 = new Uint8Array([0x01]);
     const array2 = null;
-    const result = concatUint8Array([array1, array2]);
+    const result = concatUint8Array([array1, array2] as Uint8Array[]);
 
     expect(result).toEqual(new Uint8Array([0x01]));
     expect(result.length).toEqual(array1.length);
@@ -202,7 +200,7 @@ describe("concatUint8Array", () => {
     const array1 = new Uint8Array([0x01]);
     const array2 = null;
     const array3 = new Uint8Array([0x02]);
-    const result = concatUint8Array([array1, array2, array3]);
+    const result = concatUint8Array([array1, array2, array3] as Uint8Array[]);
 
     expect(result).toEqual(new Uint8Array([0x01, 0x02]));
     expect(result.length).toEqual(array1.length + array3.length);
@@ -236,18 +234,12 @@ describe("compareStringToBytes", () => {
     expect(compareStringToBytes("", input)).toBeFalse();
     expect(compareStringToBytes("Hello", input)).toBeFalse();
     expect(compareStringToBytes("Hello, world!", input)).toBeTrue();
-    expect(compareStringToBytes(0, input)).toBeFalse();
-    expect(compareStringToBytes(undefined, input)).toBeFalse();
-    expect(compareStringToBytes(null, input)).toBeFalse();
   });
 
   test("empty bytes", () => {
     const input = new Uint8Array(0);
     expect(compareStringToBytes("", input)).toBeTrue();
-    expect(compareStringToBytes(0, input)).toBeFalse();
-    expect(compareStringToBytes(undefined, input)).toBeFalse();
-    expect(compareStringToBytes(null, input)).toBeFalse();
-  })
+  });
 });
 
 describe("bytes2Number", () => {
