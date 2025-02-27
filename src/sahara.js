@@ -184,6 +184,7 @@ export class Sahara {
     console.debug("[sahara] Uploading loader...");
     await this.programmer.download();
     const loaderBlob = await this.programmer.get();
+    // TODO: stream programmer
     let programmer = new Uint8Array(await loaderBlob.arrayBuffer());
     if (!(await this.cmdHello(sahara_mode_t.SAHARA_MODE_IMAGE_TX_PENDING))) {
       throw "Sahara - Error while uploading loader";
