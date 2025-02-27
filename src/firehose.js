@@ -40,6 +40,7 @@ class cfg {
     this.SECTOR_SIZE_IN_BYTES = 4096;
     this.MemoryName = "UFS";
     this.maxlun = 6;
+    this.FastErase = true;
   }
 }
 
@@ -274,12 +275,20 @@ export class Firehose {
    * @returns {Promise<boolean>}
    */
   async cmdErase(physicalPartitionNumber, startSector, numPartitionSectors) {
-    const rsp = await this.xmlSend(toXml("program", {
+    const attributes = {
       SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
       num_partition_sectors: numPartitionSectors,
       physical_partition_number: physicalPartitionNumber,
       start_sector: startSector,
-    }));
+    };
+    if (this.cfg.FastErase) {
+      const rsp = await this.xmlSend(toXml("erase", attributes));
+      const resp = this.xml.getResponse(rsp.data);
+      if (!("value" in resp)) throw "Failed to erase: no return value";
+      if (resp.value !== "ACK") throw "Failed to erase: NAK";
+      return true;
+    }
+    const rsp = await this.xmlSend(toXml("program", attributes));
     let bytesToWrite = this.cfg.SECTOR_SIZE_IN_BYTES * numPartitionSectors;
     const empty = new Uint8Array(this.cfg.MaxPayloadSizeToTargetInBytes).fill(0);
 
