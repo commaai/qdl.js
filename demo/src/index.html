@@ -19,7 +19,7 @@
         cursor: pointer;
         font-size: 16px;
         &:hover {
-          background: #0056b3;
+          filter: brightness(80%);
         }
       }
       #status {
@@ -83,6 +83,9 @@
       #partitions:before {
         content: "Partitions Information";
       }
+      #erase-button {
+        background: #d12000;
+      }
     </style>
   </head>
   <body>
@@ -111,6 +114,12 @@
         <option value="https://raw.githubusercontent.com/bkerler/Loaders/master/oneplus/0008b0e10051459b_dd7c5f2e53176bee_fhprg_op6t.bin">OnePlus 6T</option>
       </select>
       <button onclick="connectDevice()">Connect & Read Info</button>
+
+      <div class="erase-controls" style="display: none;">
+        <label for="partition-select">Select partition to erase:</label>
+        <select id="partition-select" style="margin-bottom: 8px;"></select>
+        <button id="erase-button" onclick="erasePartition()">Erase Partition</button>
+      </div>
     </section>
 
     <div id="status"></div>

@@ -31,7 +31,9 @@ interface LunInfo {
 
 declare global {
   interface Window {
+    qdl?: qdlDevice;
     connectDevice: () => Promise<void>
+    erasePartition: () => Promise<void>
   }
 }
 
@@ -62,7 +64,11 @@ window.connectDevice = async () => {
   const deviceDiv = document.getElementById("device");
   const storageDiv = document.getElementById("storage");
   const partitionsDiv = document.getElementById("partitions");
-  if (!programmerSelect || !status || !deviceDiv || !storageDiv || !partitionsDiv) throw "missing elements";
+  const eraseControls = document.querySelector(".erase-controls") as HTMLElement;
+  const partitionSelect = document.getElementById("partition-select") as HTMLSelectElement;
+
+  if (!programmerSelect || !status || !deviceDiv || !storageDiv || !partitionsDiv ||
+    !eraseControls || !partitionSelect) throw "missing elements";
 
   try {
     if (!programmerSelect.value) {
@@ -78,6 +84,7 @@ window.connectDevice = async () => {
 
     // Initialize QDL device with programmer URL
     const qdl = new qdlDevice(programmerSelect.value);
+    window.qdl = qdl;
 
     // Start the connection
     await qdl.connect(new usbClass());
@@ -96,6 +103,8 @@ window.connectDevice = async () => {
 
     // Get GPT info for each LUN
     const lunInfos: LunInfo[] = [];
+    const partitionNames = new Set<string>();
+
     for (const lun of qdl.firehose!.luns) {
       const [guidGpt] = await qdl.getGpt(lun);
       if (guidGpt?.header) {
@@ -126,6 +135,11 @@ window.connectDevice = async () => {
           } : null as any,
           partitions: guidGpt.partentries
         });
+
+        // Add partition names to the set
+        for (const partName in guidGpt.partentries) {
+          partitionNames.add(partName);
+        }
       }
     }
 
@@ -231,10 +245,64 @@ window.connectDevice = async () => {
       partitionsDiv.appendChild(table);
     }
 
+    // Populate the partition dropdown
+    partitionSelect.innerHTML = "";
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "";
+    defaultOption.textContent = "-- Select a partition --";
+    partitionSelect.appendChild(defaultOption);
+
+    // Add all partition names to the dropdown
+    for (const partName of partitionNames) {
+      // Don't add persist to the dropdown
+      if (partName === "persist") continue;
+      const option = document.createElement("option");
+      option.value = partName;
+      option.textContent = partName;
+      partitionSelect.appendChild(option);
+    }
+
+    // Show erase controls
+    eraseControls.style.display = "block";
+
     status.textContent = "Successfully read device information!";
   } catch (error) {
     console.error("Error:", error);
     status.className = "error";
     status.textContent = `Error: ${error instanceof Error ? error.message : error}`;
+  }
+};
+
+window.erasePartition = async () => {
+  const qdl = window.qdl;
+  const partitionSelect = document.getElementById("partition-select") as HTMLSelectElement;
+  const status = document.getElementById("status");
+
+  if (!partitionSelect || !status) throw "missing elements";
+  if (!qdl) throw "device not connected";
+
+  if (!partitionSelect.value) {
+    status.className = "error";
+    status.textContent = "Error: Please select a partition to erase";
+    return;
+  }
+
+  try {
+    const partitionName = partitionSelect.value;
+    status.className = "";
+    status.textContent = `Erasing partition ${partitionName}...`;
+
+    const startTime = performance.now();
+
+    await qdl.erase(partitionName);
+
+    const elapsedTime = ((performance.now() - startTime) / 1000).toFixed(2);
+
+    status.className = "success";
+    status.textContent = `Successfully erased ${partitionName} (took ${elapsedTime} seconds)`;
+  } catch (error) {
+    console.error("Erase error:", error);
+    status.className = "error";
+    status.textContent = `Error while erasing: ${error instanceof Error ? error.message : error}`;
   }
 };
