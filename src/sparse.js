@@ -1,5 +1,3 @@
-import { BlobBuilder } from "./utils";
-
 const FILE_MAGIC = 0xed26ff3a;
 export const FILE_HEADER_SIZE = 28;
 const CHUNK_HEADER_SIZE = 12;
@@ -94,27 +92,27 @@ export class Sparse {
   }
 
   /**
-   * @param {number} maxSize
-   * @returns {AsyncIterator<Uint8Array>}
+   * @returns {AsyncIterator<[number, Uint8Array]>}
    */
-  async *read(maxSize = 1024 * 1024) {
-    if (maxSize % this.header.blockSize !== 0) {
-      throw `Sparse - Read ${maxSize} must be a multiple of block size ${this.header.blockSize}`;
-    }
-    const builder = new BlobBuilder(maxSize);
+  async *read() {
+    let offset = 0;
     for await (const { type, blocks, data } of this.chunks()) {
+      const size = blocks * this.header.blockSize;
       if (type === ChunkType.Raw) {
-        yield* builder.append(data);
-      } else if (type === ChunkType.Fill || type === ChunkType.Skip) {
-        const buffer = new Uint8Array(blocks * this.header.blockSize);
-        if (type === ChunkType.Fill) {
-          const fill = new Uint8Array(await data.arrayBuffer());
+        yield [offset, new Uint8Array(await data.arrayBuffer())];
+        offset += size;
+      } else if (type === ChunkType.Fill) {
+        const fill = new Uint8Array(await data.arrayBuffer());
+        if (fill.some((byte) => byte !== 0)) {
+          const buffer = new Uint8Array(size);
           for (let i = 0; i < buffer.byteLength; i += 4) buffer.set(fill, i);
+          yield [offset, buffer];
         }
-        yield* builder.append(new Blob([buffer]));
+        offset += size;
+      } else if (type === ChunkType.Skip) {
+        offset += size;
       }
     }
-    yield* builder.flush();
   }
 
   /**
