@@ -203,7 +203,7 @@ export class Firehose {
       total = await sparse.getSize();
       chunks = sparse.read();
     } else {
-      chunks = [new Uint8Array(await blob.arrayBuffer())];
+      chunks = [[0, new Uint8Array(await blob.arrayBuffer())]];
     }
 
     let numPartitionSectors = Math.floor(total / this.cfg.SECTOR_SIZE_IN_BYTES);
@@ -221,7 +221,7 @@ export class Firehose {
     let bytesWritten = 0;
 
     if (rsp.resp) {
-      for await (const data of chunks) {
+      for await (const [offset, data] of chunks) {
         let offset = 0;
         let bytesToWrite = data.byteLength;
 
