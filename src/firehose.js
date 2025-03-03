@@ -197,6 +197,7 @@ export class Firehose {
     let sparseformat = false;
 
     const sparse = await Sparse.from(blob);
+    /** @type {AsyncIterator<[number, Uint8Array]>} */
     let chunks;
     if (sparse) {
       sparseformat = true;
@@ -217,51 +218,62 @@ export class Firehose {
       physical_partition_number: physicalPartitionNumber,
       start_sector: startSector,
     }));
+
+    if (!rsp.resp) {
+      console.error("Firehose - Failed to program");
+      return false;
+    }
+
     let i = 0;
     let bytesWritten = 0;
 
-    if (rsp.resp) {
-      for await (const [offset, data] of chunks) {
-        let offset = 0;
-        let bytesToWrite = data.byteLength;
-
-        while (bytesToWrite > 0) {
-          const wlen = Math.min(bytesToWrite, this.cfg.MaxPayloadSizeToTargetInBytes);
-          let wdata = new Uint8Array(data.slice(offset, offset + wlen));
-          if (wlen % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
-            const fillLen = (Math.floor(wlen/this.cfg.SECTOR_SIZE_IN_BYTES) * this.cfg.SECTOR_SIZE_IN_BYTES) +
-                          this.cfg.SECTOR_SIZE_IN_BYTES;
-            const fillArray = new Uint8Array(fillLen-wlen).fill(0x00);
-            wdata = concatUint8Array([wdata, fillArray]);
-          }
-          await this.cdc.write(wdata);
-          await this.cdc.write(new Uint8Array(0), true);
-          offset += wlen;
-          bytesWritten += wlen;
-          bytesToWrite -= wlen;
-
-          // Need this for sparse image when the data.length < MaxPayloadSizeToTargetInBytes
-          // Add ~2.4s to total flash time
-          if (sparseformat && bytesWritten < total) {
-            await this.cdc.write(new Uint8Array(0), true);
-          }
-
-          if (i % 10 === 0) {
-            onProgress?.(bytesWritten / total);
-          }
-          i += 1;
-        }
-      }
-
-      const wd  = await this.waitForData();
-      const response = this.xml.getResponse(wd);
-      if ("value" in response) {
-        if (response.value !== "ACK") {
-          return false;
-        }
-      } else {
+    for await (const [offset, data] of chunks) {
+      if (offset % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
+        console.error(`Firehose - Invalid offset for sparse chunk ${offset}, expected multiple of sector size ${this.cfg.SECTOR_SIZE_IN_BYTES}`);
         return false;
       }
+
+      // let offset = 0;
+      let bytesToWrite = data.byteLength;
+
+      while (bytesToWrite > 0) {
+        const wlen = Math.min(bytesToWrite, this.cfg.MaxPayloadSizeToTargetInBytes);
+        let wdata = new Uint8Array(data.slice(offset, offset + wlen));
+        if (wlen % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
+          const fillLen = (Math.floor(wlen/this.cfg.SECTOR_SIZE_IN_BYTES) * this.cfg.SECTOR_SIZE_IN_BYTES) +
+                        this.cfg.SECTOR_SIZE_IN_BYTES;
+          const fillArray = new Uint8Array(fillLen-wlen).fill(0x00);
+          wdata = concatUint8Array([wdata, fillArray]);
+        }
+        await this.cdc.write(wdata);
+        await this.cdc.write(new Uint8Array(0), true);
+        offset += wlen;
+        bytesWritten += wlen;
+        bytesToWrite -= wlen;
+
+        // Need this for sparse image when the data.length < MaxPayloadSizeToTargetInBytes
+        // Add ~2.4s to total flash time
+        if (sparseformat && bytesWritten < total) {
+          await this.cdc.write(new Uint8Array(0), true);
+        }
+
+        if (i % 10 === 0) {
+          onProgress?.(bytesWritten / total);
+        }
+        i += 1;
+      }
+    }
+
+    const wd  = await this.waitForData();
+    const response = this.xml.getResponse(wd);
+    if ("value" in response) {
+      if (response.value !== "ACK") {
+        console.error("Firehose - Failed to program: negative response");
+        return false;
+      }
+    } else {
+      console.error("Firehose - Failed to program: no return value");
+      return false;
     }
 
     onProgress?.(1.0);
