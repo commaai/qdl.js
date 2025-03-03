@@ -207,14 +207,9 @@ export class Firehose {
       chunks = [[0, new Uint8Array(await blob.arrayBuffer())]];
     }
 
-    let numPartitionSectors = Math.floor(total / this.cfg.SECTOR_SIZE_IN_BYTES);
-    if (total % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
-      numPartitionSectors += 1;
-    }
-
     const rsp = await this.xmlSend(toXml("program", {
       SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
-      num_partition_sectors: numPartitionSectors,
+      num_partition_sectors: Math.ceil(total / this.cfg.SECTOR_SIZE_IN_BYTES),
       physical_partition_number: physicalPartitionNumber,
       start_sector: startSector,
     }));
