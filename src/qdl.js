@@ -111,20 +111,20 @@ export class qdlDevice {
     if (!found) {
       throw `Can't find partition ${partitionName}`;
     }
-    const imgSize = blob.size;
-    const imgSectors = Math.ceil(imgSize / this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
-    if (partitionName.toLowerCase() !== "gpt") {
-      if (imgSectors > partition.sectors) {
-        console.error("partition has fewer sectors compared to the flashing image");
-        return false;
-      }
-      const startSector = partition.sector;
-      console.info(`Flashing ${partitionName}...`);
-      if (await this.firehose.cmdProgram(lun, startSector, blob, (progress) => onProgress(progress))) {
-        console.debug(`partition ${partitionName}: startSector ${partition.sector}, sectors ${partition.sectors}`);
-      } else {
-        throw `Error while writing ${partitionName}`;
-      }
+    if (partitionName.toLowerCase() === "gpt") {
+      return true;
+    }
+    const imgSectors = Math.ceil(blob.size / this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
+    if (imgSectors > partition.sectors) {
+      console.error("partition has fewer sectors compared to the flashing image");
+      return false;
+    }
+    console.info(`Flashing ${partitionName}...`);
+    const startSector = partition.sector;
+    if (await this.firehose.cmdProgram(lun, startSector, blob, (progress) => onProgress(progress))) {
+      console.debug(`partition ${partitionName}: startSector ${partition.sector}, sectors ${partition.sectors}`);
+    } else {
+      throw `Error while writing ${partitionName}`;
     }
     return true;
   }
