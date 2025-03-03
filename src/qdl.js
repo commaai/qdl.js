@@ -112,6 +112,7 @@ export class qdlDevice {
       throw `Can't find partition ${partitionName}`;
     }
     if (partitionName.toLowerCase() === "gpt") {
+      // TODO: error?
       return true;
     }
     const imgSectors = Math.ceil(blob.size / this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
@@ -120,13 +121,8 @@ export class qdlDevice {
       return false;
     }
     console.info(`Flashing ${partitionName}...`);
-    const startSector = partition.sector;
-    if (await this.firehose.cmdProgram(lun, startSector, blob, (progress) => onProgress(progress))) {
-      console.debug(`partition ${partitionName}: startSector ${partition.sector}, sectors ${partition.sectors}`);
-    } else {
-      throw `Error while writing ${partitionName}`;
-    }
-    return true;
+    console.debug(`startSector ${partition.sector}, sectors ${partition.sectors}`);
+    return this.firehose.cmdProgram(lun, partition.sector, blob, onProgress);
   }
 
   async erase(partitionName) {
