@@ -1,14 +1,14 @@
 import * as Bun from "bun";
 import { beforeAll, describe, expect, test } from "bun:test";
 
-import * as Sparse from "./sparse";
+import { parseFileHeader, Sparse } from "./sparse";
 
 const inputData = Bun.file("./test/fixtures/sparse.img");
 const expectedData = Bun.file("./test/fixtures/raw.img");
 
 describe("sparse", () => {
   test("parseFileHeader", async () => {
-    expect(await Sparse.parseFileHeader(inputData)).toEqual({
+    expect(await parseFileHeader(inputData)).toEqual({
       magic: 0xED26FF3A,
       majorVersion: 1,
       minorVersion: 0,
@@ -22,7 +22,7 @@ describe("sparse", () => {
   });
 
   describe("Sparse", () => {
-    /** @type {Sparse.Sparse} */
+    /** @type {Sparse} */
     let sparse;
 
     beforeAll(async () => {
