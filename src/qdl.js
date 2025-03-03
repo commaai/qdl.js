@@ -112,10 +112,7 @@ export class qdlDevice {
       throw `Can't find partition ${partitionName}`;
     }
     const imgSize = blob.size;
-    let imgSectors = Math.floor(imgSize / this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
-    if (imgSize % this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
-      imgSectors += 1;
-    }
+    const imgSectors = Math.ceil(imgSize / this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
     if (partitionName.toLowerCase() !== "gpt") {
       if (imgSectors > partition.sectors) {
         console.error("partition has fewer sectors compared to the flashing image");
