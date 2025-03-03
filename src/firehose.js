@@ -197,14 +197,13 @@ export class Firehose {
     let sparseformat = false;
 
     const sparse = await Sparse.from(blob);
-    /** @type {AsyncIterator<[number, Uint8Array]>} */
     let chunks;
     if (sparse) {
       sparseformat = true;
       total = await sparse.getSize();
       chunks = sparse.read();
     } else {
-      chunks = [[0, new Uint8Array(await blob.arrayBuffer())]];
+      chunks = [new Uint8Array(await blob.arrayBuffer())];
     }
 
     const rsp = await this.xmlSend(toXml("program", {
@@ -222,13 +221,8 @@ export class Firehose {
     let i = 0;
     let bytesWritten = 0;
 
-    for await (const [offset, data] of chunks) {
-      if (offset % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
-        console.error(`Firehose - Invalid offset for sparse chunk ${offset}, expected multiple of sector size ${this.cfg.SECTOR_SIZE_IN_BYTES}`);
-        return false;
-      }
-
-      // let offset = 0;
+    for await (const data of chunks) {
+      let offset = 0;
       let bytesToWrite = data.byteLength;
 
       while (bytesToWrite > 0) {
