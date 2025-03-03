@@ -1,4 +1,4 @@
-import * as Sparse from "../src/sparse";
+import { Sparse } from "../src/sparse";
 
 if (Bun.argv.length < 3) {
   throw "Usage: bun sparse-benchmark.js <sparse.img> [expected-raw.img]";
