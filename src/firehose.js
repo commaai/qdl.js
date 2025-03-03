@@ -255,13 +255,12 @@ export class Firehose {
 
     const wd  = await this.waitForData();
     const response = this.xml.getResponse(wd);
-    if ("value" in response) {
-      if (response.value !== "ACK") {
-        console.error("Firehose - Failed to program: negative response");
-        return false;
-      }
-    } else {
+    if (!("value" in response)){
       console.error("Firehose - Failed to program: no return value");
+      return false;
+    }
+    if (response.value !== "ACK") {
+      console.error("Firehose - Failed to program: negative response");
       return false;
     }
 
