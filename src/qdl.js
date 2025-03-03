@@ -107,33 +107,27 @@ export class qdlDevice {
      * 4. Send extra 0x00 bytes if chunk smaller than sector size
      * 5. Wait for ACK response
      */
-
-    let startSector = 0;
-    const dp = await this.detectPartition(partitionName);
-    const found = dp[0];
-    if (found) {
-      const lun = dp[1];
-      const imgSize = blob.size;
-      let imgSectors = Math.floor(imgSize / this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
-      if (imgSize % this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
-        imgSectors += 1;
-      }
-      if (partitionName.toLowerCase() !== "gpt") {
-        const partition = dp[2];
-        if (imgSectors > partition.sectors) {
-          console.error("partition has fewer sectors compared to the flashing image");
-          return false;
-        }
-        startSector = partition.sector;
-        console.info(`Flashing ${partitionName}...`);
-        if (await this.firehose.cmdProgram(lun, startSector, blob, (progress) => onProgress(progress))) {
-          console.debug(`partition ${partitionName}: startSector ${partition.sector}, sectors ${partition.sectors}`);
-        } else {
-          throw `Error while writing ${partitionName}`;
-        }
-      }
-    } else {
+    const [found, lun, partition] = await this.detectPartition(partitionName);
+    if (!found) {
       throw `Can't find partition ${partitionName}`;
+    }
+    const imgSize = blob.size;
+    let imgSectors = Math.floor(imgSize / this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
+    if (imgSize % this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
+      imgSectors += 1;
+    }
+    if (partitionName.toLowerCase() !== "gpt") {
+      if (imgSectors > partition.sectors) {
+        console.error("partition has fewer sectors compared to the flashing image");
+        return false;
+      }
+      const startSector = partition.sector;
+      console.info(`Flashing ${partitionName}...`);
+      if (await this.firehose.cmdProgram(lun, startSector, blob, (progress) => onProgress(progress))) {
+        console.debug(`partition ${partitionName}: startSector ${partition.sector}, sectors ${partition.sectors}`);
+      } else {
+        throw `Error while writing ${partitionName}`;
+      }
     }
     return true;
   }
