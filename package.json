@@ -24,6 +24,9 @@
     "postinstall": "bun run build",
     "lint": "biome lint"
   },
+  "bin": {
+    "simg2img.js": "scripts/simg2img.js"
+  },
   "//devDependencies": {
     "@biomejs/biome": "code linter and formatter",
     "@happy-dom/global-registrator": "happy-dom is used by tests involving browser APIs, like DOMParser",
