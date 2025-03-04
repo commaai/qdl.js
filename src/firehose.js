@@ -218,7 +218,7 @@ export class Firehose {
         wdata = concatUint8Array([wdata, fillArray]);
       }
       await this.cdc.write(wdata);
-      await this.cdc.write(new Uint8Array(0), true);
+      await this.cdc.write(new Uint8Array(0));
       offset += wlen;
       bytesToWrite -= wlen;
 
