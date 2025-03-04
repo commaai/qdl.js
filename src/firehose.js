@@ -220,13 +220,7 @@ export class Firehose {
         wdata = concatUint8Array([wdata, fillArray]);
       }
       await this.cdc.write(wdata);
-
-      // Need this for sparse image when the data.length < MaxPayloadSizeToTargetInBytes
-      // Add ~2.4s to total flash time
-      if (bytesWritten < total) {
-        await this.cdc.write(new Uint8Array(0), true);
-      }
-
+      await this.cdc.write(new Uint8Array(0), true);
       offset += wlen;
       bytesWritten += wlen;
       bytesToWrite -= wlen;
