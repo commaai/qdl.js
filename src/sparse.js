@@ -99,22 +99,17 @@ export class Sparse {
     for await (const { type, blocks, data } of this.chunks()) {
       const size = blocks * this.header.blockSize;
       if (type === ChunkType.Raw) {
-        console.debug("  emitting raw", size);
-        yield [offset, new Blob([new Uint8Array(await data.arrayBuffer())])];
+        yield [offset, data];
         offset += size;
       } else if (type === ChunkType.Fill) {
         const fill = new Uint8Array(await data.arrayBuffer());
         if (fill.some((byte) => byte !== 0)) {
           const buffer = new Uint8Array(size);
           for (let i = 0; i < buffer.byteLength; i += 4) buffer.set(fill, i);
-          console.debug("  emitting fill", size);
           yield [offset, new Blob([buffer])];
-        } else {
-          console.debug("  skipping empty fill", size);
         }
         offset += size;
       } else if (type === ChunkType.Skip) {
-        console.debug("  skipping", size);
         offset += size;
       }
     }
