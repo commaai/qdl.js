@@ -119,7 +119,7 @@ export class qdlDevice {
     const sparse = await Sparse.from(blob);
     if (sparse === null) {
       await this.firehose.cmdProgram(lun, partition.sector, blob, onProgress);
-      onProgress(1.0);
+      onProgress?.(1.0);
       return true;
     }
     console.debug(`Erasing ${partitionName}...`);
@@ -132,11 +132,11 @@ export class qdlDevice {
       }
       const sector = partition.sector + offset / this.firehose.cfg.SECTOR_SIZE_IN_BYTES;
       await this.firehose.cmdProgram(lun, sector, chunk, (progress) => {
-        onProgress(offset / totalSize + progress * chunk.size / totalSize);
+        onProgress?.(offset / totalSize + progress * chunk.size / totalSize);
       });
-      onProgress((offset + chunk.size) / totalSize);
+      onProgress?.((offset + chunk.size) / totalSize);
     }
-    onProgress(1.0);
+    onProgress?.(1.0);
     return true;
   }
 
