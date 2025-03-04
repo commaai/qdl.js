@@ -1,5 +1,5 @@
 import * as constants from "./constants";
-import { concatUint8Array, sleep } from "./utils";
+import { concatUint8Array } from "./utils";
 
 
 export class usbClass {
