@@ -207,7 +207,6 @@ export class Firehose {
     }
 
     let i = 0;
-    let bytesWritten = 0;
     let offset = 0;
     let bytesToWrite = total;
 
@@ -222,11 +221,10 @@ export class Firehose {
       await this.cdc.write(wdata);
       await this.cdc.write(new Uint8Array(0), true);
       offset += wlen;
-      bytesWritten += wlen;
       bytesToWrite -= wlen;
 
       if (i % 10 === 0) {
-        onProgress?.(bytesWritten / total);
+        onProgress?.(offset / total);
       }
       i += 1;
     }
