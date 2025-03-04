@@ -101,13 +101,6 @@ export class qdlDevice {
    * @returns {Promise<boolean>}
    */
   async flashBlob(partitionName, blob, onProgress=()=>{}) {
-    /*
-     * 1. Get image or sparse image chunks and the offset/sector to flash them to
-     * 2. Split chunks into smaller pieces if necessary (this.cfg.MaxPayloadSizeToTargetInBytes)
-     * 3. Program target with each chunk (calculate new start sector from offset)
-     * 4. Send extra 0x00 bytes if chunk smaller than sector size
-     * 5. Wait for ACK response
-     */
     const [found, lun, partition] = await this.detectPartition(partitionName);
     if (!found) {
       throw `Can't find partition ${partitionName}`;
