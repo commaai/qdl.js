@@ -58,12 +58,13 @@ export class Firehose {
 
   /**
    * @param {string} command
+   * @param {boolean} [wait=true]
    * @returns {Promise<response>}
    */
-  async xmlSend(command) {
+  async xmlSend(command, wait = true) {
     // FIXME: warn if command is shortened
     const dataToSend = new TextEncoder().encode(command).slice(0, this.cfg.MaxXMLSizeInBytes);
-    await this.cdc.write(dataToSend);
+    await this.cdc.write(dataToSend, wait);
 
     let rData = new Uint8Array();
     let counter = 0;
@@ -113,8 +114,8 @@ export class Firehose {
       SkipStorageInit: this.cfg.SkipStorageInit,
       SkipWrite: this.cfg.SkipWrite,
     });
-    await this.xmlSend(connectCmd);
     // this is a hack, the loader receive the packet but doesn't respond back (same as edl repo)
+    await this.xmlSend(connectCmd, false);
     await sleep(80);
     this.luns = Array.from({ length: this.cfg.maxlun }, (x, i) => i);
     return true;

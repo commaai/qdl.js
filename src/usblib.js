@@ -115,14 +115,16 @@ export class usbClass {
 
   /**
    * @param {Uint8Array} data
+   * @param {boolean} [wait=true]
    * @returns {Promise<void>}
    */
-  async write(data) {
+  async write(data, wait = true) {
     let offset = 0;
     do {
       const chunk = data.slice(offset, offset + constants.BULK_TRANSFER_SIZE);
       offset += chunk.byteLength;
-      await this.device?.transferOut(this.epOut?.endpointNumber, chunk);
+      const promise = this.device?.transferOut(this.epOut?.endpointNumber, chunk);
+      if (wait) await promise;
     } while (offset < data.byteLength);
   }
 }
