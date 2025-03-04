@@ -117,6 +117,13 @@ export class qdlDevice {
     console.info(`Flashing ${partitionName}...`);
     console.debug(`startSector ${partition.sector}, sectors ${partition.sectors}`);
     const sparse = await Sparse.from(blob);
+    if (sparse === null) {
+      await this.firehose.cmdProgram(lun, partition.sector, blob, onProgress);
+      onProgress?.(1.0);
+      return true;
+    }
+    console.debug(`Erasing ${partitionName}...`);
+    await this.firehose.cmdErase(lun, partition.sector, partition.sectors);
     // TODO: get this from manifest/pass from caller
     const totalSize = await sparse.getSize();
     for await (const [offset, chunk] of sparse.read()) {
