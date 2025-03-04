@@ -97,10 +97,10 @@ export class qdlDevice {
   /**
    * @param {string} partitionName
    * @param {Blob} blob
-   * @param {progressCallback} onProgress
+   * @param {progressCallback} [onProgress]
    * @returns {Promise<boolean>}
    */
-  async flashBlob(partitionName, blob, onProgress=()=>{}) {
+  async flashBlob(partitionName, blob, onProgress) {
     const [found, lun, partition] = await this.detectPartition(partitionName);
     if (!found) {
       throw `Can't find partition ${partitionName}`;
