@@ -58,13 +58,12 @@ export class Firehose {
 
   /**
    * @param {string} command
-   * @param {boolean} [wait=true]
    * @returns {Promise<response>}
    */
-  async xmlSend(command, wait = true) {
+  async xmlSend(command) {
     // FIXME: warn if command is shortened
     const dataToSend = new TextEncoder().encode(command).slice(0, this.cfg.MaxXMLSizeInBytes);
-    await this.cdc.write(dataToSend, wait);
+    await this.cdc.write(dataToSend);
 
     let rData = new Uint8Array();
     let counter = 0;
@@ -114,8 +113,10 @@ export class Firehose {
       SkipStorageInit: this.cfg.SkipStorageInit,
       SkipWrite: this.cfg.SkipWrite,
     });
-    await this.xmlSend(connectCmd, false);
-    this.luns = Array.from({length: this.cfg.maxlun}, (x, i) => i);
+    await this.xmlSend(connectCmd);
+    // this is a hack, the loader receive the packet but doesn't respond back (same as edl repo)
+    await sleep(80);
+    this.luns = Array.from({ length: this.cfg.maxlun }, (x, i) => i);
     return true;
   }
 
@@ -235,7 +236,7 @@ export class Firehose {
             wdata = concatUint8Array([wdata, fillArray]);
           }
           await this.cdc.write(wdata);
-          await this.cdc.write(new Uint8Array(0), true);
+          await this.cdc.write(new Uint8Array(0));
           offset += wlen;
           bytesWritten += wlen;
           bytesToWrite -= wlen;
@@ -243,7 +244,7 @@ export class Firehose {
           // Need this for sparse image when the data.length < MaxPayloadSizeToTargetInBytes
           // Add ~2.4s to total flash time
           if (sparseformat && bytesWritten < total) {
-            await this.cdc.write(new Uint8Array(0), true);
+            await this.cdc.write(new Uint8Array(0));
           }
 
           if (i % 10 === 0) {
