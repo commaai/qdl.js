@@ -1,6 +1,7 @@
 import { Firehose } from "./firehose"
 import * as gpt from "./gpt"
 import { Sahara } from "./sahara";
+import { Sparse } from "./sparse";
 import { concatUint8Array, runWithTimeout, containsBytes } from "./utils"
 
 
@@ -122,7 +123,21 @@ export class qdlDevice {
     }
     console.info(`Flashing ${partitionName}...`);
     console.debug(`startSector ${partition.sector}, sectors ${partition.sectors}`);
-    return this.firehose.cmdProgram(lun, partition.sector, blob, onProgress);
+    const sparse = await Sparse.from(blob);
+    // TODO: get this from manifest/pass from caller
+    const totalSize = await sparse.getSize();
+    for await (const [offset, chunk] of sparse.read()) {
+      if (offset % this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
+        throw "qdl - Offset not aligned to sector size";
+      }
+      const sector = partition.sector + offset / this.firehose.cfg.SECTOR_SIZE_IN_BYTES;
+      await this.firehose.cmdProgram(lun, sector, chunk, (progress) => {
+        onProgress?.(offset / totalSize + progress * chunk.size / totalSize);
+      });
+      onProgress?.((offset + chunk.size) / totalSize);
+    }
+    onProgress?.(1.0);
+    return true;
   }
 
   async erase(partitionName) {
