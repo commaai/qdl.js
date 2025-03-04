@@ -46,7 +46,10 @@ jobs:
         run: simg2img system.img system-raw.img
 
       - name: run sparse benchmark
-        run: bun scripts/sparse-benchmark.js system.img system-raw.img
+        run: bun scripts/simg2img.js system.img /tmp/system-raw.img
+
+      - name: check output matches
+        run: cmp system-raw.img /tmp/system-raw.img
 
   demo:
     runs-on: ubuntu-24.04

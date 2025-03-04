@@ -2,9 +2,10 @@ import * as Bun from "bun";
 import { beforeAll, describe, expect, test } from "bun:test";
 
 import { parseFileHeader, Sparse } from "./sparse";
+import { simg2img } from "../scripts/simg2img.js";
 
 const inputData = Bun.file("./test/fixtures/sparse.img");
-const expectedData = Bun.file("./test/fixtures/raw.img");
+const expectedPath = "./test/fixtures/raw.img";
 
 describe("sparse", () => {
   test("parseFileHeader", async () => {
@@ -38,34 +39,19 @@ describe("sparse", () => {
       expect(await sparse.getSize()).toBe(sparse.header.totalBlocks * sparse.header.blockSize);
     });
 
-    describe("read", () => {
-      test("compare output", async () => {
-        let offset = 0;
-        for await (const data of sparse.read()) {
-          const receivedChunkBuffer = Buffer.from(data);
-          const [start, end] = [offset, offset + data.byteLength];
-          offset += data.byteLength;
-          const expectedSlice = expectedData.slice(start, end);
-          const expectedChunkBuffer = Buffer.from(new Uint8Array(await expectedSlice.arrayBuffer()));
-          const result = receivedChunkBuffer.compare(expectedChunkBuffer);
-          if (result) {
-            console.debug("Expected:", expectedChunkBuffer.toString("hex"));
-            console.debug("Received:", receivedChunkBuffer.toString("hex"));
-          }
-          expect(result, `range ${start} to ${end} differs`).toBe(0);
-        }
-        expect(offset).toEqual(expectedData.size);
-      });
-
-      test.each([4096, 8192])("maxSize: %p", async (splitSize) => {
-        let prevLength = 0;
-        for await (const data of sparse.read(splitSize)) {
-          expect(data.byteLength).toBeGreaterThan(0);
-          expect(data.byteLength).toBeLessThanOrEqual(splitSize);
-          if (prevLength) expect(data.byteLength + prevLength).toBeGreaterThan(splitSize);
-          prevLength = data.byteLength;
-        }
-      });
+    test("read", async () => {
+      let prevOffset = undefined;
+      for await (const [offset, chunk] of sparse.read()) {
+        expect(offset).toBeGreaterThanOrEqual(prevOffset ?? 0);
+        expect(chunk.size).toBeGreaterThan(0);
+        prevOffset = offset + chunk.size;
+      }
     });
+  });
+
+  test("simg2img", async () => {
+    const outputPath = `/tmp/${Bun.randomUUIDv7()}.img`;
+    await simg2img(inputData.name, outputPath);
+    await Bun.$`cmp ${outputPath} ${expectedPath}`;
   });
 });
