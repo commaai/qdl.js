@@ -124,6 +124,8 @@ export class usbClass {
       const chunk = data.slice(offset, offset + constants.BULK_TRANSFER_SIZE);
       offset += chunk.byteLength;
       const promise = this.device?.transferOut(this.epOut?.endpointNumber, chunk);
+      // this is a hack, webusb doesn't have timed out catching
+      // this only happens in sahara.configure(). The loader receive the packet but doesn't respond back (same as edl repo).
       if (wait) await promise;
     } while (offset < data.byteLength);
   }

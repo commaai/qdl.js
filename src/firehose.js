@@ -114,10 +114,9 @@ export class Firehose {
       SkipStorageInit: this.cfg.SkipStorageInit,
       SkipWrite: this.cfg.SkipWrite,
     });
-    // this is a hack, the loader receive the packet but doesn't respond back (same as edl repo)
     await this.xmlSend(connectCmd, false);
     await sleep(80);
-    this.luns = Array.from({ length: this.cfg.maxlun }, (x, i) => i);
+    this.luns = Array.from({length: this.cfg.maxlun}, (x, i) => i);
     return true;
   }
 
