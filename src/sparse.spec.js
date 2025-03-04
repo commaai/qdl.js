@@ -23,7 +23,7 @@ describe("sparse", () => {
   });
 
   describe("Sparse", () => {
-    /** @type {Sparse} */
+    /** @type {Sparse.Sparse} */
     let sparse;
 
     beforeAll(async () => {
