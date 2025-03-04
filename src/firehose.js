@@ -114,6 +114,7 @@ export class Firehose {
       SkipWrite: this.cfg.SkipWrite,
     });
     await this.xmlSend(connectCmd, false);
+    await sleep(80);
     this.luns = Array.from({length: this.cfg.maxlun}, (x, i) => i);
     return true;
   }
