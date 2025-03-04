@@ -1,4 +1,5 @@
-import { Sparse } from "../src/sparse";
+#!/usr/bin/env bun
+import * as Sparse from "../src/sparse";
 
 export async function simg2img(inputPath, outputPath) {
   const sparseImage = Bun.file(inputPath);
@@ -25,7 +26,7 @@ export async function simg2img(inputPath, outputPath) {
 
 if (import.meta.main) {
   if (Bun.argv.length < 4) {
-    throw "Usage: bun simg2img.js <input-path> <output-path>";
+    throw "Usage: simg2img.js <input_path> <output_path>";
   }
   const startTime = performance.now();
   await simg2img(Bun.argv[2], Bun.argv[3]);

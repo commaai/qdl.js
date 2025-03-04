@@ -1,7 +1,7 @@
 import { Firehose } from "./firehose"
 import * as gpt from "./gpt"
 import { Sahara } from "./sahara";
-import { Sparse } from "./sparse";
+import * as Sparse from "./sparse";
 import { concatUint8Array, runWithTimeout, containsBytes } from "./utils"
 
 

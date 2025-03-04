@@ -1,7 +1,7 @@
 import * as Bun from "bun";
 import { beforeAll, describe, expect, test } from "bun:test";
 
-import { parseFileHeader, Sparse } from "./sparse";
+import * as Sparse from "./sparse";
 import { simg2img } from "../scripts/simg2img.js";
 
 const inputData = Bun.file("./test/fixtures/sparse.img");
@@ -9,7 +9,7 @@ const expectedPath = "./test/fixtures/raw.img";
 
 describe("sparse", () => {
   test("parseFileHeader", async () => {
-    expect(await parseFileHeader(inputData)).toEqual({
+    expect(await Sparse.parseFileHeader(inputData)).toEqual({
       magic: 0xED26FF3A,
       majorVersion: 1,
       minorVersion: 0,

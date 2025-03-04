@@ -125,16 +125,17 @@ export class Sparse {
     }
     return length;
   }
+}
 
-  /**
-   * @param {Blob} blob
-   * @returns {Promise<Sparse|null>}
-   */
-  static async from(blob) {
-    const header = await parseFileHeader(blob);
-    if (!header) return null;
-    return new Sparse(blob, header);
-  }
+
+/**
+ * @param {Blob} blob
+ * @returns {Promise<Sparse|null>}
+ */
+export async function from(blob) {
+  const header = await parseFileHeader(blob);
+  if (!header) return null;
+  return new Sparse(blob, header);
 }
 
 
