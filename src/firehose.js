@@ -202,7 +202,6 @@ export class Firehose {
     }));
     if (!rsp.resp) {
       console.error("Firehose - Failed to program");
-      console.debug(rsp);
       return false;
     }
 
@@ -229,7 +228,7 @@ export class Firehose {
       i += 1;
     }
 
-    const wd  = await this.waitForData();
+    const wd = await this.waitForData();
     const response = this.xml.getResponse(wd);
     if (!("value" in response)){
       console.error("Firehose - Failed to program: no return value");

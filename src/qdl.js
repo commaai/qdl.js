@@ -118,25 +118,31 @@ export class qdlDevice {
     console.debug(`startSector ${partition.sector}, sectors ${partition.sectors}`);
     const sparse = await Sparse.from(blob);
     if (sparse === null) {
-      await this.firehose.cmdProgram(lun, partition.sector, blob, onProgress);
-      onProgress?.(1.0);
-      return true;
+      console.info(`Flashing ${partitionName}...`);
+      console.debug(`startSector ${partition.sector}, sectors ${partition.sectors}`);
+      return await this.firehose.cmdProgram(lun, partition.sector, blob, onProgress);
     }
+    console.info(`Flashing ${partitionName} with sparse image...`);
+    console.debug(`startSector ${partition.sector}, sectors ${partition.sectors}`);
     console.debug(`Erasing ${partitionName}...`);
-    await this.firehose.cmdErase(lun, partition.sector, partition.sectors);
+    if (!await this.firehose.cmdErase(lun, partition.sector, partition.sectors)) {
+      console.error("qdl - Failed to erase partition before sparse flashing");
+      return false;
+    }
     // TODO: get this from manifest/pass from caller
     const totalSize = await sparse.getSize();
+    console.debug(`Flashing ${partitionName} chunks...`);
     for await (const [offset, chunk] of sparse.read()) {
       if (offset % this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
         throw "qdl - Offset not aligned to sector size";
       }
       const sector = partition.sector + offset / this.firehose.cfg.SECTOR_SIZE_IN_BYTES;
-      await this.firehose.cmdProgram(lun, sector, chunk, (progress) => {
-        onProgress?.(offset / totalSize + progress * chunk.size / totalSize);
-      });
-      onProgress?.((offset + chunk.size) / totalSize);
+      const onChunkProgress = (progress) => onProgress?.(offset / totalSize + progress * chunk.size / totalSize);
+      if (!await this.firehose.cmdProgram(lun, sector, chunk, onChunkProgress)) {
+        console.debug("qdl - Failed to program chunk")
+        return false;
+      }
     }
-    onProgress?.(1.0);
     return true;
   }
 
