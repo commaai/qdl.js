@@ -92,24 +92,29 @@ export class Sparse {
   }
 
   /**
-   * @returns {AsyncIterator<[number, Uint8Array]>}
+   * @returns {AsyncIterator<[number, Blob]>}
    */
   async *read() {
     let offset = 0;
     for await (const { type, blocks, data } of this.chunks()) {
       const size = blocks * this.header.blockSize;
       if (type === ChunkType.Raw) {
-        yield [offset, new Uint8Array(await data.arrayBuffer())];
+        console.debug("  emitting raw", size);
+        yield [offset, new Blob([new Uint8Array(await data.arrayBuffer())])];
         offset += size;
       } else if (type === ChunkType.Fill) {
         const fill = new Uint8Array(await data.arrayBuffer());
         if (fill.some((byte) => byte !== 0)) {
           const buffer = new Uint8Array(size);
           for (let i = 0; i < buffer.byteLength; i += 4) buffer.set(fill, i);
-          yield [offset, buffer];
+          console.debug("  emitting fill", size);
+          yield [offset, new Blob([buffer])];
+        } else {
+          console.debug("  skipping empty fill", size);
         }
         offset += size;
       } else if (type === ChunkType.Skip) {
+        console.debug("  skipping", size);
         offset += size;
       }
     }
