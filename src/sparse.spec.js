@@ -35,16 +35,13 @@ describe("sparse", () => {
       expect(chunks.length).toBe(sparse.header.totalChunks);
     });
 
-    test("getSize", async () => {
-      expect(await sparse.getSize()).toBe(sparse.header.totalBlocks * sparse.header.blockSize);
-    });
-
     test("read", async () => {
       let prevOffset = undefined;
-      for await (const [offset, chunk] of sparse.read()) {
+      for await (const [offset, chunk, size] of sparse.read()) {
         expect(offset).toBeGreaterThanOrEqual(prevOffset ?? 0);
-        expect(chunk.size).toBeGreaterThan(0);
-        prevOffset = offset + chunk.size;
+        if (chunk) expect(chunk.size).toBe(size);
+        expect(size).toBeGreaterThan(0);
+        prevOffset = offset + size;
       }
     });
   });

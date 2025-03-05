@@ -43,28 +43,6 @@ export class Sparse {
   }
 
   /**
-   * @param {Chunk} chunk
-   * @returns {number}
-   */
-  calcChunkRealSize(chunk) {
-    switch (chunk.type) {
-      case ChunkType.Raw:
-        if (chunk.data.size !== (chunk.blocks * this.header.blockSize)) throw "Sparse - Chunk input size does not match output size";
-        return chunk.data.size;
-      case ChunkType.Fill:
-        if (chunk.data.size !== 4) throw "Sparse - Fill chunk should have 4 bytes";
-        return chunk.blocks * this.header.blockSize;
-      case ChunkType.Skip:
-        return chunk.blocks * this.header.blockSize;
-      case ChunkType.Crc32:
-        if (chunk.data.size !== 4) throw "Sparse - CRC32 chunk should have 4 bytes";
-        return 0;
-      default:
-        throw "Sparse - Unknown chunk type";
-    }
-  }
-
-  /**
    * @returns {AsyncIterator<Chunk>}
    */
   async* chunks() {
@@ -92,38 +70,30 @@ export class Sparse {
   }
 
   /**
-   * @returns {AsyncIterator<[number, Blob]>}
+   * @returns {AsyncIterator<[number, Blob | null, number]>}
    */
   async *read() {
     let offset = 0;
     for await (const { type, blocks, data } of this.chunks()) {
       const size = blocks * this.header.blockSize;
       if (type === ChunkType.Raw) {
-        yield [offset, data];
+        yield [offset, data, size];
         offset += size;
       } else if (type === ChunkType.Fill) {
         const fill = new Uint8Array(await data.arrayBuffer());
         if (fill.some((byte) => byte !== 0)) {
           const buffer = new Uint8Array(size);
           for (let i = 0; i < buffer.byteLength; i += 4) buffer.set(fill, i);
-          yield [offset, new Blob([buffer])];
+          yield [offset, new Blob([buffer]), size];
+        } else {
+          yield [offset, null, size];
         }
         offset += size;
       } else if (type === ChunkType.Skip) {
+        yield [offset, null, size];
         offset += size;
       }
     }
-  }
-
-  /**
-   * @returns {Promise<number>}
-   */
-  async getSize() {
-    let length = 0;
-    for await (const chunk of this.chunks()) {
-      length += this.calcChunkRealSize(chunk);
-    }
-    return length;
   }
 }
 

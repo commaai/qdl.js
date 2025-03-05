@@ -8,18 +8,14 @@ export async function simg2img(inputPath, outputPath) {
   const sparse = await Sparse.from(sparseImage);
   if (!sparse) throw "Failed to parse sparse file";
 
+  // FIXME: write out a "sparse" file? not supported by Bun
   const writer = outputImage.writer({ highWaterMark: 4 * 1024 * 1024 });
-  const size = await sparse.getSize();
-  let prevOffset = 0;
-  for await (const [offset, chunk] of sparse.read()) {
-    if (prevOffset < offset) {
-      writer.write(new Uint8Array(offset - prevOffset).buffer);
+  for await (const [_, chunk, size] of sparse.read()) {
+    if (chunk) {
+      writer.write(await chunk.arrayBuffer());
+    } else {
+      writer.write(new Uint8Array(size).buffer);
     }
-    writer.write(await chunk.arrayBuffer());
-    prevOffset = offset + chunk.size;
-  }
-  if (prevOffset < size) {
-    writer.write(new Uint8Array(size - prevOffset).buffer);
   }
   writer.end();
 }

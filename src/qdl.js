@@ -127,6 +127,7 @@ export class qdlDevice {
     }
     console.debug(`Writing chunks to ${partitionName}...`);
     for await (const [offset, chunk] of sparse.read()) {
+      if (!chunk) continue;
       if (offset % this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
         throw "qdl - Offset not aligned to sector size";
       }
