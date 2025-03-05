@@ -189,7 +189,7 @@ export class Firehose {
    * @param {number} physicalPartitionNumber
    * @param {number} startSector
    * @param {Blob} blob
-   * @param {progressCallback|undefined} [onProgress]
+   * @param {progressCallback|undefined} [onProgress] - Returns number of bytes written
    * @returns {Promise<boolean>}
    */
   async cmdProgram(physicalPartitionNumber, startSector, blob, onProgress = undefined) {
@@ -224,10 +224,11 @@ export class Firehose {
       bytesToWrite -= wlen;
 
       if (i % 10 === 0) {
-        onProgress?.(offset / total);
+        onProgress?.(offset);
       }
       i += 1;
     }
+    onProgress?.(total);
 
     const wd = await this.waitForData();
     const response = this.xml.getResponse(wd);
@@ -239,8 +240,6 @@ export class Firehose {
       console.error("Firehose - Failed to program: negative response");
       return false;
     }
-
-    onProgress?.(1.0);
     return true;
   }
 

@@ -97,7 +97,7 @@ export class qdlDevice {
   /**
    * @param {string} partitionName
    * @param {Blob} blob
-   * @param {progressCallback} [onProgress]
+   * @param {progressCallback} [onProgress] - Returns number of bytes written
    * @returns {Promise<boolean>}
    */
   async flashBlob(partitionName, blob, onProgress) {
@@ -125,15 +125,13 @@ export class qdlDevice {
       console.error("qdl - Failed to erase partition before sparse flashing");
       return false;
     }
-    // TODO: get this from manifest/pass from caller
-    const totalSize = await sparse.getSize();
     console.debug(`Writing chunks to ${partitionName}...`);
     for await (const [offset, chunk] of sparse.read()) {
       if (offset % this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
         throw "qdl - Offset not aligned to sector size";
       }
       const sector = partition.sector + offset / this.firehose.cfg.SECTOR_SIZE_IN_BYTES;
-      const onChunkProgress = (progress) => onProgress?.(offset / totalSize + progress * chunk.size / totalSize);
+      const onChunkProgress = (progress) => onProgress?.(offset + progress);
       if (!await this.firehose.cmdProgram(lun, sector, chunk, onChunkProgress)) {
         console.debug("qdl - Failed to program chunk")
         return false;
