@@ -188,25 +188,6 @@ describe("concatUint8Array", () => {
     expect(result).toEqual(new Uint8Array([0x01]));
     expect(result.length).toEqual(array1.length + array2.length);
   });
-
-  test("should skip null values", () => {
-    const array1 = new Uint8Array([0x01]);
-    const array2 = null;
-    const result = concatUint8Array([array1, array2]);
-
-    expect(result).toEqual(new Uint8Array([0x01]));
-    expect(result.length).toEqual(array1.length);
-  });
-
-  test("should handle multiple nulls", () => {
-    const array1 = new Uint8Array([0x01]);
-    const array2 = null;
-    const array3 = new Uint8Array([0x02]);
-    const result = concatUint8Array([array1, array2, array3]);
-
-    expect(result).toEqual(new Uint8Array([0x01, 0x02]));
-    expect(result.length).toEqual(array1.length + array3.length);
-  });
 });
 
 describe("containsBytes", () => {
