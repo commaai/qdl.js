@@ -103,18 +103,18 @@ export class Sparse {
  * @returns {Promise<Sparse|null>}
  */
 export async function from(blob) {
-  const header = await parseFileHeader(blob);
+  const header = parseFileHeader(await blob.slice(0, FILE_HEADER_SIZE).arrayBuffer());
   if (!header) return null;
   return new Sparse(blob, header);
 }
 
 
 /**
- * @param {Blob} blob
- * @returns {Promise<Header|null>}
+ * @param {Uint8Array} buffer
+ * @returns {Header|null}
  */
-export async function parseFileHeader(blob) {
-  const view = new DataView(await blob.slice(0, FILE_HEADER_SIZE).arrayBuffer());
+export function parseFileHeader(buffer) {
+  const view = new DataView(buffer);
   const magic = view.getUint32(0, true);
   if (magic !== FILE_MAGIC) {
     return null;
