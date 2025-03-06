@@ -117,17 +117,16 @@ export function parseFileHeader(buffer) {
   const view = new DataView(buffer);
   const magic = view.getUint32(0, true);
   if (magic !== FILE_MAGIC) {
+    // Not a sparse file.
     return null;
   }
   const fileHeaderSize = view.getUint16(8, true);
   const chunkHeaderSize = view.getUint16(10, true);
   if (fileHeaderSize !== FILE_HEADER_SIZE) {
-    console.error(`The file header size was expected to be 28, but is ${fileHeaderSize}.`);
-    return null;
+    throw `Sparse - The file header size was expected to be 28, but is ${fileHeaderSize}.`;
   }
   if (chunkHeaderSize !== CHUNK_HEADER_SIZE) {
-    console.error(`The chunk header size was expected to be 12, but is ${chunkHeaderSize}.`);
-    return null;
+    throw `Sparse - The chunk header size was expected to be 12, but is ${chunkHeaderSize}.`;
   }
   return {
     magic,
