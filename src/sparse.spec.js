@@ -1,5 +1,5 @@
 import * as Bun from "bun";
-import { beforeAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import * as Sparse from "./sparse";
 import { simg2img } from "../scripts/simg2img.js";
@@ -9,7 +9,7 @@ const expectedPath = "./test/fixtures/raw.img";
 
 describe("sparse", () => {
   test("parseFileHeader", async () => {
-    expect(await Sparse.parseFileHeader(inputData)).toEqual({
+    expect(await Sparse.parseFileHeader(await inputData.arrayBuffer())).toEqual({
       magic: 0xED26FF3A,
       majorVersion: 1,
       minorVersion: 0,
@@ -22,28 +22,10 @@ describe("sparse", () => {
     });
   });
 
-  describe("Sparse", () => {
-    /** @type {Sparse.Sparse} */
-    let sparse;
-
-    beforeAll(async () => {
-      sparse = await Sparse.from(inputData);
-    });
-
-    test("chunks", async () => {
-      const chunks = await Array.fromAsync(sparse.chunks());
-      expect(chunks.length).toBe(sparse.header.totalChunks);
-    });
-
-    test("read", async () => {
-      let prevOffset = undefined;
-      for await (const [offset, chunk, size] of sparse.read()) {
-        expect(offset).toBeGreaterThanOrEqual(prevOffset ?? 0);
-        if (chunk) expect(chunk.size).toBe(size);
-        expect(size).toBeGreaterThan(0);
-        prevOffset = offset + size;
-      }
-    });
+  test("from", async () => {
+    const [header, chunks] = await Sparse.from(inputData.stream());
+    const result = await Bun.readableStreamToArray(chunks);
+    expect(result.length).toBe(header.totalChunks);
   });
 
   test("simg2img", async () => {

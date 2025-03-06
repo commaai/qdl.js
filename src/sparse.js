@@ -1,3 +1,5 @@
+import { concatUint8Array } from "./utils";
+
 const FILE_MAGIC = 0xed26ff3a;
 export const FILE_HEADER_SIZE = 28;
 const CHUNK_HEADER_SIZE = 12;
@@ -11,7 +13,7 @@ const ChunkType = {
 
 
 /**
- * @typedef {object} Header
+ * @typedef {object} SparseHeader
  * @property {number} magic
  * @property {number} majorVersion
  * @property {number} minorVersion
@@ -25,93 +27,117 @@ const ChunkType = {
 
 
 /**
- * @typedef {object} Chunk
+ * @typedef {object} SparseChunk
  * @property {number} type
  * @property {number} blocks
- * @property {Blob} data
+ * @property {Uint8Array} data
  */
 
 
-export class Sparse {
-  /**
-   * @param {Blob} blob
-   * @param {Header} header
-   */
-  constructor(blob, header) {
-    this.blob = blob;
-    this.header = header;
-  }
+/**
+ * @param {ReadableStream<Uint8Array>} stream
+ * @returns {Promise<[SparseHeader, ReadableStream<SparseChunk>] | null>}
+ */
+export async function from(stream) {
+  const reader = stream.getReader();
+  let buffer = new Uint8Array(0);
 
-  /**
-   * @returns {AsyncIterator<Chunk>}
-   */
-  async* chunks() {
-    let blobOffset = FILE_HEADER_SIZE;
-    for (let i = 0; i < this.header.totalChunks; i++) {
-      if (blobOffset + CHUNK_HEADER_SIZE >= this.blob.size) {
-        throw "Sparse - Chunk header out of bounds";
-      }
-      const chunk = await this.blob.slice(blobOffset, blobOffset + CHUNK_HEADER_SIZE).arrayBuffer();
-      const view = new DataView(chunk);
-      const totalBytes = view.getUint32(8, true);
-      if (blobOffset + totalBytes > this.blob.size) {
-        throw "Sparse - Chunk data out of bounds";
-      }
-      yield {
-        type: view.getUint16(0, true),
-        blocks: view.getUint32(4, true),
-        data: this.blob.slice(blobOffset + CHUNK_HEADER_SIZE, blobOffset + totalBytes),
-      };
-      blobOffset += totalBytes;
-    }
-    if (blobOffset !== this.blob.size) {
-      console.warn("Sparse - Backing data larger expected");
+  const readUntil = async (byteLength) => {
+    while (buffer.byteLength < byteLength) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error("Unexpected end of stream");
+      buffer = concatUint8Array([buffer, value]);
     }
   }
 
-  /**
-   * @returns {AsyncIterator<[number, Blob | null, number]>}
-   */
-  async *read() {
-    let offset = 0;
-    for await (const { type, blocks, data } of this.chunks()) {
-      const size = blocks * this.header.blockSize;
+  let header;
+  try {
+    await readUntil(FILE_HEADER_SIZE);
+    header = parseFileHeader(buffer.buffer);
+    if (header === null) return null;
+    buffer = buffer.slice(FILE_HEADER_SIZE);
+  } catch (e) {
+    reader.releaseLock();
+    throw e;
+  }
+
+  let chunkIndex = 0;
+  return [header, new ReadableStream({
+    async pull(controller) {
+      await readUntil(CHUNK_HEADER_SIZE, controller);
+      while (buffer.byteLength >= CHUNK_HEADER_SIZE && chunkIndex < header.totalChunks) {
+        const view = new DataView(buffer.buffer);
+        const chunkType = view.getUint16(0, true);
+        const chunkBlockCount = view.getUint32(4, true);
+        const chunkTotalBytes = view.getUint32(8, true);
+        await readUntil(chunkTotalBytes, controller);
+        const chunkData = buffer.slice(CHUNK_HEADER_SIZE, chunkTotalBytes);
+        controller.enqueue({
+          type: chunkType,
+          blocks: chunkBlockCount,
+          data: chunkData,
+        });
+        chunkIndex++;
+        buffer = buffer.slice(chunkTotalBytes);
+      }
+      if (chunkIndex === header.totalChunks) {
+        controller.close();
+        if (buffer.byteLength > 0) {
+          console.warn("Sparse - Backing data larger than expected");
+        }
+      }
+    },
+    cancel() {
+      reader.releaseLock();
+    },
+  })];
+}
+
+
+/**
+ * @param {SparseHeader} header
+ * @param {ReadableStream<SparseChunk>} stream
+ * @returns {ReadableStream<[number, Uint8Array | null, number]>}
+ */
+export function read(header, stream) {
+  const reader = stream.getReader();
+  let offset = 0;
+  return new ReadableStream({
+    async pull(controller) {
+      const { value, done } = await reader.read();
+      if (done) {
+        controller.close();
+        return;
+      }
+      const { type, blocks, data } = value;
+      const size = blocks * header.blockSize;
       if (type === ChunkType.Raw) {
-        yield [offset, data, size];
+        controller.enqueue([offset, data, size]);
         offset += size;
       } else if (type === ChunkType.Fill) {
-        const fill = new Uint8Array(await data.arrayBuffer());
-        if (fill.some((byte) => byte !== 0)) {
+        if (data.some((byte) => byte !== 0)) {
           const buffer = new Uint8Array(size);
-          for (let i = 0; i < buffer.byteLength; i += 4) buffer.set(fill, i);
-          yield [offset, new Blob([buffer]), size];
+          for (let i = 0; i < buffer.byteLength; i += 4) buffer.set(data, i);
+          controller.enqueue([offset, buffer, size]);
         } else {
-          yield [offset, null, size];
+          controller.enqueue([offset, null, size]);
         }
         offset += size;
       } else if (type === ChunkType.Skip) {
-        yield [offset, null, size];
+        controller.enqueue([offset, null, size]);
         offset += size;
       }
-    }
-  }
+    },
+    cancel() {
+      reader.releaseLock();
+    },
+  });
 }
 
 
 /**
- * @param {Blob} blob
- * @returns {Promise<Sparse|null>}
- */
-export async function from(blob) {
-  const header = parseFileHeader(await blob.slice(0, FILE_HEADER_SIZE).arrayBuffer());
-  if (!header) return null;
-  return new Sparse(blob, header);
-}
-
-
-/**
- * @param {Uint8Array} buffer
- * @returns {Header|null}
+ * @param {ArrayBufferLike} buffer
+ * @returns {SparseHeader | null}
  */
 export function parseFileHeader(buffer) {
   const view = new DataView(buffer);
@@ -123,10 +149,10 @@ export function parseFileHeader(buffer) {
   const fileHeaderSize = view.getUint16(8, true);
   const chunkHeaderSize = view.getUint16(10, true);
   if (fileHeaderSize !== FILE_HEADER_SIZE) {
-    throw `Sparse - The file header size was expected to be 28, but is ${fileHeaderSize}.`;
+    throw new Error(`The file header size was expected to be 28, but is ${fileHeaderSize}.`);
   }
   if (chunkHeaderSize !== CHUNK_HEADER_SIZE) {
-    throw `Sparse - The chunk header size was expected to be 12, but is ${chunkHeaderSize}.`;
+    throw new Error(`The chunk header size was expected to be 12, but is ${chunkHeaderSize}.`);
   }
   return {
     magic,
