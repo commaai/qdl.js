@@ -116,8 +116,8 @@ export class qdlDevice {
     }
     console.info(`Flashing ${partitionName}...`);
     console.debug(`startSector ${partition.sector}, sectors ${partition.sectors}`);
-    const sparse = await Sparse.from(blob);
-    if (sparse === null) {
+    const chunks = await Sparse.readChunks(blob.stream());
+    if (chunks === null) {
       return await this.firehose.cmdProgram(lun, partition.sector, blob, onProgress);
     }
     console.debug(`Erasing ${partitionName}...`);
@@ -126,7 +126,7 @@ export class qdlDevice {
       return false;
     }
     console.debug(`Writing chunks to ${partitionName}...`);
-    for await (const [offset, chunk] of sparse.read()) {
+    for await (const [offset, chunk] of Sparse.inflateChunks(chunks)) {
       if (!chunk) continue;
       if (offset % this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
         throw "qdl - Offset not aligned to sector size";
