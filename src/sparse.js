@@ -37,7 +37,7 @@ const ChunkType = {
 
 /**
  * @param {ReadableStream<Uint8Array>} stream
- * @returns {Promise<AsyncGenerator<SparseChunk, null, *> | null>}
+ * @returns {Promise<AsyncGenerator<SparseChunk, void, *> | null>}
  */
 export async function from(stream) {
   let buffer = new Uint8Array(0);
