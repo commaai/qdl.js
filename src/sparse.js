@@ -69,18 +69,17 @@ export async function from(stream) {
   let chunkIndex = 0;
   return [header, new ReadableStream({
     async pull(controller) {
-      await readUntil(CHUNK_HEADER_SIZE, controller);
+      await readUntil(CHUNK_HEADER_SIZE);
       while (buffer.byteLength >= CHUNK_HEADER_SIZE && chunkIndex < header.totalChunks) {
         const view = new DataView(buffer.buffer);
         const chunkType = view.getUint16(0, true);
         const chunkBlockCount = view.getUint32(4, true);
         const chunkTotalBytes = view.getUint32(8, true);
-        await readUntil(chunkTotalBytes, controller);
-        const chunkData = buffer.slice(CHUNK_HEADER_SIZE, chunkTotalBytes);
+        await readUntil(chunkTotalBytes);
         controller.enqueue({
           type: chunkType,
           blocks: chunkBlockCount,
-          data: chunkData,
+          data: buffer.slice(CHUNK_HEADER_SIZE, chunkTotalBytes),
         });
         chunkIndex++;
         buffer = buffer.slice(chunkTotalBytes);
