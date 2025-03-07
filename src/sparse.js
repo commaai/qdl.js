@@ -107,14 +107,20 @@ export async function from(stream, maxSize = 1024 * 1024) {
         buffer = buffer.slice(totalBytes);
         if (data.some((byte) => byte !== 0)) {
           assert(data.byteLength === 4);
-          // FIXME: yield in maxSize chunks
-          const fill = new Uint8Array(size);
-          for (let i = 0; i < fill.byteLength; i += 4) fill.set(data, i);
-          yield [offset, fill, size];
+          let readBytes = 0;
+          while (readBytes < size) {
+            const fillSize = Math.min(size - readBytes, maxSize);
+            const fill = new Uint8Array(fillSize);
+            for (let i = 0; i < fillSize; i += 4) fill.set(data, i);
+            yield [offset, fill, fillSize];
+            offset += fillSize;
+            readBytes += fillSize;
+          }
+          assert(readBytes === size);
         } else {
           yield [offset, null, size];
+          offset += size;
         }
-        offset += size;
       } else {
         if (type === ChunkType.Skip) {
           yield [offset, null, size];
