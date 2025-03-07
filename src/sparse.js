@@ -37,106 +37,81 @@ const ChunkType = {
 
 /**
  * @param {ReadableStream<Uint8Array>} stream
- * @returns {Promise<ReadableStream<SparseChunk> | null>}
+ * @returns {Promise<AsyncIterator<SparseChunk> | null>}
  */
-export async function from(stream) {
-  const reader = stream.getReader();
+export async function* readChunks(stream) {
   let buffer = new Uint8Array(0);
 
   const readUntil = async (byteLength) => {
     if (buffer.byteLength >= byteLength) return;
-    const parts = [buffer];
-    let size = buffer.byteLength;
-    while (size < byteLength) {
-      const { value, done } = await reader.read();
-      if (done) throw new Error("Unexpected end of stream");
-      parts.push(value);
-      size += value.byteLength;
-    }
-    buffer = concatUint8Array(parts);
-  }
-
-  let header;
-  try {
-    await readUntil(FILE_HEADER_SIZE);
-    header = parseFileHeader(buffer.buffer);
-    if (header === null) return null;
-    buffer = buffer.slice(FILE_HEADER_SIZE);
-  } catch (e) {
-    reader.releaseLock();
-    throw e;
-  }
-
-  let chunkIndex = 0;
-  return new ReadableStream({
-    async pull(controller) {
-      await readUntil(CHUNK_HEADER_SIZE);
-      while (buffer.byteLength >= CHUNK_HEADER_SIZE && chunkIndex < header.totalChunks) {
-        const view = new DataView(buffer.buffer);
-        const chunkType = view.getUint16(0, true);
-        const chunkBlockCount = view.getUint32(4, true);
-        const chunkTotalBytes = view.getUint32(8, true);
-        await readUntil(chunkTotalBytes);
-        controller.enqueue({
-          header,
-          type: chunkType,
-          blocks: chunkBlockCount,
-          data: buffer.slice(CHUNK_HEADER_SIZE, chunkTotalBytes),
-        });
-        chunkIndex++;
-        buffer = buffer.slice(chunkTotalBytes);
+    const reader = stream.getReader();
+    try {
+      const parts = [buffer];
+      let size = buffer.byteLength;
+      while (size < byteLength) {
+        const { value, done } = await reader.read();
+        if (done) throw new Error("Unexpected end of stream");
+        parts.push(value);
+        size += value.byteLength;
       }
-      if (chunkIndex === header.totalChunks) {
-        controller.close();
-        if (buffer.byteLength > 0) {
-          console.warn("Sparse - Backing data larger than expected");
-        }
-      }
-    },
-    cancel() {
+      buffer = concatUint8Array(parts);
+    } finally {
       reader.releaseLock();
-    },
-  });
+    }
+  }
+
+  await readUntil(FILE_HEADER_SIZE);
+  const header = parseFileHeader(buffer.buffer);
+  if (header === null) return null;
+  buffer = buffer.slice(FILE_HEADER_SIZE);
+
+  for (let i = 0; i < header.totalChunks; i++) {
+    await readUntil(CHUNK_HEADER_SIZE);
+    const view = new DataView(buffer.buffer);
+    const chunkType = view.getUint16(0, true);
+    const chunkBlockCount = view.getUint32(4, true);
+    const chunkTotalBytes = view.getUint32(8, true);
+    await readUntil(chunkTotalBytes);
+    yield {
+      header,
+      type: chunkType,
+      blocks: chunkBlockCount,
+      data: buffer.slice(CHUNK_HEADER_SIZE, chunkTotalBytes),
+    };
+    buffer = buffer.slice(chunkTotalBytes);
+  }
+
+  if (buffer.byteLength > 0) {
+    console.warn("Sparse - Backing data larger than expected");
+  }
 }
 
 
 /**
- * @param {ReadableStream<SparseChunk>} stream
- * @returns {ReadableStream<[number, Uint8Array | null, number]>}
+ * @param {AsyncIterator<SparseChunk>} chunks
+ * @returns {AsyncIterator<[number, Uint8Array | null, number]>}
  */
-export function read(stream) {
-  const reader = stream.getReader();
+export async function* inflateChunks(chunks) {
   let offset = 0;
-  return new ReadableStream({
-    async pull(controller) {
-      const { value, done } = await reader.read();
-      if (done) {
-        controller.close();
-        return;
+  for await (const { header, type, blocks, data } of chunks) {
+    const size = blocks * header.blockSize;
+    if (type === ChunkType.Raw) {
+      yield [offset, data, size];
+      offset += size;
+    } else if (type === ChunkType.Fill) {
+      if (data.some((byte) => byte !== 0)) {
+        const buffer = new Uint8Array(size);
+        for (let i = 0; i < buffer.byteLength; i += 4) buffer.set(data, i);
+        yield [offset, buffer, size];
+      } else {
+        yield [offset, null, size];
       }
-      const { header, type, blocks, data } = value;
-      const size = blocks * header.blockSize;
-      if (type === ChunkType.Raw) {
-        controller.enqueue([offset, data, size]);
-        offset += size;
-      } else if (type === ChunkType.Fill) {
-        if (data.some((byte) => byte !== 0)) {
-          const buffer = new Uint8Array(size);
-          for (let i = 0; i < buffer.byteLength; i += 4) buffer.set(data, i);
-          controller.enqueue([offset, buffer, size]);
-        } else {
-          controller.enqueue([offset, null, size]);
-        }
-        offset += size;
-      } else if (type === ChunkType.Skip) {
-        controller.enqueue([offset, null, size]);
-        offset += size;
-      }
-    },
-    cancel() {
-      reader.releaseLock();
-    },
-  });
+      offset += size;
+    } else if (type === ChunkType.Skip) {
+      yield [offset, null, size];
+      offset += size;
+    }
+  }
 }
 
 
