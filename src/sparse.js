@@ -43,11 +43,16 @@ export async function from(stream) {
   let buffer = new Uint8Array(0);
 
   const readUntil = async (byteLength) => {
-    while (buffer.byteLength < byteLength) {
+    if (buffer.byteLength >= byteLength) return;
+    const parts = [buffer];
+    let size = buffer.byteLength;
+    while (size < byteLength) {
       const { value, done } = await reader.read();
       if (done) throw new Error("Unexpected end of stream");
-      buffer = concatUint8Array([buffer, value]);
+      parts.push(value);
+      size += value.byteLength;
     }
+    buffer = concatUint8Array(parts);
   }
 
   let header;
