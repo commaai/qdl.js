@@ -11,7 +11,7 @@ export async function simg2img(inputPath, outputPath) {
   // FIXME: write out a "sparse" file? not supported by Bun
   const writer = outputImage.writer({ highWaterMark: 4 * 1024 * 1024 });
 
-  const stream = Sparse.read(...result);
+  const stream = Sparse.read(result);
   const reader = stream.getReader();
 
   while (true) {

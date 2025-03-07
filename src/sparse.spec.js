@@ -23,14 +23,14 @@ describe("sparse", () => {
   });
 
   test("from", async () => {
-    const [header, chunks] = await Sparse.from(inputData.stream());
+    const chunks = await Sparse.from(inputData.stream());
     const result = await Bun.readableStreamToArray(chunks);
-    expect(result.length).toBe(header.totalChunks);
+    expect(result.length).toBe(result[0].header.totalChunks);
   });
 
   test("read", async () => {
-    const [header, chunks] = await Sparse.from(inputData.stream());
-    const stream = Sparse.read(header, chunks);
+    const chunks = await Sparse.from(inputData.stream());
+    const stream = Sparse.read(chunks);
     let prevOffset = undefined;
     for (const [offset, chunk, size] of await Bun.readableStreamToArray(stream)) {
       expect(offset).toBeGreaterThanOrEqual(prevOffset ?? 0);

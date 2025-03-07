@@ -28,6 +28,7 @@ const ChunkType = {
 
 /**
  * @typedef {object} SparseChunk
+ * @property {SparseHeader} header
  * @property {number} type
  * @property {number} blocks
  * @property {Uint8Array} data
@@ -36,7 +37,7 @@ const ChunkType = {
 
 /**
  * @param {ReadableStream<Uint8Array>} stream
- * @returns {Promise<[SparseHeader, ReadableStream<SparseChunk>] | null>}
+ * @returns {Promise<ReadableStream<SparseChunk> | null>}
  */
 export async function from(stream) {
   const reader = stream.getReader();
@@ -67,7 +68,7 @@ export async function from(stream) {
   }
 
   let chunkIndex = 0;
-  return [header, new ReadableStream({
+  return new ReadableStream({
     async pull(controller) {
       await readUntil(CHUNK_HEADER_SIZE);
       while (buffer.byteLength >= CHUNK_HEADER_SIZE && chunkIndex < header.totalChunks) {
@@ -77,6 +78,7 @@ export async function from(stream) {
         const chunkTotalBytes = view.getUint32(8, true);
         await readUntil(chunkTotalBytes);
         controller.enqueue({
+          header,
           type: chunkType,
           blocks: chunkBlockCount,
           data: buffer.slice(CHUNK_HEADER_SIZE, chunkTotalBytes),
@@ -94,16 +96,15 @@ export async function from(stream) {
     cancel() {
       reader.releaseLock();
     },
-  })];
+  });
 }
 
 
 /**
- * @param {SparseHeader} header
  * @param {ReadableStream<SparseChunk>} stream
  * @returns {ReadableStream<[number, Uint8Array | null, number]>}
  */
-export function read(header, stream) {
+export function read(stream) {
   const reader = stream.getReader();
   let offset = 0;
   return new ReadableStream({
@@ -113,7 +114,7 @@ export function read(header, stream) {
         controller.close();
         return;
       }
-      const { type, blocks, data } = value;
+      const { header, type, blocks, data } = value;
       const size = blocks * header.blockSize;
       if (type === ChunkType.Raw) {
         controller.enqueue([offset, data, size]);
