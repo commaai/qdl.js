@@ -22,12 +22,12 @@ describe("sparse", () => {
     });
   });
 
-  test("from", async () => {
+  test("readChunks", async () => {
     const chunks = await Array.fromAsync(await Sparse.readChunks(inputData.stream()));
     expect(chunks.length).toBe(chunks[0].header.totalChunks);
   });
 
-  test("read", async () => {
+  test("inflateChunks", async () => {
     const chunks = await Sparse.readChunks(inputData.stream());
     let prevOffset = undefined;
     for await (const [offset, data, size] of Sparse.inflateChunks(chunks)) {
