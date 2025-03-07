@@ -9,7 +9,7 @@ const expectedPath = "./test/fixtures/raw.img";
 
 describe("sparse", () => {
   test("parseFileHeader", async () => {
-    expect(await Sparse.parseFileHeader(await inputData.arrayBuffer())).toEqual({
+    expect(Sparse.parseFileHeader(await inputData.arrayBuffer())).toEqual({
       magic: 0xED26FF3A,
       majorVersion: 1,
       minorVersion: 0,

@@ -13,7 +13,7 @@ const ChunkType = {
 
 
 /**
- * @typedef {object} SparseHeader
+ * @typedef {object} Header
  * @property {number} magic
  * @property {number} majorVersion
  * @property {number} minorVersion
@@ -28,7 +28,7 @@ const ChunkType = {
 
 /**
  * @typedef {object} SparseChunk
- * @property {SparseHeader} header
+ * @property {Header} header
  * @property {number} type
  * @property {number} blocks
  * @property {Uint8Array} data
@@ -117,7 +117,7 @@ export async function* inflateChunks(chunks) {
 
 /**
  * @param {ArrayBufferLike} buffer
- * @returns {SparseHeader | null}
+ * @returns {Header | null}
  */
 export function parseFileHeader(buffer) {
   const view = new DataView(buffer);
