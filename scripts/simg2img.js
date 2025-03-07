@@ -17,7 +17,6 @@ export async function simg2img(inputPath, outputPath) {
       writer.write(new Uint8Array(size).buffer);
     }
   }
-
   writer.end();
 }
 
