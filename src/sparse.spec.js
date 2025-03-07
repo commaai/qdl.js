@@ -28,6 +28,18 @@ describe("sparse", () => {
     expect(result.length).toBe(header.totalChunks);
   });
 
+  test("read", async () => {
+    const [header, chunks] = await Sparse.from(inputData.stream());
+    const stream = Sparse.read(header, chunks);
+    let prevOffset = undefined;
+    for (const [offset, chunk, size] of await Bun.readableStreamToArray(stream)) {
+      expect(offset).toBeGreaterThanOrEqual(prevOffset ?? 0);
+      if (chunk) expect(chunk.byteLength).toBe(size);
+      expect(size).toBeGreaterThan(0);
+      prevOffset = offset + size;
+    }
+  });
+
   test("simg2img", async () => {
     const outputPath = `/tmp/${Bun.randomUUIDv7()}.img`;
     await simg2img(inputData.name, outputPath);
