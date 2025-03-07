@@ -133,7 +133,7 @@ export class qdlDevice {
       }
       const sector = partition.sector + offset / this.firehose.cfg.SECTOR_SIZE_IN_BYTES;
       const onChunkProgress = (progress) => onProgress?.(offset + progress);
-      if (!await this.firehose.cmdProgram(lun, sector, chunk, onChunkProgress)) {
+      if (!await this.firehose.cmdProgram(lun, sector, new Blob([chunk]), onChunkProgress)) {
         console.debug("qdl - Failed to program chunk")
         return false;
       }
