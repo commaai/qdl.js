@@ -43,10 +43,9 @@ function assert(condition) {
 /**
  * @param {ReadableStream<Uint8Array>} stream
  * @param {number} maxSize
- * @param {number} sectorSize
  * @returns {Promise<AsyncGenerator<[number, Uint8Array | null, number], void, *> | null>}
  */
-export async function from(stream, maxSize = 1024 * 1024, sectorSize = 1024) {
+export async function from(stream, maxSize = 1024 * 1024) {
   let buffer = new Uint8Array(0);
 
   /**
@@ -86,41 +85,37 @@ export async function from(stream, maxSize = 1024 * 1024, sectorSize = 1024) {
       const type = view.getUint16(0, true);
       const blockCount = view.getUint32(4, true);
       const totalBytes = view.getUint32(8, true);
-
       const size = blockCount * header.blockSize;
 
       if (type === ChunkType.Raw) {
-        assert(size === totalBytes - CHUNK_HEADER_SIZE);
-
-        let readBytes = 0;
         buffer = buffer.slice(CHUNK_HEADER_SIZE);
-        while (readBytes < totalBytes - CHUNK_HEADER_SIZE) {
-          let dataChunkSize = Math.min(totalBytes - CHUNK_HEADER_SIZE - readBytes, maxSize);
+        let readBytes = 0;
+        while (readBytes < size) {
+          const dataChunkSize = Math.min(size - readBytes, maxSize);
           await readUntil(dataChunkSize);
-          if (totalBytes - CHUNK_HEADER_SIZE - readBytes > maxSize) {
-            dataChunkSize = sectorSize * Math.floor(dataChunkSize / sectorSize)
-          }
-          yield [offset, buffer.slice(0, dataChunkSize), size];
+          const data = buffer.slice(0, dataChunkSize);
+          assert(data.byteLength === dataChunkSize);
+          yield [offset, data, dataChunkSize];
           buffer = buffer.slice(dataChunkSize);
           readBytes += dataChunkSize;
+          offset += dataChunkSize;
         }
         assert(readBytes === size);
-        offset += size;
       } else if (type === ChunkType.Fill) {
         await readUntil(totalBytes);
         const data = buffer.slice(CHUNK_HEADER_SIZE, totalBytes);
         buffer = buffer.slice(totalBytes);
         if (data.some((byte) => byte !== 0)) {
-          // FIXME: yield maxSize chunks
+          assert(data.byteLength === 4);
+          // FIXME: yield in maxSize chunks
           const fill = new Uint8Array(size);
-          for (let i = 0; i < data.byteLength; i += 4) fill.set(data, i);
+          for (let i = 0; i < fill.byteLength; i += 4) fill.set(data, i);
           yield [offset, fill, size];
         } else {
           yield [offset, null, size];
         }
         offset += size;
       } else {
-        assert(type === ChunkType.Skip);
         if (type === ChunkType.Skip) {
           yield [offset, null, size];
           offset += size;
