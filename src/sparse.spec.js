@@ -30,12 +30,13 @@ describe("sparse", () => {
 
   test("from", async () => {
     const sparse = await Sparse.from(inputData.stream());
-    let prevOffset = undefined;
+    if (!sparse) throw "Failed to parse sparse";
+    let expectedOffset = 0;
     for await (const [offset, data, size] of sparse) {
-      expect(offset).toBeGreaterThanOrEqual(prevOffset ?? 0);
+      expect(offset).toBe(expectedOffset);
       if (data) expect(data.byteLength).toBe(size);
       expect(size).toBeGreaterThan(0);
-      prevOffset = offset + size;
+      expectedOffset = offset + size;
     }
   });
 
