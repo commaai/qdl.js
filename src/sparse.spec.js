@@ -8,27 +8,33 @@ const inputData = Bun.file("./test/fixtures/sparse.img");
 const expectedPath = "./test/fixtures/raw.img";
 
 describe("sparse", () => {
-  test("parseFileHeader", async () => {
-    expect(Sparse.parseFileHeader(await inputData.arrayBuffer())).toEqual({
-      magic: 0xED26FF3A,
-      majorVersion: 1,
-      minorVersion: 0,
-      fileHeaderSize: 28,
-      chunkHeaderSize: 12,
-      blockSize: 4096,
-      totalBlocks: 9,
-      totalChunks: 6,
-      crc32: 0,
+  describe("parseFileHeader", () => {
+    test("valid sparse file", async () => {
+      expect(Sparse.parseFileHeader(await inputData.arrayBuffer())).toEqual({
+        magic: 0xED26FF3A,
+        majorVersion: 1,
+        minorVersion: 0,
+        fileHeaderSize: 28,
+        chunkHeaderSize: 12,
+        blockSize: 4096,
+        totalBlocks: 9,
+        totalChunks: 6,
+        crc32: 0,
+      });
+    });
+
+    test("invalid sparse file", async () => {
+      expect(Sparse.parseFileHeader(await Bun.file(expectedPath).arrayBuffer())).toBeNull();
     });
   });
 
-  test("readChunks", async () => {
-    const chunks = await Array.fromAsync(await Sparse.readChunks(inputData.stream()));
+  test("from", async () => {
+    const chunks = await Array.fromAsync(await Sparse.from(inputData.stream()));
     expect(chunks.length).toBe(chunks[0].header.totalChunks);
   });
 
   test("inflateChunks", async () => {
-    const chunks = await Sparse.readChunks(inputData.stream());
+    const chunks = await Sparse.from(inputData.stream());
     let prevOffset = undefined;
     for await (const [offset, data, size] of Sparse.inflateChunks(chunks)) {
       expect(offset).toBeGreaterThanOrEqual(prevOffset ?? 0);

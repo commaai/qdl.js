@@ -5,7 +5,7 @@ export async function simg2img(inputPath, outputPath) {
   const sparseImage = Bun.file(inputPath);
   const outputImage = Bun.file(outputPath);
 
-  const chunks = await Sparse.readChunks(sparseImage.stream());
+  const chunks = await Sparse.from(sparseImage.stream());
   if (!chunks) throw "Failed to parse sparse file";
 
   // FIXME: write out a "sparse" file? not supported by Bun

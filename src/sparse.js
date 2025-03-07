@@ -37,11 +37,14 @@ const ChunkType = {
 
 /**
  * @param {ReadableStream<Uint8Array>} stream
- * @returns {Promise<AsyncIterator<SparseChunk> | null>}
+ * @returns {AsyncGenerator<SparseChunk, null, *> | null}
  */
-export async function* readChunks(stream) {
+export async function from(stream) {
   let buffer = new Uint8Array(0);
 
+  /**
+   * @param {number} byteLength
+   */
   const readUntil = async (byteLength) => {
     if (buffer.byteLength >= byteLength) return;
     const reader = stream.getReader();
@@ -62,28 +65,34 @@ export async function* readChunks(stream) {
 
   await readUntil(FILE_HEADER_SIZE);
   const header = parseFileHeader(buffer.buffer);
-  if (header === null) return null;
+  if (!header) return null;
   buffer = buffer.slice(FILE_HEADER_SIZE);
 
-  for (let i = 0; i < header.totalChunks; i++) {
-    await readUntil(CHUNK_HEADER_SIZE);
-    const view = new DataView(buffer.buffer);
-    const chunkType = view.getUint16(0, true);
-    const chunkBlockCount = view.getUint32(4, true);
-    const chunkTotalBytes = view.getUint32(8, true);
-    await readUntil(chunkTotalBytes);
-    yield {
-      header,
-      type: chunkType,
-      blocks: chunkBlockCount,
-      data: buffer.slice(CHUNK_HEADER_SIZE, chunkTotalBytes),
-    };
-    buffer = buffer.slice(chunkTotalBytes);
+  /**
+   * @returns {AsyncGenerator<SparseChunk, void, *>}
+   */
+  async function* readChunks() {
+    for (let i = 0; i < header.totalChunks; i++) {
+      await readUntil(CHUNK_HEADER_SIZE);
+      const view = new DataView(buffer.buffer);
+      const chunkType = view.getUint16(0, true);
+      const chunkBlockCount = view.getUint32(4, true);
+      const chunkTotalBytes = view.getUint32(8, true);
+      await readUntil(chunkTotalBytes);
+      yield {
+        header,
+        type: chunkType,
+        blocks: chunkBlockCount,
+        data: buffer.slice(CHUNK_HEADER_SIZE, chunkTotalBytes),
+      };
+      buffer = buffer.slice(chunkTotalBytes);
+    }
+    if (buffer.byteLength > 0) {
+      console.warn("Sparse - Backing data larger than expected");
+    }
   }
 
-  if (buffer.byteLength > 0) {
-    console.warn("Sparse - Backing data larger than expected");
-  }
+  return readChunks();
 }
 
 

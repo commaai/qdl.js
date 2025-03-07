@@ -116,7 +116,7 @@ export class qdlDevice {
     }
     console.info(`Flashing ${partitionName}...`);
     console.debug(`startSector ${partition.sector}, sectors ${partition.sectors}`);
-    const chunks = await Sparse.readChunks(blob.stream());
+    const chunks = Sparse.readChunks(blob.stream());
     if (chunks === null) {
       return await this.firehose.cmdProgram(lun, partition.sector, blob, onProgress);
     }
