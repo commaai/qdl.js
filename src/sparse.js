@@ -35,11 +35,18 @@ const ChunkType = {
  */
 
 
+function assert(condition) {
+  if (!condition) throw new Error("Assertion failed");
+}
+
+
 /**
  * @param {ReadableStream<Uint8Array>} stream
- * @returns {Promise<AsyncGenerator<SparseChunk, void, *> | null>}
+ * @param {number} maxSize
+ * @param {number} sectorSize
+ * @returns {Promise<AsyncGenerator<[number, Uint8Array | null, number], void, *> | null>}
  */
-export async function from(stream) {
+export async function from(stream, maxSize = 1024 * 1024, sectorSize = 1024) {
   let buffer = new Uint8Array(0);
 
   /**
@@ -69,58 +76,65 @@ export async function from(stream) {
   buffer = buffer.slice(FILE_HEADER_SIZE);
 
   /**
-   * @returns {AsyncGenerator<SparseChunk, void, *>}
+   * @returns {AsyncGenerator<[number, Uint8Array | null, number], void, *>}
    */
-  async function* readChunks() {
+  async function* inflateChunks() {
+    let offset = 0;
     for (let i = 0; i < header.totalChunks; i++) {
       await readUntil(CHUNK_HEADER_SIZE);
       const view = new DataView(buffer.buffer);
-      const chunkType = view.getUint16(0, true);
-      const chunkBlockCount = view.getUint32(4, true);
-      const chunkTotalBytes = view.getUint32(8, true);
-      await readUntil(chunkTotalBytes);
-      yield {
-        header,
-        type: chunkType,
-        blocks: chunkBlockCount,
-        data: buffer.slice(CHUNK_HEADER_SIZE, chunkTotalBytes),
-      };
-      buffer = buffer.slice(chunkTotalBytes);
+      const type = view.getUint16(0, true);
+      const blockCount = view.getUint32(4, true);
+      const totalBytes = view.getUint32(8, true);
+
+      const size = blockCount * header.blockSize;
+
+      if (type === ChunkType.Raw) {
+        assert(size === totalBytes - CHUNK_HEADER_SIZE);
+
+        let readBytes = 0;
+        buffer = buffer.slice(CHUNK_HEADER_SIZE);
+        while (readBytes < totalBytes - CHUNK_HEADER_SIZE) {
+          let dataChunkSize = Math.min(totalBytes - CHUNK_HEADER_SIZE - readBytes, maxSize);
+          await readUntil(dataChunkSize);
+          if (totalBytes - CHUNK_HEADER_SIZE - readBytes > maxSize) {
+            dataChunkSize = sectorSize * Math.floor(dataChunkSize / sectorSize)
+          }
+          yield [offset, buffer.slice(0, dataChunkSize), size];
+          buffer = buffer.slice(dataChunkSize);
+          readBytes += dataChunkSize;
+        }
+        assert(readBytes === size);
+        offset += size;
+      } else if (type === ChunkType.Fill) {
+        await readUntil(totalBytes);
+        const data = buffer.slice(CHUNK_HEADER_SIZE, totalBytes);
+        buffer = buffer.slice(totalBytes);
+        if (data.some((byte) => byte !== 0)) {
+          // FIXME: yield maxSize chunks
+          const fill = new Uint8Array(size);
+          for (let i = 0; i < data.byteLength; i += 4) fill.set(data, i);
+          yield [offset, fill, size];
+        } else {
+          yield [offset, null, size];
+        }
+        offset += size;
+      } else {
+        assert(type === ChunkType.Skip);
+        if (type === ChunkType.Skip) {
+          yield [offset, null, size];
+          offset += size;
+        }
+        await readUntil(totalBytes);
+        buffer = buffer.slice(totalBytes);
+      }
     }
     if (buffer.byteLength > 0) {
       console.warn("Sparse - Backing data larger than expected");
     }
   }
 
-  return readChunks();
-}
-
-
-/**
- * @param {AsyncIterator<SparseChunk>} chunks
- * @returns {AsyncIterator<[number, Uint8Array | null, number]>}
- */
-export async function* inflateChunks(chunks) {
-  let offset = 0;
-  for await (const { header, type, blocks, data } of chunks) {
-    const size = blocks * header.blockSize;
-    if (type === ChunkType.Raw) {
-      yield [offset, data, size];
-      offset += size;
-    } else if (type === ChunkType.Fill) {
-      if (data.some((byte) => byte !== 0)) {
-        const buffer = new Uint8Array(size);
-        for (let i = 0; i < buffer.byteLength; i += 4) buffer.set(data, i);
-        yield [offset, buffer, size];
-      } else {
-        yield [offset, null, size];
-      }
-      offset += size;
-    } else if (type === ChunkType.Skip) {
-      yield [offset, null, size];
-      offset += size;
-    }
-  }
+  return inflateChunks();
 }
 
 

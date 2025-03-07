@@ -5,12 +5,12 @@ export async function simg2img(inputPath, outputPath) {
   const sparseImage = Bun.file(inputPath);
   const outputImage = Bun.file(outputPath);
 
-  const chunks = await Sparse.from(sparseImage.stream());
-  if (!chunks) throw "Failed to parse sparse file";
+  const sparse = await Sparse.from(sparseImage.stream());
+  if (!sparse) throw "Failed to parse sparse file";
 
   // FIXME: write out a "sparse" file? not supported by Bun
   const writer = outputImage.writer({ highWaterMark: 4 * 1024 * 1024 });
-  for await (const [_, data, size] of Sparse.inflateChunks(chunks)) {
+  for await (const [_, data, size] of sparse) {
     if (data) {
       writer.write(data.buffer);
     } else {

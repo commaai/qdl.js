@@ -116,8 +116,8 @@ export class qdlDevice {
     }
     console.info(`Flashing ${partitionName}...`);
     console.debug(`startSector ${partition.sector}, sectors ${partition.sectors}`);
-    const chunks = await Sparse.from(blob.stream());
-    if (chunks === null) {
+    const sparse = await Sparse.from(blob.stream());
+    if (sparse === null) {
       return await this.firehose.cmdProgram(lun, partition.sector, blob, onProgress);
     }
     console.debug(`Erasing ${partitionName}...`);
@@ -126,14 +126,14 @@ export class qdlDevice {
       return false;
     }
     console.debug(`Writing chunks to ${partitionName}...`);
-    for await (const [offset, chunk] of Sparse.inflateChunks(chunks)) {
-      if (!chunk) continue;
+    for await (const [offset, data] of sparse) {
+      if (!data) continue;
       if (offset % this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
         throw "qdl - Offset not aligned to sector size";
       }
       const sector = partition.sector + offset / this.firehose.cfg.SECTOR_SIZE_IN_BYTES;
       const onChunkProgress = (progress) => onProgress?.(offset + progress);
-      if (!await this.firehose.cmdProgram(lun, sector, new Blob([chunk]), onChunkProgress)) {
+      if (!await this.firehose.cmdProgram(lun, sector, new Blob([data]), onChunkProgress)) {
         console.debug("qdl - Failed to program chunk")
         return false;
       }
