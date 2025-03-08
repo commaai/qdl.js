@@ -1,5 +1,3 @@
-import { concatUint8Array } from "./utils";
-
 const FILE_MAGIC = 0xed26ff3a;
 export const FILE_HEADER_SIZE = 28;
 const CHUNK_HEADER_SIZE = 12;
@@ -46,26 +44,32 @@ function assert(condition) {
  * @returns {Promise<AsyncGenerator<[number, Uint8Array | null, number], void, *> | null>}
  */
 export async function from(stream, maxSize = 1024 * 1024) {
-  let buffer = new Uint8Array(0);
+  let buffer = new ArrayBuffer(0, { maxByteLength: maxSize });
+  let view = new Uint8Array(buffer);
 
   /**
    * @param {number} byteLength
    */
   const readUntil = async (byteLength) => {
+    assert(byteLength <= buffer.maxByteLength);
     if (buffer.byteLength >= byteLength) return;
     const reader = stream.getReader();
+    let offset = buffer.byteLength;
     try {
-      const parts = [buffer];
-      let size = buffer.byteLength;
-      while (size < byteLength) {
+      while (offset < byteLength) {
         const { value, done } = await reader.read();
         if (done) throw new Error("Unexpected end of stream");
-        parts.push(value);
         size += value.byteLength;
       }
-      buffer = concatUint8Array(parts);
     } finally {
       reader.releaseLock();
+    }
+    buffer = buffer.transfer(size);
+    view = new Uint8Array(buffer);
+    for (let j = 0; j < i; j++) {
+      const part = parts[j];
+      view.set(part, offset);
+      offset += part.byteLength;
     }
   }
 
@@ -88,19 +92,19 @@ export async function from(stream, maxSize = 1024 * 1024) {
       const size = blockCount * header.blockSize;
 
       if (type === ChunkType.Raw) {
-        buffer = buffer.slice(CHUNK_HEADER_SIZE);
-        let readBytes = 0;
-        while (readBytes < size) {
-          const dataChunkSize = Math.min(size - readBytes, maxSize);
-          await readUntil(dataChunkSize);
-          const data = buffer.slice(0, dataChunkSize);
+        let readBytes = CHUNK_HEADER_SIZE;
+        while (readBytes < totalBytes) {
+          const dataChunkSize = Math.min(totalBytes - readBytes, maxSize);
+          await readUntil(readBytes + dataChunkSize);  // TODO: maybe read smaller chunks?
+          const data = buffer.subarray(readBytes, readBytes + dataChunkSize);
           assert(data.byteLength === dataChunkSize);
           yield [offset, data, dataChunkSize];
-          buffer = buffer.slice(dataChunkSize);
+          // buffer = buffer.slice(dataChunkSize);
           readBytes += dataChunkSize;
           offset += dataChunkSize;
         }
         assert(readBytes === size);
+        buffer = buffer.slice(totalBytes);
       } else if (type === ChunkType.Fill) {
         await readUntil(totalBytes);
         const data = buffer.slice(CHUNK_HEADER_SIZE, totalBytes);
