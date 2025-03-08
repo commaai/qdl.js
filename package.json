@@ -41,7 +41,7 @@
   "//dependencies": {
     "crc-32": "crc32s are used in the gpt header calculations",
     "fast-xml-parser": "parse XML to JS object, fast, works in browser and node",
-    "usb": "communicate with USB devices on desktop, WebUSB compatible API"
+    "usb": "node.js lib for communicating with USB devices, has WebUSB compatible API"
   },
   "dependencies": {
     "crc-32": "^1.2.2",
