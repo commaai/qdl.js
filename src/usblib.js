@@ -89,6 +89,9 @@ export class usbClass {
    */
   async connect(device = undefined) {
     if (!device) {
+      if (!("usb" in navigator)) {
+        throw "USB - WebUSB not supported";
+      }
       device = await navigator.usb.requestDevice({ filters: [USB_FILTER] });
       console.debug("[usblib] Using USB device:", device);
     }
