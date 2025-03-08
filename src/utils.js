@@ -30,7 +30,7 @@ export class StructHelper {
    */
   bytes(length) {
     const [start, end] = this.#advance(length);
-    return this.data.slice(start, end);
+    return this.data.subarray(start, end);
   }
 
   /**
