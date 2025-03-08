@@ -2,6 +2,16 @@ import * as constants from "./constants";
 import { concatUint8Array } from "./utils";
 
 
+/**
+ * @type {USBDeviceFilter}
+ */
+export const USB_FILTER = {
+  vendorId: constants.VENDOR_ID,
+  productId: constants.PRODUCT_ID,
+  classCode: constants.QDL_CLASS_CODE,
+};
+
+
 export class usbClass {
   constructor() {
     /** @type {USBDevice|null} */
@@ -73,20 +83,15 @@ export class usbClass {
     }
   }
 
-  async connect() {
-    const device = await navigator.usb.requestDevice({
-      filters: [{
-        vendorId: constants.VENDOR_ID,
-        productId: constants.PRODUCT_ID,
-        classCode: constants.QDL_CLASS_CODE,
-      }],
-    });
-    console.debug("[usblib] Using USB device:", device);
-    // TODO: is this event listener required?
-    navigator.usb.addEventListener("connect", async (event) => {
-      console.debug("[usblib] USB device connected:", event.device);
-      await this.#connectDevice(event.device);
-    });
+  /**
+   * @param {USBDevice} [device]
+   * @returns {Promise<void>}
+   */
+  async connect(device = undefined) {
+    if (!device) {
+      device = await navigator.usb.requestDevice({ filters: [USB_FILTER] });
+      console.debug("[usblib] Using USB device:", device);
+    }
     await this.#connectDevice(device);
   }
 
