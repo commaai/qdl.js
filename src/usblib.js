@@ -121,7 +121,7 @@ export class usbClass {
   async write(data, wait = true) {
     let offset = 0;
     do {
-      const chunk = data.slice(offset, offset + constants.BULK_TRANSFER_SIZE);
+      const chunk = data.subarray(offset, offset + constants.BULK_TRANSFER_SIZE);
       offset += chunk.byteLength;
       const promise = this.device?.transferOut(this.epOut?.endpointNumber, chunk);
       // this is a hack, webusb doesn't have timed out catching
