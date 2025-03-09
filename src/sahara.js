@@ -2,63 +2,14 @@ import { CommandHandler, cmd_t, sahara_mode_t, status_t, exec_cmd_t } from "./sa
 import { concatUint8Array, packGenerator } from "./utils";
 
 
-class localFile {
-  constructor(url) {
-    this.url = url;
-    this.filename = url.substring(url.lastIndexOf("/") + 1);
-  }
-
-  async download() {
-    const rootDir = await navigator.storage.getDirectory();
-    let writable;
-    try {
-      const fileHandle = await rootDir.getFileHandle(this.filename, { create: true });
-      writable = await fileHandle.createWritable();
-    } catch (error) {
-      throw `Sahara - Error getting file handle ${error}`;
-    }
-    const response = await fetch(this.url, { mode: "cors" })
-    if (!response.ok || !response.body) {
-      throw `Sahara - Failed to fetch loader: ${response.status} ${response.statusText}`;
-    }
-    try {
-      const reader = response.body.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        await writable.write(value);
-      }
-    } catch (error) {
-      throw `Sahara - Could not read response body: ${error}`;
-    }
-    try {
-      await writable.close();
-    } catch (error) {
-      throw `Sahara - Error closing file handle: ${error}`;
-    }
-  }
-
-  async get() {
-    const rootDir = await navigator.storage.getDirectory();
-    let fileHandle;
-    try {
-      fileHandle = await rootDir.getFileHandle(this.filename);
-    } catch (error) {
-      throw `Sahara - Error getting file handle: ${error}`;
-    }
-    return await fileHandle.getFile();
-  }
-}
-
-
 export class Sahara {
   /**
    * @param {usbClass} cdc
-   * @param {string} programmerUrl
+   * @param {ArrayBuffer} programmer
    */
-  constructor(cdc, programmerUrl) {
+  constructor(cdc, programmer) {
     this.cdc = cdc;
-    this.programmer = new localFile(programmerUrl);
+    this.programmer = programmer;
     this.ch = new CommandHandler();
     this.id = null;
     this.serial = "";
@@ -182,14 +133,12 @@ export class Sahara {
 
     await this.connect();
     console.debug("[sahara] Uploading loader...");
-    await this.programmer.download();
-    const programmer = await this.programmer.get().then((file) => file.arrayBuffer());
     if (!(await this.cmdHello(sahara_mode_t.SAHARA_MODE_IMAGE_TX_PENDING))) {
       throw "Sahara - Error while uploading loader";
     }
 
     const start = performance.now();
-    let remainingBytes = programmer.byteLength;
+    let remainingBytes = this.programmer.byteLength;
     while (remainingBytes >= 0) {
       const resp = await this.getResponse();
       if (!resp || !("cmd" in resp)) {
@@ -208,13 +157,13 @@ export class Sahara {
         }
 
         let dataToWrite;
-        if (data_offset + data_len > programmer.byteLength) {
+        if (data_offset + data_len > this.programmer.byteLength) {
           dataToWrite = new Uint8Array(data_len);
-          if (data_offset < programmer.byteLength) {
-            dataToWrite.set(new Uint8Array(programmer, data_offset, programmer.byteLength - data_offset));
+          if (data_offset < this.programmer.byteLength) {
+            dataToWrite.set(new Uint8Array(this.programmer, data_offset, this.programmer.byteLength - data_offset));
           }
         } else {
-          dataToWrite = new Uint8Array(programmer, data_offset, data_len);
+          dataToWrite = new Uint8Array(this.programmer, data_offset, data_len);
         }
 
         await this.cdc.write(dataToWrite);

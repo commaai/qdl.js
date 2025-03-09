@@ -12,13 +12,13 @@ export class qdlDevice {
   #firehose = null
 
   /**
-   * @param {string} programmerUrl
+   * @param {ArrayBuffer} programmer
    */
-  constructor(programmerUrl) {
-    if (!programmerUrl) {
-      throw "programmerUrl is required";
+  constructor(programmer) {
+    if (!programmer) {
+      throw "programmer is required";
     }
-    this.programmerUrl = programmerUrl;
+    this.programmer = programmer;
     /**
      * @type {string|null}
      */
@@ -42,7 +42,7 @@ export class qdlDevice {
     if (!cdc.connected) await cdc.connect();
     if (!cdc.connected) throw new Error("Could not connect to device");
     console.debug("[qdl] QDL device detected");
-    this.sahara = new Sahara(cdc, this.programmerUrl);
+    this.sahara = new Sahara(cdc, this.programmer);
     if (!await runWithTimeout(this.sahara.connect(), 10000)) throw new Error("Could not connect to Sahara");
     console.debug("[qdl] Connected to Sahara");
     this.mode = "sahara";
