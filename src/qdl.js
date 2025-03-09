@@ -43,7 +43,7 @@ export class qdlDevice {
     if (!cdc.connected) throw new Error("Could not connect to device");
     console.debug("[qdl] QDL device detected");
     this.sahara = new Sahara(cdc, this.programmer);
-    if (!await runWithTimeout(this.sahara.connect(), 10000)) throw new Error("Could not connect to Sahara");
+    if (!await runWithTimeout(this.sahara.connect(), 3000)) throw new Error("Could not connect to Sahara");
     console.debug("[qdl] Connected to Sahara");
     this.mode = "sahara";
     await this.sahara.uploadLoader();
