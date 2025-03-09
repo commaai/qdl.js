@@ -1,7 +1,8 @@
+#!/usr/bin/env bun
 import { webusb } from "usb";
 
-import { qdlDevice } from "../src/qdl";
-import { usbClass, USB_FILTER } from "../src/usblib";
+import { qdlDevice } from "../qdl";
+import { usbClass, USB_FILTER } from "../usblib";
 
 const device = await webusb.requestDevice({
   filters: [USB_FILTER],
