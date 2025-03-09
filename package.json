@@ -39,10 +39,12 @@
     "@types/w3c-web-usb": "^1.0.10"
   },
   "//dependencies": {
-    "crc-32": "crc32s are used in the gpt header calculations"
+    "crc-32": "crc32s are used in the gpt header calculations",
+    "fast-xml-parser": "parse XML to JS object, fast, works in browser and node"
   },
   "dependencies": {
-    "crc-32": "^1.2.2"
+    "crc-32": "^1.2.2",
+    "fast-xml-parser": "^5.0.8"
   },
   "//peerDependencies": {
     "typescript": "does type checking, generates JS bundles and type declarations for language servers"

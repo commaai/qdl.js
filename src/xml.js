@@ -1,3 +1,5 @@
+import { XMLParser } from "fast-xml-parser";
+
 /**
  * @param {string} tagName
  * @param {Record<string, any>} [attributes={}]
@@ -5,12 +7,18 @@
  */
 export function toXml(tagName, attributes = {}) {
   const attrs = Object.entries(attributes).map(([key, value]) => `${key}="${value}"`).join(" ");
-  return `<?xml version="1.0" ?><data><${tagName}${attrs ? ` ${attrs}` : ''} /></data>`;
+  return `<?xml version="1.0" ?><data><${tagName}${attrs ? ` ${attrs}` : ""} /></data>`;
 }
 
 export class xmlParser {
   decoder = new TextDecoder();
-  parser = new DOMParser();
+  parser = new XMLParser({
+    attributeNamePrefix: "",
+    htmlEntities: true,
+    ignoreAttributes: false,
+    processEntities: true,
+    trimValues: false,
+  });
 
   /**
    * @param {Uint8Array} input
@@ -18,7 +26,8 @@ export class xmlParser {
    */
   * #parseXmlDocuments(input) {
     for (const xml of this.decoder.decode(input).split("<?xml")) {
-      yield this.parser.parseFromString(`<?xml${xml}`, "text/xml");
+      if (!xml) continue;
+      yield this.parser.parse(`<?xml${xml}`).data;
     }
   }
 
@@ -29,9 +38,7 @@ export class xmlParser {
   getResponse(input) {
     const content = {};
     for (const doc of this.#parseXmlDocuments(input)) {
-      for (const el of doc.querySelectorAll("response")) {
-        for (const attr of el.attributes) content[attr.name] = attr.value;
-      }
+      Object.assign(content, doc.response);
     }
     return content;
   }
@@ -43,11 +50,12 @@ export class xmlParser {
   getLog(input) {
     const data = [];
     for (const doc of this.#parseXmlDocuments(input)) {
-      for (const el of doc.querySelectorAll("log")) {
-        for (const attr of el.attributes) {
-          if (attr.name !== "value") continue;
-          data.push(attr.value);
-          break;
+      if ("log" in doc) {
+        if (Array.isArray(doc.log)) {
+          for (const log of doc.log)
+            if ("value" in log) data.push(log.value);
+        } else if ("value" in doc.log) {
+          data.push(doc.log.value);
         }
       }
     }

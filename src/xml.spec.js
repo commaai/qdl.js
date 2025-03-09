@@ -81,8 +81,8 @@ describe("xmlParser", () => {
       });
     });
 
-    // TODO: unclear whether this scenario occurs
-    test.skip("parse multiple response documents", () => {
+    // unclear whether this scenario occurs
+    test("parse multiple response documents", () => {
       const xml = `<?xml version="1.0" ?><data><response value="ACK"/></data>
                   <?xml version="1.0" ?><data><response value="DONE"/></data>`;
       const result = parser.getResponse(encoder.encode(xml));
