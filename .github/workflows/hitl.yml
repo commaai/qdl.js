@@ -41,4 +41,5 @@ jobs:
           echo "$DEVICE_PATH" | sudo tee /sys/bus/usb/drivers/usb/bind
           echo "Reset complete!"
 
+      - run: qdl.js reset
       - run: qdl.js
