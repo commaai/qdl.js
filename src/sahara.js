@@ -22,12 +22,14 @@ export class Sahara {
    * @returns {Promise<string>}
    */
   async connect() {
+    console.debug("sahara#connect");
     let respPromise = this.cdc.read(0xC * 0x4);
     let resp = await runWithTimeout(respPromise, 500).catch(() => null);
     if (resp && resp.length > 1) {
       if (resp[0] === 0x01) {
         const pkt = this.ch.pkt_cmd_hdr(resp);
         if (pkt.cmd === cmd_t.SAHARA_HELLO_REQ) {
+          console.debug("SAHARA_HELLO_REQ");
           return "sahara";
         }
         if (pkt.cmd === cmd_t.SAHARA_END_TRANSFER) {

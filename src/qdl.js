@@ -44,6 +44,7 @@ export class qdlDevice {
     console.debug("[qdl] QDL device detected");
     this.sahara = new Sahara(cdc, this.programmer);
     this.mode = await this.sahara.connect();
+    console.debug("mode:", this.mode);
     if (this.mode === "sahara") {
       console.debug("[qdl] Connected to Sahara");
       await this.sahara.uploadLoader();
@@ -63,6 +64,7 @@ export class qdlDevice {
    * @returns {Promise<[gpt.gpt, Uint8Array] | [null, null]>}
    */
   async getGpt(lun, startSector=1) {
+    console.debug("#getGpt");
     let data = concatUint8Array([
       await this.firehose.cmdReadBuffer(lun, 0, 1),
       await this.firehose.cmdReadBuffer(lun, startSector, 1),
