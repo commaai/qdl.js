@@ -2,16 +2,6 @@ import * as constants from "./constants";
 import { concatUint8Array } from "./utils";
 
 
-/**
- * @type {USBDeviceFilter}
- */
-const USB_FILTER = {
-  vendorId: constants.VENDOR_ID,
-  productId: constants.PRODUCT_ID,
-  classCode: constants.QDL_CLASS_CODE,
-};
-
-
 export class usbClass {
   constructor() {
     /** @type {USBDevice|null} */
@@ -82,17 +72,17 @@ export class usbClass {
     }
   }
 
-  /**
-   * @param {USBDevice} [device]
-   * @returns {Promise<void>}
-   */
-  async connect(device = undefined) {
-    if (!device) {
-      if (!("usb" in navigator)) {
-        throw "USB - WebUSB not supported";
-      }
-      device = await navigator.usb.requestDevice({ filters: [USB_FILTER] });
+  async connect() {
+    if (!("usb" in navigator)) {
+      throw "USB - WebUSB not supported";
     }
+    const device = await navigator.usb.requestDevice({
+      filters: [{
+        vendorId: constants.VENDOR_ID,
+        productId: constants.PRODUCT_ID,
+        classCode: constants.QDL_CLASS_CODE,
+      }],
+    });
     await this.#connectDevice(device);
   }
 
