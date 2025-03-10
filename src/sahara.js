@@ -24,7 +24,7 @@ export class Sahara {
   async connect() {
     console.debug("sahara#connect");
     let respPromise = this.cdc.read(0xC * 0x4);
-    let resp = await runWithTimeout(respPromise, 2000).catch(() => new Uint8Array());
+    let resp = await runWithTimeout(respPromise, 10000).catch(() => new Uint8Array());
     console.debug("resp:", resp);
     if (resp.length > 1) {
       if (resp[0] === 0x01) {
