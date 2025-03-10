@@ -25,7 +25,8 @@
     "lint": "biome lint"
   },
   "bin": {
-    "simg2img.js": "dist/bin/simg2img.js"
+    "simg2img.js": "dist/bin/simg2img.js",
+    "qdl.js": "dist/bin/qdl.js"
   },
   "//devDependencies": {
     "@biomejs/biome": "code linter and formatter",
@@ -40,11 +41,13 @@
   },
   "//dependencies": {
     "crc-32": "crc32s are used in the gpt header calculations",
-    "fast-xml-parser": "parse XML to JS object, fast, works in browser and node"
+    "fast-xml-parser": "parse XML to JS object, fast, works in browser and node",
+    "usb": "node.js lib for communicating with USB devices, has WebUSB compatible API"
   },
   "dependencies": {
     "crc-32": "^1.2.2",
-    "fast-xml-parser": "^5.0.8"
+    "fast-xml-parser": "^5.0.8",
+    "usb": "^2.15.0"
   },
   "//peerDependencies": {
     "typescript": "does type checking, generates JS bundles and type declarations for language servers"
@@ -53,6 +56,7 @@
     "typescript": "^5.7.3"
   },
   "trustedDependencies": [
-    "@biomejs/biome"
+    "@biomejs/biome",
+    "usb"
   ]
 }

@@ -94,7 +94,7 @@ export class gpt {
   }
 
   parse(gptData, sectorSize=512) {
-    this.header = new gptHeader(gptData.slice(sectorSize, sectorSize + 0x5C));
+    this.header = this.parseHeader(gptData, sectorSize);
     this.sectorSize = sectorSize;
 
     if (!containsBytes("EFI PART", this.header.signature)) {
