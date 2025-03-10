@@ -24,8 +24,9 @@ export class Sahara {
   async connect() {
     console.debug("sahara#connect");
     let respPromise = this.cdc.read(0xC * 0x4);
-    let resp = await runWithTimeout(respPromise, 500).catch(() => null);
-    if (resp && resp.length > 1) {
+    let resp = await runWithTimeout(respPromise, 1000).catch(() => new Uint8Array());
+    console.debug("resp:", resp);
+    if (resp.length > 1) {
       if (resp[0] === 0x01) {
         const pkt = this.ch.pkt_cmd_hdr(resp);
         if (pkt.cmd === cmd_t.SAHARA_HELLO_REQ) {
@@ -45,9 +46,16 @@ export class Sahara {
         return "nandprg";
       }
     } else {
-      await this.cdc.write(new TextEncoder().encode(toXml("nop")));
-      if (!resp) respPromise = this.cdc.read();
-      resp = await runWithTimeout(respPromise, 500).catch(() => null);
+      console.debug("try nop");
+      try {
+        await runWithTimeout(this.cdc.write(new TextEncoder().encode(toXml("nop"))), 1000);
+        if (!resp) respPromise = this.cdc.read();
+        resp = await runWithTimeout(respPromise, 1000).catch(() => new Uint8Array());
+      } catch {
+        console.debug("write timed out");
+        resp = new Uint8Array();
+      }
+      console.debug("resp:", resp);
       if (containsBytes("<?xml", resp)) {
         return "firehose";
       }
@@ -60,9 +68,16 @@ export class Sahara {
           return "sahara";
         }
       } else {
-        await this.cdc.write(new Uint8Array([0x7E, 0x11, 0x00, 0x12, 0x00, 0xA0, 0xE3, 0x00, 0x00, 0xC1, 0xE5, 0x01, 0x40, 0xA0, 0xE3, 0x1E, 0xFF, 0x2F, 0xE1, 0x4B, 0xD9, 0x7E]));
-        if (!resp) respPromise = this.cdc.read();
-        resp = await runWithTimeout(respPromise, 1000).catch(() => new Uint8Array());
+        const cmd = new Uint8Array([0x7E, 0x11, 0x00, 0x12, 0x00, 0xA0, 0xE3, 0x00, 0x00, 0xC1, 0xE5, 0x01, 0x40, 0xA0, 0xE3, 0x1E, 0xFF, 0x2F, 0xE1, 0x4B, 0xD9, 0x7E]);
+        try {
+          await runWithTimeout(this.cdc.write(cmd), 1000);
+          if (!resp) respPromise = this.cdc.read();
+          resp = await runWithTimeout(respPromise, 1000).catch(() => new Uint8Array());
+        } catch {
+          console.debug("write timed out");
+          resp = new Uint8Array();
+        }
+        console.debug("resp:", resp);
         if (resp.length > 0 && resp[0] === 0x12) {
           return "nandprg";
         }
