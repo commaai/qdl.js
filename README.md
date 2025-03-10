@@ -38,8 +38,8 @@ bun run build
 ## Linux instructions
 
 On Linux systems, the Qualcomm device in QDL mode is automatically bound to the kernel's qcserial driver, which needs to
-be unbound before `qdl.js` in the browser can access the device. This doesn't appear to be necessary when running
-`qdl.js` from the command line.
+be unbound before the browser can access the device. This doesn't appear to be necessary in other environments like
+Node.js and Bun.
 
 ```sh
 # List all devices currently bound to qcserial
