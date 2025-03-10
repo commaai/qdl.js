@@ -20,8 +20,8 @@ await qdl.connect(usb);
 
 const activeSlot = await qdl.getActiveSlot();
 console.debug("activeSlot:", activeSlot);
-// const storageInfo = await qdl.getStorageInfo();
-// console.debug("storageInfo:", storageInfo);
+const storageInfo = await qdl.getStorageInfo();
+console.debug("storageInfo:", storageInfo);
 // console.info({
 //   "Active Slot": activeSlot,
 //   "SOC Serial Number": qdl.sahara.serial,
