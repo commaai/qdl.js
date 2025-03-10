@@ -25,7 +25,7 @@
     "lint": "biome lint"
   },
   "bin": {
-    "simg2img.js": "scripts/simg2img.js"
+    "simg2img.js": "dist/bin/simg2img.js"
   },
   "//devDependencies": {
     "@biomejs/biome": "code linter and formatter",
