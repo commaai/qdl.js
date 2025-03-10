@@ -5,7 +5,7 @@ import { concatUint8Array } from "./utils";
 /**
  * @type {USBDeviceFilter}
  */
-export const USB_FILTER = {
+const USB_FILTER = {
   vendorId: constants.VENDOR_ID,
   productId: constants.PRODUCT_ID,
   classCode: constants.QDL_CLASS_CODE,
