@@ -53,7 +53,6 @@ export class usbClass {
         epOut = endpoint;
       }
     }
-    // console.debug("[usblib] endpoints: in =", epIn, ", out =", epOut);
     this.epIn = epIn;
     this.epOut = epOut;
     this.maxSize = this.epIn.packetSize;
@@ -93,7 +92,6 @@ export class usbClass {
         throw "USB - WebUSB not supported";
       }
       device = await navigator.usb.requestDevice({ filters: [USB_FILTER] });
-      console.debug("[usblib] Using USB device:", device);
     }
     await this.#connectDevice(device);
   }
