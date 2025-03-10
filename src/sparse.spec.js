@@ -1,8 +1,8 @@
 import * as Bun from "bun";
 import { beforeAll, describe, expect, test } from "bun:test";
 
-import * as Sparse from "./sparse";
 import { simg2img } from "./bin/simg2img.js";
+import * as Sparse from "./sparse";
 
 const inputData = Bun.file("./test/fixtures/sparse.img");
 const expectedPath = "./test/fixtures/raw.img";

@@ -2,6 +2,13 @@
 
 ## Development
 
+```sh
+bun install
+
+# to add scripts like `simg2img.js` to your path
+bun link
+```
+
 **Test**
 
 Run tests in watch mode
