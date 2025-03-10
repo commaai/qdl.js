@@ -37,6 +37,8 @@ bun run build
 
 ## Linux instructions
 
+### Web
+
 On Linux systems, the Qualcomm device in QDL mode is automatically bound to the kernel's qcserial driver, which needs to
 be unbound before the browser can access the device. This doesn't appear to be necessary in other environments like
 Node.js and Bun.
@@ -52,3 +54,16 @@ for d in /sys/bus/usb/drivers/qcserial/*-*; do [ -e "$d" ] && echo -n "$(basenam
 ```
 
 After running the unbind command, verify no devices are bound to qcserial by running the first command again.
+
+### Desktop
+
+Create a file at `/etc/udev/rules.d/99-qualcomm-edl.rules` containing the following udev rule:
+```
+SUBSYSTEM=="usb", ATTR{idVendor}=="05c6", ATTR{idProduct}=="9008", MODE="0666"
+```
+
+Reload udev rules and apply changes:
+```
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
