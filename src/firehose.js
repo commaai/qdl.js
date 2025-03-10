@@ -171,14 +171,14 @@ export class Firehose {
   }
 
   /**
-   * @param {number} [retries = 3]
+   * @param {number} [retries]
    * @returns {Promise<Uint8Array>}
    */
   async waitForData(retries = 3) {
     let tmp = new Uint8Array();
     let timeout = 0;
     while (!containsBytes("<response", tmp)) {
-      const res = await runWithTimeout(this.cdc.read(), 200).catch(() => new Uint8Array());
+      const res = await runWithTimeout(this.cdc.read(), 100).catch(() => new Uint8Array());
       if (compareStringToBytes("", res)) {
         timeout += 1;
         if (timeout > retries) break;
