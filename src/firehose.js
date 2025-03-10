@@ -1,4 +1,4 @@
-import { concatUint8Array, containsBytes, compareStringToBytes, sleep } from "./utils"
+import { concatUint8Array, containsBytes, compareStringToBytes, runWithTimeout, sleep } from "./utils"
 import { toXml, xmlParser } from "./xml"
 
 
@@ -63,23 +63,14 @@ export class Firehose {
   async xmlSend(command, wait = true) {
     // FIXME: warn if command is shortened
     const dataToSend = new TextEncoder().encode(command).slice(0, this.cfg.MaxXMLSizeInBytes);
-    await this.cdc.write(dataToSend, wait);
-
-    let rData = new Uint8Array();
-    let counter = 0;
-    const timeout = 3;
-    while (!(containsBytes("<response value", rData))) {
-      const tmp = await this.cdc.read();
-      if (compareStringToBytes("", tmp)) {
-        counter += 1;
-        await sleep(50);
-        if (counter > timeout) {
-          break;
-        }
-      }
-      rData = concatUint8Array([rData, tmp]);
+    try {
+      await runWithTimeout(this.cdc.write(dataToSend, wait), 1000);
+    } catch (e) {
+      console.error("Timed out sending command", command);
+      throw "Firehose - Timed out while sending command";
     }
 
+    const rData = await runWithTimeout(this.waitForData(), 1000);
     const resp = this.xml.getResponse(rData);
     const status = !("value" in resp) || resp.value === "ACK" || resp.value === "true";
     if ("rawmode" in resp) {
@@ -113,9 +104,25 @@ export class Firehose {
       SkipStorageInit: this.cfg.SkipStorageInit,
       SkipWrite: this.cfg.SkipWrite,
     });
-    await this.xmlSend(connectCmd, false);
-    await sleep(80);
-    this.luns = Array.from({length: this.cfg.maxlun}, (x, i) => i);
+    await this.cdc.write(new TextEncoder().encode(connectCmd), false);
+    let data = await this.waitForData();
+    let response = this.xml.getResponse(data);
+    if (!("MemoryName" in response)) {
+      // not reached handler yet
+      data = await this.waitForData();
+      response = this.xml.getResponse(data);
+    }
+    if (response.value !== "ACK") {
+      throw new Error("Negative response");
+    }
+    const log = this.xml.getLog(data);
+    if (!log.find((message) => message.includes("Calling handler for configure"))) {
+      throw new Error("Failed to configure: handler not called");
+    }
+    if (!log.find((message) => message.includes("Storage type set to value UFS"))) {
+      throw new Error("Failed to configure: storage type not set");
+    }
+    this.luns = Array.from({ length: this.cfg.maxlun }, (x, i) => i);
     return true;
   }
 
@@ -123,63 +130,61 @@ export class Firehose {
    * @param {number} physicalPartitionNumber
    * @param {number} startSector
    * @param {number} numPartitionSectors
-   * @returns {Promise<response>}
+   * @returns {Promise<Uint8Array>}
    */
   async cmdReadBuffer(physicalPartitionNumber, startSector, numPartitionSectors) {
-    let rsp = await this.xmlSend(toXml("read", {
+    await this.cdc.write(new TextEncoder().encode(toXml("read", {
       SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
       num_partition_sectors: numPartitionSectors,
       physical_partition_number: physicalPartitionNumber,
       start_sector: startSector,
-    }));
-    let resData = new Uint8Array();
-    if (!rsp.resp) {
-      return rsp;
-    } else {
-      let bytesToRead = this.cfg.SECTOR_SIZE_IN_BYTES * numPartitionSectors;
-      while (bytesToRead > 0) {
-        const tmp = await this.cdc.read(Math.min(this.cdc.maxSize, bytesToRead));
-        const size = tmp.length;
-        bytesToRead -= size;
-        resData = concatUint8Array([resData, tmp]);
-      }
+    })));
 
-      const wd = await this.waitForData();
-      const info = this.xml.getLog(wd);
-      rsp = this.xml.getResponse(wd);
-      if ("value" in rsp) {
-        if (rsp.value !== "ACK") {
-          return new response(false, resData, info);
-        } else if ("rawmode" in rsp) {
-          if (rsp.rawmode === "false") {
-            return new response(true, resData);
-          }
-        }
-      } else {
-        console.error("Failed read buffer");
-        return new response(false, resData, rsp[2]);
-      }
+    let data = await this.waitForData(1);
+    let rsp = this.xml.getResponse(data);
+    if (rsp.value !== "ACK") {
+      const log = this.xml.getLog(data);
+      console.error("Negative response code", rsp, log);
+      throw new Error("Failed to read buffer: negative response code");
     }
-    const resp = rsp.value === "ACK";
-    return new response(resp, resData, rsp[2]);
+    if (rsp.rawmode !== "true") {
+      const log = this.xml.getLog(data);
+      console.error("Wrong mode", rsp, log);
+      throw new Error("Failed to read buffer: wrong mode");
+    }
+
+    let buffer;
+    try {
+      buffer = await runWithTimeout(this.cdc.read(this.cfg.SECTOR_SIZE_IN_BYTES * numPartitionSectors), 2000);
+    } catch {
+      throw new Error("Failed to read buffer: timed out");
+    }
+
+    data = await this.waitForData();
+    rsp = this.xml.getResponse(data);
+    if (rsp.value !== "ACK") {
+      console.error("Negative response code", rsp);
+      throw new Error("Failed to read buffer: negative response code")
+    }
+
+    return buffer;
   }
 
   /**
+   * @param {number} [retries = 3]
    * @returns {Promise<Uint8Array>}
    */
-  async waitForData() {
+  async waitForData(retries = 3) {
     let tmp = new Uint8Array();
     let timeout = 0;
-
-    while (!containsBytes("response value", tmp)) {
-      const res = await this.cdc.read();
+    while (!containsBytes("<response", tmp)) {
+      const res = await runWithTimeout(this.cdc.read(), 200).catch(() => new Uint8Array());
       if (compareStringToBytes("", res)) {
         timeout += 1;
-        if (timeout === 4) {
-          break;
-        }
-        await sleep(20);
+        if (timeout > retries) break;
+        continue;
       }
+      timeout = 0;
       tmp = concatUint8Array([tmp, res]);
     }
     return tmp;

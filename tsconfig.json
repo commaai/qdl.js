@@ -13,9 +13,10 @@
     "verbatimModuleSyntax": true,
 
     // Compilation
+    "emitDeclarationOnly": true,
     "outDir": "dist",
     "declaration": true,
-    "sourceMap": true,
+    "sourceMap": false,
     "incremental": true,
     // TODO: enable after disabling allowJs
     // "isolatedDeclarations": true,

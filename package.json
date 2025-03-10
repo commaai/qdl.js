@@ -3,20 +3,20 @@
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
-  "main": "dist/qdl.js",
+  "main": "src/qdl.js",
   "types": "dist/qdl.d.ts",
   "exports": {
     ".": {
       "types": "./dist/qdl.d.ts",
-      "import": "./dist/qdl.js"
+      "import": "./src/qdl.js"
     },
     "./usblib": {
       "types": "./dist/usblib.d.ts",
-      "import": "./dist/usblib.js"
+      "import": "./src/usblib.js"
     },
     "./utils": {
       "types": "./dist/utils.d.ts",
-      "import": "./dist/utils.js"
+      "import": "./src/utils.js"
     }
   },
   "scripts": {
@@ -25,8 +25,8 @@
     "lint": "biome lint"
   },
   "bin": {
-    "simg2img.js": "dist/bin/simg2img.js",
-    "qdl.js": "dist/bin/qdl.js"
+    "simg2img.js": "src/bin/simg2img.js",
+    "qdl.js": "src/bin/qdl.js"
   },
   "//devDependencies": {
     "@biomejs/biome": "code linter and formatter",

@@ -1,5 +1,6 @@
 import { CommandHandler, cmd_t, sahara_mode_t, status_t, exec_cmd_t } from "./saharaDefs"
-import { concatUint8Array, packGenerator } from "./utils";
+import { containsBytes, packGenerator, runWithTimeout } from "./utils";
+import { toXml } from "./xml.js";
 
 
 export class Sahara {
@@ -18,17 +19,58 @@ export class Sahara {
 
   /**
    * TODO: detect other modes
-   * @returns {Promise<boolean>}
+   * @returns {Promise<string>}
    */
   async connect() {
-    const resp = await this.cdc.read(0xC * 0x4);
-    if (resp.length > 1 && resp[0] === 0x01) {
-      const pkt = this.ch.pkt_cmd_hdr(resp);
-      if (pkt.cmd === cmd_t.SAHARA_HELLO_REQ) {
-        return true;
+    let respPromise = this.cdc.read(0xC * 0x4);
+    let resp = await runWithTimeout(respPromise, 500).catch(() => null);
+    if (resp && resp.length > 1) {
+      if (resp[0] === 0x01) {
+        const pkt = this.ch.pkt_cmd_hdr(resp);
+        if (pkt.cmd === cmd_t.SAHARA_HELLO_REQ) {
+          return "sahara";
+        }
+        if (pkt.cmd === cmd_t.SAHARA_END_TRANSFER) {
+          console.debug("SAHARA_END_TRANSFER");
+          return "sahara";
+        }
+        throw "Sahara - Connect failed: unknown command";
+      }
+      if (containsBytes("<?xml", resp)) {
+        return "firehose";
+      }
+      if (resp[0] === 0x7E) {
+        return "nandprg";
+      }
+    } else {
+      await this.cdc.write(new TextEncoder().encode(toXml("nop")));
+      if (!resp) respPromise = this.cdc.read();
+      resp = await runWithTimeout(respPromise, 500).catch(() => null);
+      if (containsBytes("<?xml", resp)) {
+        return "firehose";
+      }
+      if (resp.length > 0) {
+        if (resp[0] === 0x7E) {
+          return "nandprg";
+        }
+        if (resp[0] === cmd_t.SAHARA_END_TRANSFER) {
+          console.debug("SAHARA_END_TRANSFER");
+          return "sahara";
+        }
+      } else {
+        await this.cdc.write(new Uint8Array([0x7E, 0x11, 0x00, 0x12, 0x00, 0xA0, 0xE3, 0x00, 0x00, 0xC1, 0xE5, 0x01, 0x40, 0xA0, 0xE3, 0x1E, 0xFF, 0x2F, 0xE1, 0x4B, 0xD9, 0x7E]));
+        if (!resp) respPromise = this.cdc.read();
+        resp = await runWithTimeout(respPromise, 1000).catch(() => new Uint8Array());
+        if (resp.length > 0 && resp[0] === 0x12) {
+          return "nandprg";
+        }
+        if (resp.length === 0) {
+          console.error("Device is in Sahara error state, please reboot the device.");
+          return "error";
+        }
       }
     }
-    return false;
+    return "error";
   }
 
   async cmdHello(mode, version=2, version_min=1, max_cmd_len=0) {
@@ -152,7 +194,7 @@ export class Sahara {
           throw "Sahara - Unknown sahara id";
         }
         if (this.mode !== "firehose") {
-          // console.debug("[sahara] Firehose mode detected, uploading...");
+          console.debug("[sahara] Firehose mode detected, uploading...");
           this.mode = "firehose";
         }
 
