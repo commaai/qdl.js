@@ -37,7 +37,7 @@ jobs:
           fi
           DEVICE_PATH=$(basename "$SYSFS_PATH")
           echo "$DEVICE_PATH" | sudo tee /sys/bus/usb/drivers/usb/unbind
-          sleep 1
+          sleep 2
           echo "$DEVICE_PATH" | sudo tee /sys/bus/usb/drivers/usb/bind
           echo "Reset complete!"
 
