@@ -46,9 +46,10 @@ export class qdlDevice {
     this.mode = await this.sahara.connect();
     if (this.mode === "sahara") {
       console.debug("[qdl] Connected to Sahara");
-      this.mode = "sahara";
       await this.sahara.uploadLoader();
-    } else if (this.mode !== "firehose") {
+      this.mode = this.sahara.mode;
+    }
+    if (this.mode !== "firehose") {
       throw new Error(`Unsupported mode: ${this.mode}. Please reboot the device.`);
     }
     this.#firehose = new Firehose(cdc);
