@@ -178,10 +178,11 @@ export class Firehose {
     let tmp = new Uint8Array();
     let timeout = 0;
     while (!containsBytes("<response", tmp)) {
-      const res = await runWithTimeout(this.cdc.read(), 125).catch(() => new Uint8Array());
+      const res = await runWithTimeout(this.cdc.read(), 150).catch(() => new Uint8Array());
       if (compareStringToBytes("", res)) {
         timeout += 1;
         if (timeout > retries) break;
+        await sleep(5);
         continue;
       }
       timeout = 0;
