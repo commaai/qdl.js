@@ -43,7 +43,6 @@ export class usbClass {
         epOut = endpoint;
       }
     }
-    console.debug("[usblib] endpoints: in =", epIn, ", out =", epOut);
     this.epIn = epIn;
     this.epOut = epOut;
     this.maxSize = this.epIn.packetSize;
@@ -74,18 +73,15 @@ export class usbClass {
   }
 
   async connect() {
+    if (!("usb" in navigator)) {
+      throw "USB - WebUSB not supported";
+    }
     const device = await navigator.usb.requestDevice({
       filters: [{
         vendorId: constants.VENDOR_ID,
         productId: constants.PRODUCT_ID,
         classCode: constants.QDL_CLASS_CODE,
       }],
-    });
-    console.debug("[usblib] Using USB device:", device);
-    // TODO: is this event listener required?
-    navigator.usb.addEventListener("connect", async (event) => {
-      console.debug("[usblib] USB device connected:", event.device);
-      await this.#connectDevice(event.device);
     });
     await this.#connectDevice(device);
   }
@@ -95,6 +91,7 @@ export class usbClass {
    * @returns {Promise<Uint8Array>}
    */
   async read(length = 0) {
+    if (!this.device || !this.epIn) throw "USB - Not connected";
     if (length) {
       /** @type {Uint8Array[]} */
       const chunks = [];
@@ -108,7 +105,7 @@ export class usbClass {
       } while (received < length);
       return concatUint8Array(chunks);
     } else {
-      const result = await this.device?.transferIn(this.epIn?.endpointNumber, this.maxSize);
+      const result = await this.device.transferIn(this.epIn.endpointNumber, this.maxSize);
       return new Uint8Array(result.data?.buffer);
     }
   }
@@ -119,11 +116,12 @@ export class usbClass {
    * @returns {Promise<void>}
    */
   async write(data, wait = true) {
+    if (!this.device || !this.epOut) throw "USB - Not connected";
     let offset = 0;
     do {
       const chunk = data.subarray(offset, offset + constants.BULK_TRANSFER_SIZE);
       offset += chunk.byteLength;
-      const promise = this.device?.transferOut(this.epOut?.endpointNumber, chunk);
+      const promise = this.device.transferOut(this.epOut.endpointNumber, chunk);
       // this is a hack, webusb doesn't have timed out catching
       // this only happens in sahara.configure(). The loader receive the packet but doesn't respond back (same as edl repo).
       if (wait) await promise;
