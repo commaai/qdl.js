@@ -5,7 +5,7 @@
 ```sh
 bun install
 
-# to add scripts like `simg2img.js` to your path
+# to add scripts like `qdl.js` and `simg2img.js` to your path
 bun link
 ```
 
@@ -38,7 +38,8 @@ bun run build
 ## Linux instructions
 
 On Linux systems, the Qualcomm device in QDL mode is automatically bound to the kernel's qcserial driver, which needs to
-be unbound before we can access the device.
+be unbound before `qdl.js` in the browser can access the device. This doesn't appear to be necessary when running
+`qdl.js` from the command line.
 
 ```sh
 # List all devices currently bound to qcserial
