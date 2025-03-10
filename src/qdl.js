@@ -2,7 +2,7 @@ import { Firehose } from "./firehose"
 import * as gpt from "./gpt"
 import { Sahara } from "./sahara";
 import * as Sparse from "./sparse";
-import { concatUint8Array, containsBytes } from "./utils"
+import { concatUint8Array, containsBytes, sleep } from "./utils"
 
 
 export class qdlDevice {
@@ -39,20 +39,28 @@ export class qdlDevice {
    * @returns {Promise<void>}
    */
   async connect(cdc) {
-    if (!cdc.connected) await cdc.connect();
-    if (!cdc.connected) throw new Error("Could not connect to device");
-    console.debug("[qdl] QDL device detected");
-    this.sahara = new Sahara(cdc, this.programmer);
-    this.mode = await this.sahara.connect();
-    console.debug("mode:", this.mode);
-    if (this.mode === "sahara") {
-      console.debug("[qdl] Connected to Sahara");
-      await this.sahara.uploadLoader();
-      this.mode = this.sahara.mode;
-    }
-    if (this.mode !== "firehose") {
-      throw new Error(`Unsupported mode: ${this.mode}. Please reboot the device.`);
-    }
+    let reset = false;
+    do {
+      if (!cdc.connected) await cdc.connect();
+      if (!cdc.connected) throw new Error("Could not connect to device");
+      console.debug("[qdl] QDL device detected");
+      this.sahara = new Sahara(cdc, this.programmer);
+      this.mode = await this.sahara.connect();
+      if (this.mode === "sahara") {
+        console.debug("[qdl] Connected to Sahara");
+        await this.sahara.uploadLoader();
+        this.mode = this.sahara.mode;
+      }
+      if (this.mode !== "firehose") {
+        if (reset) {
+          throw new Error(`Unsupported mode: ${this.mode}. Please reboot the device.`);
+        }
+        console.debug("[QDL] Resetting...");
+        await cdc.reset();
+        await sleep(1000);
+        reset = true;
+      }
+    } while (reset);
     this.#firehose = new Firehose(cdc);
     if (!await this.firehose.configure()) throw new Error("Could not configure Firehose");
     console.debug("[qdl] Firehose configured");
