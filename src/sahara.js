@@ -18,7 +18,6 @@ export class Sahara {
   }
 
   /**
-   * TODO: detect other modes
    * @returns {Promise<string>}
    */
   async connect() {
@@ -38,9 +37,6 @@ export class Sahara {
       if (containsBytes("<?xml", resp)) {
         return "firehose";
       }
-      if (resp[0] === 0x7E) {
-        return "nandprg";
-      }
     } else {
       try {
         await runWithTimeout(this.cdc.write(new TextEncoder().encode(toXml("nop"))), 1000);
@@ -52,31 +48,11 @@ export class Sahara {
       if (containsBytes("<?xml", resp)) {
         return "firehose";
       }
-      if (resp.length > 0) {
-        if (resp[0] === 0x7E) {
-          return "nandprg";
-        }
-        if (resp[0] === cmd_t.SAHARA_END_TRANSFER) {
-          return "sahara";
-        }
-      } else {
-        const cmd = new Uint8Array([0x7E, 0x11, 0x00, 0x12, 0x00, 0xA0, 0xE3, 0x00, 0x00, 0xC1, 0xE5, 0x01, 0x40, 0xA0, 0xE3, 0x1E, 0xFF, 0x2F, 0xE1, 0x4B, 0xD9, 0x7E]);
-        try {
-          await runWithTimeout(this.cdc.write(cmd), 1000);
-          if (!resp) respPromise = this.cdc.read();
-          resp = await runWithTimeout(respPromise, 1000).catch(() => new Uint8Array());
-        } catch {
-          resp = new Uint8Array();
-        }
-        if (resp.length > 0 && resp[0] === 0x12) {
-          return "nandprg";
-        }
-        if (resp.length === 0) {
-          console.error("Device is in Sahara error state, please reboot the device.");
-          return "error";
-        }
+      if (resp[0] === cmd_t.SAHARA_END_TRANSFER) {
+        return "sahara";
       }
     }
+    console.error("Device is in Sahara error state, please reboot the device.");
     return "error";
   }
 
