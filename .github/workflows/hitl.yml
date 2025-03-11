@@ -26,6 +26,7 @@ jobs:
           sudo uhubctl -s QUSB -a cycle || sudo uhubctl -l 1-1 -a on
           sleep 1
 
-      - run: qdl.js
+      - run: qdl.js getactiveslot
+      - run: qdl.js getstorageinfo
       - run: qdl.js reset; sleep 1
-      - run: qdl.js
+      - run: qdl.js getactiveslot
