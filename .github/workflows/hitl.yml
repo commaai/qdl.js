@@ -26,7 +26,21 @@ jobs:
           sudo uhubctl -s QUSB -a cycle || sudo uhubctl -l 1-1 -a on
           sleep 1
 
-      - run: qdl.js getactiveslot
-      - run: qdl.js getstorageinfo
-      - run: qdl.js reset; sleep 1
-      - run: qdl.js getactiveslot
+      - name: connect to qdl (upload loader)
+        run: qdl.js getactiveslot
+      - name: connect to qdl (existing loader)
+        run: qdl.js getactiveslot
+
+      - name: qdl.js reset
+        run: |
+          qdl.js reset
+          sleep 1
+          qdl.js getactiveslot
+
+      - run: qdl.js erase boot_a
+
+      - name: qdl.js flash (raw image)
+        run: qdl.js flash boot_a ./test/fixtures/raw.img
+
+      - name: qdl.js flash (sparse image)
+        run: qdl.js flash boot_a ./test/fixtures/sparse.img
