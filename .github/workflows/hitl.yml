@@ -23,9 +23,7 @@ jobs:
 
       - name: Power cycle USB ports
         run: |
-          uhubctl -l 1-1 -p 2 -a off
-          sleep 1
-          uhubctl -l 1-1 -p 2 -a on
+          sudo uhubctl -s QUSB -a cycle || sudo uhubctl -l 1-1 -a on
           sleep 1
 
       - run: qdl.js
