@@ -1,4 +1,4 @@
-import { concatUint8Array, containsBytes, compareStringToBytes, sleep } from "./utils"
+import { concatUint8Array, containsBytes, compareStringToBytes, runWithTimeout, sleep } from "./utils"
 import { toXml, xmlParser } from "./xml"
 
 
@@ -123,45 +123,40 @@ export class Firehose {
    * @param {number} physicalPartitionNumber
    * @param {number} startSector
    * @param {number} numPartitionSectors
-   * @returns {Promise<response>}
+   * @returns {Promise<Uint8Array>}
    */
   async cmdReadBuffer(physicalPartitionNumber, startSector, numPartitionSectors) {
-    let rsp = await this.xmlSend(toXml("read", {
+    await this.cdc.write(new TextEncoder().encode(toXml("read", {
       SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
       num_partition_sectors: numPartitionSectors,
       physical_partition_number: physicalPartitionNumber,
       start_sector: startSector,
-    }));
-    let resData = new Uint8Array();
-    if (!rsp.resp) {
-      return rsp;
-    } else {
-      let bytesToRead = this.cfg.SECTOR_SIZE_IN_BYTES * numPartitionSectors;
-      while (bytesToRead > 0) {
-        const tmp = await this.cdc.read(Math.min(this.cdc.maxSize, bytesToRead));
-        const size = tmp.length;
-        bytesToRead -= size;
-        resData = concatUint8Array([resData, tmp]);
-      }
+    })));
 
-      const wd = await this.waitForData();
-      const info = this.xml.getLog(wd);
-      rsp = this.xml.getResponse(wd);
-      if ("value" in rsp) {
-        if (rsp.value !== "ACK") {
-          return new response(false, resData, info);
-        } else if ("rawmode" in rsp) {
-          if (rsp.rawmode === "false") {
-            return new response(true, resData);
-          }
-        }
-      } else {
-        console.error("Failed read buffer");
-        return new response(false, resData, rsp[2]);
-      }
+    let data = await this.waitForData(1);
+    let rsp = this.xml.getResponse(data);
+    if (rsp.value !== "ACK") {
+      throw new Error("Failed to read buffer: negative response code");
     }
-    const resp = rsp.value === "ACK";
-    return new response(resp, resData, rsp[2]);
+    if (rsp.rawmode !== "true") {
+      throw new Error("Failed to read buffer: wrong mode");
+    }
+
+    let buffer;
+    try {
+      buffer = await runWithTimeout(this.cdc.read(this.cfg.SECTOR_SIZE_IN_BYTES * numPartitionSectors), 2000);
+    } catch {
+      throw new Error("Failed to read buffer: timed out");
+    }
+
+    data = await this.waitForData();
+    rsp = this.xml.getResponse(data);
+    if (rsp.value !== "ACK") {
+      console.error("Negative response code", rsp);
+      throw new Error("Failed to read buffer: negative response code")
+    }
+
+    return buffer;
   }
 
   /**
