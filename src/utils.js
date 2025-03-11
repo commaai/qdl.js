@@ -91,21 +91,8 @@ export function concatUint8Array(arrays) {
  * @returns {boolean}
  */
 export function containsBytes(subString, array) {
-  const subarray = new TextEncoder().encode(subString);
-  if (subarray.length > array.length) {
-    return false;
-  }
-  for (let i = 0; i <= array.length - subarray.length; i++) {
-    let found = true;
-    for (let j = 0; j < subarray.length; j++) {
-      if (array[i + j] !== subarray[j]) {
-        found = false;
-        break;
-      }
-    }
-    if (found) return true;
-  }
-  return false;
+  const tArray = new TextDecoder().decode(array);
+  return tArray.includes(subString);
 }
 
 
