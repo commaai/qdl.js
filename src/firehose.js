@@ -143,13 +143,9 @@ export class Firehose {
     let data = await this.waitForData(1);
     let rsp = this.xml.getResponse(data);
     if (rsp.value !== "ACK") {
-      const log = this.xml.getLog(data);
-      console.error("Negative response code", rsp, log);
       throw new Error("Failed to read buffer: negative response code");
     }
     if (rsp.rawmode !== "true") {
-      const log = this.xml.getLog(data);
-      console.error("Wrong mode", rsp, log);
       throw new Error("Failed to read buffer: wrong mode");
     }
 
