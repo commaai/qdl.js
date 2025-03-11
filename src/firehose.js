@@ -94,7 +94,6 @@ export class Firehose {
    * @returns {Promise<boolean>}
    */
   async configure() {
-    console.debug("#configure");
     const connectCmd = toXml("configure", {
       MemoryName: this.cfg.MemoryName,
       Verbose: 0,
@@ -134,7 +133,6 @@ export class Firehose {
    * @returns {Promise<Uint8Array>}
    */
   async cmdReadBuffer(physicalPartitionNumber, startSector, numPartitionSectors) {
-    console.debug("#cmdReadBuffer");
     await this.cdc.write(new TextEncoder().encode(toXml("read", {
       SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
       num_partition_sectors: numPartitionSectors,
@@ -177,7 +175,6 @@ export class Firehose {
    * @returns {Promise<Uint8Array>}
    */
   async waitForData(retries = 3) {
-    console.debug("#waitForData");
     let tmp = new Uint8Array();
     let timeout = 0;
     while (!containsBytes("<response", tmp)) {
