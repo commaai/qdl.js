@@ -85,10 +85,6 @@ export class usbClass {
     await this.#connectDevice(device);
   }
 
-  async reset() {
-    await this.device.reset();
-  }
-
   /**
    * @param {number} [length=0]
    * @returns {Promise<Uint8Array>}
