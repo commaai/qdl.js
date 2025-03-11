@@ -69,7 +69,7 @@ export class Firehose {
       throw "Firehose - Timed out while sending command";
     }
 
-    const rData = await runWithTimeout(this.waitForData(), 1000);
+    const rData = await this.waitForData();
     const resp = this.xml.getResponse(rData);
     const status = !("value" in resp) || resp.value === "ACK" || resp.value === "true";
     if ("rawmode" in resp) {
