@@ -22,7 +22,7 @@ export class Sahara {
    */
   async connect() {
     let respPromise = this.cdc.read(0xC * 0x4);
-    let resp = await runWithTimeout(respPromise, 1000).catch(() => new Uint8Array());
+    let resp = await runWithTimeout(respPromise, 500).catch(() => new Uint8Array());
     if (resp.length > 1) {
       if (resp[0] === 0x01) {
         const pkt = this.ch.pkt_cmd_hdr(resp);
@@ -41,7 +41,7 @@ export class Sahara {
       try {
         await runWithTimeout(this.cdc.write(new TextEncoder().encode(toXml("nop"))), 1000);
         if (!resp) respPromise = this.cdc.read();
-        resp = await runWithTimeout(respPromise, 1000).catch(() => new Uint8Array());
+        resp = await runWithTimeout(respPromise, 2000).catch(() => new Uint8Array());
       } catch {
         resp = new Uint8Array();
       }
