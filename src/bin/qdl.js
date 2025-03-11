@@ -33,7 +33,7 @@ if (args["--help"] || commands.length === 0) {
   process.exit(0);
 }
 
-const createProgress = () => {
+const createProgress = (total = 1.0) => {
   const terminalWidth = (process.stdout.columns || 80) - 7;
   let prevChars = -1;
   let finished = false;
@@ -42,7 +42,7 @@ const createProgress = () => {
     if (progress <= 0) finished = false;
     if (finished) return;
 
-    const pct = Math.min(1, progress);
+    const pct = Math.min(1, progress / total);
     const chars = Math.floor(pct * terminalWidth);
 
     if (chars === prevChars) return;
@@ -52,7 +52,7 @@ const createProgress = () => {
     const percentStr = `${Math.round(pct * 100)}%`.padStart(4);
     process.stderr.write(`\r\x1b[K[${bar}] ${percentStr}`);
 
-    if (progress >= 1) {
+    if (pct >= 1) {
       process.stderr.write("\n");
       finished = true;
     }
@@ -90,7 +90,8 @@ if (command === "reset") {
     process.exit(1);
   }
   const [partitionName, imageName] = commandArgs;
-  await qdl.flashBlob(partitionName, Bun.file(imageName), createProgress());
+  const image = Bun.file(imageName);
+  await qdl.flashBlob(partitionName, image, createProgress(image.size));
 } else {
   console.error(`Unrecognized command: ${commands[0]}`);
   console.info(`\n${help}`)
