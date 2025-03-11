@@ -13,7 +13,7 @@ concurrency:
 jobs:
   test:
     runs-on: [self-hosted, Linux]
-    timeout-minutes: 5
+    timeout-minutes: 2
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v1
@@ -21,6 +21,11 @@ jobs:
       - run: bun install
       - run: bun link
 
-      - run: sudo usbreset 05c6:9008
+      - name: Power cycle USB ports
+        run: |
+          uhubctl -l 1-1 -p 2 -a off
+          sleep 1
+          uhubctl -l 1-1 -p 2 -a on
+          sleep 1
 
       - run: qdl.js
