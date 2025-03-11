@@ -1,4 +1,4 @@
-import { concatUint8Array, containsBytes, compareStringToBytes, runWithTimeout, sleep } from "./utils"
+import { concatUint8Array, containsBytes, compareStringToBytes, runWithTimeout } from "./utils"
 import { toXml, xmlParser } from "./xml"
 
 
@@ -182,7 +182,6 @@ export class Firehose {
       if (compareStringToBytes("", res)) {
         timeout += 1;
         if (timeout > retries) break;
-        await sleep(5);
         continue;
       }
       timeout = 0;
