@@ -1,6 +1,3 @@
-export const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-
 export class StructHelper {
   /**
    * @param {Uint8Array} data
