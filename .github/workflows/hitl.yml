@@ -21,7 +21,7 @@ jobs:
       - run: bun install
       - run: bun link
 
-      - name: USB power cycle
+      - name: Power cycle USB ports
         run: |
           uhubctl -l 1-1 -p 2 -a off
           sleep 1
