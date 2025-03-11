@@ -24,7 +24,6 @@ export class Sahara {
   async connect() {
     let respPromise = this.cdc.read(0xC * 0x4);
     let resp = await runWithTimeout(respPromise, 1000).catch(() => new Uint8Array());
-    console.debug("resp:", resp);
     if (resp.length > 1) {
       if (resp[0] === 0x01) {
         const pkt = this.ch.pkt_cmd_hdr(resp);
@@ -32,7 +31,6 @@ export class Sahara {
           return "sahara";
         }
         if (pkt.cmd === cmd_t.SAHARA_END_TRANSFER) {
-          console.debug("SAHARA_END_TRANSFER");
           return "sahara";
         }
         throw "Sahara - Connect failed: unknown command";
@@ -50,7 +48,6 @@ export class Sahara {
         if (!resp) respPromise = this.cdc.read();
         resp = await runWithTimeout(respPromise, 1000).catch(() => new Uint8Array());
       } catch {
-        console.debug("write timed out");
         resp = new Uint8Array();
       }
       console.debug("resp:", resp);
@@ -62,7 +59,6 @@ export class Sahara {
           return "nandprg";
         }
         if (resp[0] === cmd_t.SAHARA_END_TRANSFER) {
-          console.debug("SAHARA_END_TRANSFER");
           return "sahara";
         }
       } else {
@@ -72,10 +68,8 @@ export class Sahara {
           if (!resp) respPromise = this.cdc.read();
           resp = await runWithTimeout(respPromise, 1000).catch(() => new Uint8Array());
         } catch {
-          console.debug("write timed out");
           resp = new Uint8Array();
         }
-        console.debug("resp:", resp);
         if (resp.length > 0 && resp[0] === 0x12) {
           return "nandprg";
         }
