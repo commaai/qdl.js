@@ -19,7 +19,6 @@ export class usbClass {
 
   /**
    * @param {USBDevice} device
-   * @returns {{ epIn: USBEndpoint, epOut: USBEndpoint }}
    */
   #validateDevice(device) {
     const ife = device.configurations[0].interfaces[0].alternates[0];

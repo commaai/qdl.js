@@ -152,7 +152,7 @@ export class Sahara {
           throw "Sahara - Unknown sahara id";
         }
         if (this.mode !== "firehose") {
-          // console.debug("[sahara] Firehose mode detected, uploading...");
+          console.debug("[sahara] Firehose mode detected, uploading...");
           this.mode = "firehose";
         }
 
