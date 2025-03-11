@@ -1,11 +1,7 @@
 #!/usr/bin/env bun
 import arg from "arg";
-import { webusb } from "usb";
 
-import { qdlDevice } from "../qdl";
-import { usbClass } from "../usblib";
-
-navigator.usb = webusb;
+import { createProgress, createQdl } from "../cli";
 
 const args = arg({
   "--help": Boolean,
@@ -33,39 +29,7 @@ if (args["--help"] || commands.length === 0) {
   process.exit(0);
 }
 
-const createProgress = (total = 1.0) => {
-  const terminalWidth = (process.stdout.columns || 80) - 7;
-  let prevChars = -1;
-  let finished = false;
-
-  return (progress) => {
-    if (progress <= 0) finished = false;
-    if (finished) return;
-
-    const pct = Math.min(1, progress / total);
-    const chars = Math.floor(pct * terminalWidth);
-
-    if (chars === prevChars) return;
-    prevChars = chars;
-
-    const bar = "=".repeat(chars).padEnd(terminalWidth, " ");
-    const percentStr = `${Math.round(pct * 100)}%`.padStart(4);
-    process.stderr.write(`\r\x1b[K[${bar}] ${percentStr}`);
-
-    if (pct >= 1) {
-      process.stderr.write("\n");
-      finished = true;
-    }
-  };
-};
-
-const programmerUrl = args["--programmer"] ?? "https://raw.githubusercontent.com/commaai/flash/master/src/QDL/programmer.bin";
-const programmer = await fetch(programmerUrl)
-  .then((response) => response.blob())
-  .then((blob) => blob.arrayBuffer());
-
-const qdl = new qdlDevice(programmer);
-await qdl.connect(new usbClass());
+const qdl = await createQdl(args["--programmer"]);
 
 const [command, ...commandArgs] = args._;
 if (command === "reset") {
