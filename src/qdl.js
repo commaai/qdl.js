@@ -80,6 +80,101 @@ export class qdlDevice {
     }
   }
 
+  /**
+   * @param {number} lun
+   * @param {string[]} preservePartitions
+   * @returns {Promise<boolean>}
+   */
+  async eraseLun(lun, preservePartitions = ["persist"]) {
+    const [guidGpt] = await this.getGpt(lun);
+    if (guidGpt === null) {
+      throw new Error(`Could not read GPT data for LUN ${lun}`);
+    }
+
+    const protectedRanges = [
+      // Don't erase headers, for now...
+      { name: "gpt-current", start: guidGpt.header.currentLba, end: guidGpt.header.currentLba },
+      { name: "gpt-backup", start: guidGpt.header.backupLba, end: guidGpt.header.backupLba },
+    ];
+    for (const name of preservePartitions) {
+      if (!(name in guidGpt.partentries)) continue;
+      const part = guidGpt.partentries[name];
+      protectedRanges.push({ name, start: part.sector, end: part.sector + part.sectors - 1 });
+    }
+    protectedRanges.sort((a, b) => a.start - b.start);
+
+    // Merge overlapping protected ranges
+    const mergedProtectedRanges = [];
+    if (protectedRanges.length > 0) {
+      let currentRange = {...protectedRanges[0]};
+
+      for (let i = 1; i < protectedRanges.length; i++) {
+        const nextRange = protectedRanges[i];
+
+        // If ranges overlap or are adjacent, merge them
+        if (nextRange.start <= currentRange.end + 1) {
+          currentRange.end = Math.max(currentRange.end, nextRange.end);
+          currentRange.name += `+${nextRange.name}`;
+        } else {
+          // No overlap, add current range and start a new one
+          mergedProtectedRanges.push(currentRange);
+          currentRange = {...nextRange};
+        }
+      }
+
+      // Add the last range
+      mergedProtectedRanges.push(currentRange);
+    }
+
+    for (const range of mergedProtectedRanges) {
+      console.debug(`Preserving ${range.name} (sectors ${range.start}-${range.end})`);
+    }
+
+    // Calculate erasable ranges (gaps between protected ranges)
+    const erasableRanges = [];
+    let lastEndSector = 0;
+
+    for (const range of mergedProtectedRanges) {
+      // If there's a gap before this protected range, it's erasable
+      if (range.start > lastEndSector + 1) {
+        erasableRanges.push({
+          start: lastEndSector + 1,
+          end: range.start - 1
+        });
+      }
+      lastEndSector = range.end;
+    }
+
+    // If there's space after the last protected range, it's erasable
+    const lastUsableSector = guidGpt.header.lastUsableLba;
+    if (lastEndSector < lastUsableSector) {
+      erasableRanges.push({
+        start: lastEndSector + 1,
+        end: lastUsableSector
+      });
+    }
+
+    for (const range of erasableRanges) {
+      const sectors = range.end - range.start + 1;
+      console.debug(`Erasing sectors ${range.start}-${range.end} (${sectors} sectors)`);
+
+      const maxSectors = 512 * 1024;
+      let sector = range.start;
+      while (sector <= range.end) {
+        const chunkSectors = Math.min(range.end - sector + 1, maxSectors);
+        const result = await this.firehose.cmdErase(lun, sector, chunkSectors);
+        if (!result) {
+          console.error(`Failed to erase sectors chunk ${sectors}-${sectors + chunkSectors - 1}`);
+          return false;
+        }
+        sector = sector + chunkSectors;
+      }
+    }
+
+    console.info(`Successfully erased LUN ${lun} while preserving specified partitions`);
+    return true;
+  }
+
   async detectPartition(partitionName, sendFull=false) {
     const luns = this.firehose.luns;
     for (const lun of luns) {
