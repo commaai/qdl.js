@@ -28,8 +28,4 @@ jobs:
           uhubctl -l 1-1 -p 2 -a on
           sleep 1
 
-      - run: qdl.js reset
-      - run: sleep 1
-      - run: qdl.js
-      - run: qdl.js
       - run: qdl.js
