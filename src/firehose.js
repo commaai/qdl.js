@@ -66,7 +66,6 @@ export class Firehose {
     try {
       await runWithTimeout(this.cdc.write(dataToSend, wait), 1000);
     } catch (e) {
-      console.error("Timed out sending command", command);
       throw "Firehose - Timed out while sending command";
     }
 
