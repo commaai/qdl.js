@@ -37,6 +37,8 @@ jobs:
           sleep 1
           qdl.js getactiveslot
 
+      - run: qdl.js printgpt
+
       - run: qdl.js erase boot_a
 
       - name: download boot image
