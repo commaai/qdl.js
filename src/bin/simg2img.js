@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import * as Sparse from "../src/sparse";
+import * as Sparse from "../sparse";
 
 export async function simg2img(inputPath, outputPath) {
   const sparseImage = Bun.file(inputPath);

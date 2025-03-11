@@ -2,7 +2,7 @@ import { Firehose } from "./firehose"
 import * as gpt from "./gpt"
 import { Sahara } from "./sahara";
 import * as Sparse from "./sparse";
-import { concatUint8Array, runWithTimeout, containsBytes } from "./utils"
+import { concatUint8Array, containsBytes } from "./utils"
 
 
 export class qdlDevice {
@@ -12,13 +12,13 @@ export class qdlDevice {
   #firehose = null
 
   /**
-   * @param {string} programmerUrl
+   * @param {ArrayBuffer} programmer
    */
-  constructor(programmerUrl) {
-    if (!programmerUrl) {
-      throw "programmerUrl is required";
+  constructor(programmer) {
+    if (!programmer) {
+      throw "programmer is required";
     }
-    this.programmerUrl = programmerUrl;
+    this.programmer = programmer;
     /**
      * @type {string|null}
      */
@@ -42,15 +42,19 @@ export class qdlDevice {
     if (!cdc.connected) await cdc.connect();
     if (!cdc.connected) throw new Error("Could not connect to device");
     console.debug("[qdl] QDL device detected");
-    this.sahara = new Sahara(cdc, this.programmerUrl);
-    if (!await runWithTimeout(this.sahara.connect(), 10000)) throw new Error("Could not connect to Sahara");
-    console.debug("[qdl] Connected to Sahara");
-    this.mode = "sahara";
-    await this.sahara.uploadLoader();
+    this.sahara = new Sahara(cdc, this.programmer);
+    this.mode = await this.sahara.connect();
+    if (this.mode === "sahara") {
+      console.debug("[qdl] Connected to Sahara");
+      await this.sahara.uploadLoader();
+      this.mode = this.sahara.mode;
+    }
+    if (this.mode !== "firehose") {
+      throw new Error(`Unsupported mode: ${this.mode}. Please reboot the device.`);
+    }
     this.#firehose = new Firehose(cdc);
     if (!await this.firehose.configure()) throw new Error("Could not configure Firehose");
     console.debug("[qdl] Firehose configured");
-    this.mode = "firehose";
   }
 
   /**
@@ -59,19 +63,16 @@ export class qdlDevice {
    * @returns {Promise<[gpt.gpt, Uint8Array] | [null, null]>}
    */
   async getGpt(lun, startSector=1) {
-    let resp;
-    resp = await this.firehose.cmdReadBuffer(lun, 0, 1);
-    if (!resp.resp) {
-      console.error(resp.error);
-      return [null, null];
-    }
-    let data = concatUint8Array([resp.data, (await this.firehose.cmdReadBuffer(lun, startSector, 1)).data]);
+    let data = concatUint8Array([
+      await this.firehose.cmdReadBuffer(lun, 0, 1),
+      await this.firehose.cmdReadBuffer(lun, startSector, 1),
+    ]);
     const guidGpt = new gpt.gpt();
     const header = guidGpt.parseHeader(data, this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
     if (containsBytes("EFI PART", header.signature)) {
       const partTableSize = header.numPartEntries * header.partEntrySize;
       const sectors = Math.floor(partTableSize / this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
-      data = concatUint8Array([data, (await this.firehose.cmdReadBuffer(lun, header.partEntryStartLba, sectors)).data]);
+      data = concatUint8Array([data, await this.firehose.cmdReadBuffer(lun, header.partEntryStartLba, sectors)]);
       guidGpt.parse(data, this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
       return [guidGpt, data];
     } else {

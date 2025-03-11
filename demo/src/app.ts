@@ -82,8 +82,13 @@ window.connectDevice = async () => {
       throw new Error("Browser missing WebUSB support");
     }
 
-    // Initialize QDL device with programmer URL
-    const qdl = new qdlDevice(programmerSelect.value);
+    // Fetch programmer
+    const programmer = await fetch(programmerSelect.value)
+      .then((response) => response.blob())
+      .then((blob) => blob.arrayBuffer());
+
+    // Initialize QDL device with programmer
+    const qdl = new qdlDevice(programmer);
     window.qdl = qdl;
 
     // Start the connection
