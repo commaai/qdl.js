@@ -21,25 +21,11 @@ jobs:
       - run: bun install
       - run: bun link
 
-#      - run: sudo usbreset 05c6:9008
-      - name: USB Reset
+      - name: USB power cycle
         run: |
-          BUS_DEV=$(lsusb -d 05c6:9008 | awk '{print $2 "/" $4}' | sed 's/://')
-          if [ -z "$BUS_DEV" ]; then
-            echo "Device not found!"
-            exit 1
-          fi
-          echo "Found device at /dev/bus/usb/$BUS_DEV"
-          SYSFS_PATH=$(udevadm info -q path -n /dev/bus/usb/$BUS_DEV)
-          if [ -z "$SYSFS_PATH" ]; then
-            echo "Unable to determine sysfs path!"
-            exit 1
-          fi
-          DEVICE_PATH=$(basename "$SYSFS_PATH")
-          echo "$DEVICE_PATH" | sudo tee /sys/bus/usb/drivers/usb/unbind
+          uhubctl -l 1-1 -p 2 -a off
           sleep 2
-          echo "$DEVICE_PATH" | sudo tee /sys/bus/usb/drivers/usb/bind
-          echo "Reset complete!"
+          uhubctl -l 1-1 -p 2 -a on
 
       - run: qdl.js reset
       - run: qdl.js
