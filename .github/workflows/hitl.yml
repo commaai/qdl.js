@@ -39,8 +39,10 @@ jobs:
 
       - run: qdl.js erase boot_a
 
-      - name: qdl.js flash (raw image)
-        run: qdl.js flash boot_a ./test/fixtures/raw.img
+      - name: download boot image
+        run: |
+          url=$(curl https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/agnos.json | jq -r ".[] | select(.name == \"boot\") | .url")
+          curl -L $url | unxz > boot.img
 
-      - name: qdl.js flash (sparse image)
-        run: qdl.js flash boot_a ./test/fixtures/sparse.img
+      - name: qdl.js flash
+        run: qdl.js flash boot_a ./boot.img

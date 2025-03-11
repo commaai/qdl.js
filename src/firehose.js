@@ -189,7 +189,7 @@ export class Firehose {
    * @param {number} physicalPartitionNumber
    * @param {number} startSector
    * @param {Blob} blob
-   * @param {progressCallback|undefined} [onProgress] - Returns number of bytes written
+   * @param {progressCallback|undefined} [onProgress]
    * @returns {Promise<boolean>}
    */
   async cmdProgram(physicalPartitionNumber, startSector, blob, onProgress = undefined) {
@@ -224,11 +224,11 @@ export class Firehose {
       bytesToWrite -= wlen;
 
       if (i % 10 === 0) {
-        onProgress?.(offset);
+        onProgress?.(offset / total);
       }
       i += 1;
     }
-    onProgress?.(total);
+    onProgress?.(1.0);
 
     const wd = await this.waitForData();
     const response = this.xml.getResponse(wd);

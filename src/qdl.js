@@ -98,7 +98,7 @@ export class qdlDevice {
   /**
    * @param {string} partitionName
    * @param {Blob} blob
-   * @param {progressCallback} [onProgress] - Returns number of bytes written
+   * @param {progressCallback} [onProgress]
    * @returns {Promise<boolean>}
    */
   async flashBlob(partitionName, blob, onProgress) {
@@ -117,6 +117,7 @@ export class qdlDevice {
     }
     console.info(`Flashing ${partitionName}...`);
     console.debug(`startSector ${partition.sector}, sectors ${partition.sectors}`);
+    const partitionSize = partition.sectors * this.firehose.cfg.SECTOR_SIZE_IN_BYTES;
     const sparse = await Sparse.from(blob);
     if (sparse === null) {
       return await this.firehose.cmdProgram(lun, partition.sector, blob, onProgress);
@@ -133,7 +134,7 @@ export class qdlDevice {
         throw "qdl - Offset not aligned to sector size";
       }
       const sector = partition.sector + offset / this.firehose.cfg.SECTOR_SIZE_IN_BYTES;
-      const onChunkProgress = (progress) => onProgress?.(offset + progress);
+      const onChunkProgress = (progress) => onProgress?.(offset / partitionSize + progress / chunk.size);
       if (!await this.firehose.cmdProgram(lun, sector, chunk, onChunkProgress)) {
         console.debug("qdl - Failed to program chunk")
         return false;
