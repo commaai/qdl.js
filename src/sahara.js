@@ -42,7 +42,6 @@ export class Sahara {
         return "nandprg";
       }
     } else {
-      console.debug("try nop");
       try {
         await runWithTimeout(this.cdc.write(new TextEncoder().encode(toXml("nop"))), 2000);
         if (!resp) respPromise = this.cdc.read();
@@ -50,7 +49,6 @@ export class Sahara {
       } catch {
         resp = new Uint8Array();
       }
-      console.debug("resp:", resp);
       if (containsBytes("<?xml", resp)) {
         return "firehose";
       }
