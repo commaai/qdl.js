@@ -97,6 +97,33 @@ export class qdlDevice {
 
   /**
    * @param {string} partitionName
+   * @param {function(Uint8Array): void} [onChunk]
+   * @returns {Promise<Blob|void>}
+   */
+  async readPartition(partitionName, onChunk) {
+    const [found, lun, partition] = await this.detectPartition(partitionName);
+    if (!found) throw new Error(`Could not find partition: ${partitionName}`);
+
+    const maxSectors = Math.floor(this.firehose.cfg.MaxPayloadSizeFromTargetInBytes / this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
+    const parts = [];
+    let sector = 0;
+    while (sector < partition.sectors) {
+      const chunkSectors = Math.min(maxSectors, partition.sectors - sector);
+      const buffer = await this.firehose.cmdReadBuffer(lun, sector, chunkSectors);
+      if (onChunk) {
+        onChunk(buffer);
+      } else {
+        parts.push(buffer);
+      }
+      sector += chunkSectors;
+    }
+
+    if (onChunk) return;
+    return new Blob(parts);
+  }
+
+  /**
+   * @param {string} partitionName
    * @param {Blob} blob
    * @param {progressCallback} [onProgress] - Returns number of bytes written
    * @returns {Promise<boolean>}
