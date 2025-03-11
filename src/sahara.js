@@ -43,7 +43,7 @@ export class Sahara {
       }
     } else {
       try {
-        await runWithTimeout(this.cdc.write(new TextEncoder().encode(toXml("nop"))), 2000);
+        await runWithTimeout(this.cdc.write(new TextEncoder().encode(toXml("nop"))), 1000);
         if (!resp) respPromise = this.cdc.read();
         resp = await runWithTimeout(respPromise, 1000).catch(() => new Uint8Array());
       } catch {
@@ -62,7 +62,7 @@ export class Sahara {
       } else {
         const cmd = new Uint8Array([0x7E, 0x11, 0x00, 0x12, 0x00, 0xA0, 0xE3, 0x00, 0x00, 0xC1, 0xE5, 0x01, 0x40, 0xA0, 0xE3, 0x1E, 0xFF, 0x2F, 0xE1, 0x4B, 0xD9, 0x7E]);
         try {
-          await runWithTimeout(this.cdc.write(cmd), 2000);
+          await runWithTimeout(this.cdc.write(cmd), 1000);
           if (!resp) respPromise = this.cdc.read();
           resp = await runWithTimeout(respPromise, 1000).catch(() => new Uint8Array());
         } catch {
