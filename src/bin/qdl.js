@@ -13,6 +13,11 @@ const programmer = await fetch("https://raw.githubusercontent.com/commaai/flash/
 const qdl = new qdlDevice(programmer);
 await qdl.connect(new usbClass());
 
+if (Bun.argv.some((arg) => arg === "reset")) {
+  await qdl.reset();
+  process.exit(0);
+}
+
 const activeSlot = await qdl.getActiveSlot();
 console.debug("Active slot:", activeSlot);
 const storageInfo = await qdl.getStorageInfo();
