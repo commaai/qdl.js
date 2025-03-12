@@ -93,9 +93,9 @@ export class qdlDevice {
     const { header } = guidGpt;
 
     const protectedRanges = [];
-    if ("gpt" in preservePartitions) {
-      protectedRanges.push({ name: "gpt-current", start: header.currentLba, end: header.currentLba });
-      protectedRanges.push({ name: "gpt-backup", start: header.backupLba, end: header.backupLba });
+    if (preservePartitions.includes("gpt")) {
+      protectedRanges.push({ name: "gpt-current", start: 0, end: header.currentLba + 5 });
+      protectedRanges.push({ name: "gpt-backup", start: header.backupLba, end: header.backupLba + 5 });
     }
     for (const name of preservePartitions) {
       if (!(name in guidGpt.partentries)) continue;
@@ -124,7 +124,7 @@ export class qdlDevice {
     }
 
     const erasableRanges = [];
-    let lastEndSector = 0;
+    let lastEndSector = -1;
     for (const range of mergedProtectedRanges) {
       if (range.start > lastEndSector + 1) {
         erasableRanges.push({ start: lastEndSector + 1, end: range.start - 1 });
