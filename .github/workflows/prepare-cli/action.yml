@@ -1,0 +1,16 @@
+name: Prepare CLI
+
+runs:
+  using: composite
+  steps:
+    - uses: oven-sh/setup-bun@v1
+    - shell: bash
+      run: |
+        bun install
+        bun link
+    - shell: bash
+      name: Power cycle USB ports
+      run: |
+        uhubctl -a cycle -l 1 || true
+        uhubctl -a cycle -l 3 || true  # Pi 5
+        sleep 1
