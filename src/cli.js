@@ -20,8 +20,7 @@ export const createQdl = async (programmerUrl = "https://raw.githubusercontent.c
   try {
     await qdl.connect(new usbClass());
   } catch (e) {
-    console.error("Failed to connect - missing udev rules?");
-    throw e;
+    throw new Error("Failed to connect - missing udev rules?", { cause: e });
   }
   return qdl;
 };
