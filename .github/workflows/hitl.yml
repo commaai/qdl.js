@@ -14,18 +14,10 @@ jobs:
   test:
     name: Test connection and CLI
     runs-on: [self-hosted, Linux, HITL]
-    timeout-minutes: 1
+    timeout-minutes: 2
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
-      - run: bun install
-      - run: bun link
-
-      - name: Power cycle USB ports
-        run: |
-          uhubctl -a cycle -l 1 || true
-          uhubctl -a cycle -l 3 || true  # Pi 5
-          sleep 1
+      - uses: ./.github/workflows/prepare-cli
 
       - name: connect to qdl (upload loader)
         run: qdl.js getactiveslot
@@ -39,17 +31,6 @@ jobs:
           qdl.js getactiveslot
 
       - run: qdl.js printgpt
-
-  flash:
-    name: Test erase and flash
-    runs-on: [self-hosted, Linux, HITL]
-    needs: test
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
-      - run: bun install
-      - run: bun link
 
       - run: qdl.js erase boot_a
 
