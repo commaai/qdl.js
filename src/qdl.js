@@ -82,9 +82,10 @@ export class qdlDevice {
 
   /**
    * @param {number} lun
+   * @param {boolean} [growLastPartition]
    */
-  async fixGpt(lun) {
-    await this.firehose.cmdFixGpt(lun);
+  async fixGpt(lun, growLastPartition = true) {
+    await this.firehose.cmdFixGpt(lun, growLastPartition ? 1 : 0);
   }
 
   /**

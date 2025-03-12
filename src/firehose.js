@@ -70,7 +70,6 @@ export class Firehose {
     }
 
     const rData = await this.waitForData();
-    console.debug(new TextDecoder().decode(rData));
     const resp = this.xml.getResponse(rData);
     const status = !("value" in resp) || resp.value === "ACK" || resp.value === "true";
     if ("rawmode" in resp) {
@@ -333,10 +332,11 @@ export class Firehose {
 
   /**
    * @param {number} lun
+   * @param {number} grow_last_partition
    * @returns {Promise<void>}
    */
-  async cmdFixGpt(lun) {
-    const val = await this.xmlSend(toXml("fixgpt", { physical_partition_number: lun }));
+  async cmdFixGpt(lun, grow_last_partition) {
+    const val = await this.xmlSend(toXml("fixgpt", { lun, grow_last_partition }));
     if (!val.resp) {
       throw "Firehose - Failed to fix gpt";
     }

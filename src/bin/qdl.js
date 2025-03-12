@@ -18,7 +18,7 @@ Commands:
   getactiveslot                        Get the active slot
   getstorageinfo                       Print UFS information
   printgpt                             Print GPT luns and partitions
-  fixgpt <lun>
+  fixgpt <lun> [grow]                  Fix GPT and grow last partition [default is true]
   erase <partition>                    Erase a partition
   flash <partition> <image>            Flash an image to a partition
 
@@ -57,9 +57,12 @@ if (command === "reset") {
     })));
   }
 } else if (command === "fixgpt") {
-  if (commandArgs.length !== 1) throw "Expected physical partition number";
-  const [lun] = commandArgs;
-  await qdl.fixGpt(lun);
+  if (commandArgs.length < 1 || commandArgs.length > 2) throw "Usage: qdl.js fixgpt <lun> [grow]";
+  const lun = Number.parseInt(commandArgs[0], 10);
+  if (Number.isNaN(lun)) throw "Expected physical partition number";
+  const grow = commandArgs[1] ? ["y", "yes", "true", "1"].includes(commandArgs[1]) : true;
+  await qdl.fixGpt(lun, grow);
+  console.info(`Fixed GPT for LUN ${lun} (growLastPartition: ${grow})`)
 } else if (command === "erase") {
   if (commandArgs.length !== 1) {
     console.error("Expected partition name");
