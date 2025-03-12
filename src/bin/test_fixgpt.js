@@ -37,4 +37,6 @@ await qdl.fixGpt(0, true);
 console.info("After fix:");
 await printGpt(0);
 
+console.debug("Active slot:", await qdl.getActiveSlot());
+
 process.exit(0);
