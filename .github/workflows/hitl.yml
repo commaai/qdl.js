@@ -41,7 +41,7 @@ jobs:
       - run: qdl.js printgpt
 
   flash:
-    name: Test Erase and Flash
+    name: Test erase and flash
     runs-on: [self-hosted, Linux, HITL]
     timeout-minutes: 2
     steps:
