@@ -43,6 +43,7 @@ jobs:
   flash:
     name: Test erase and flash
     runs-on: [self-hosted, Linux, HITL]
+    needs: test
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@v4
