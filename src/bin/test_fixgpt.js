@@ -24,6 +24,7 @@ const image = manifest.find((image) => image.name === "gpt_main_0");
 console.info("Initial:");
 await printGpt(0);
 
+console.info("Flashing gpt_main_0");
 const compressedResponse = await fetch(image.url);
 const blob = await readableStreamToBlob(new XzReadableStream(compressedResponse.body));
 await qdl.firehose.cmdProgram(image.gpt.lun, image.gpt.start_sector, blob);
