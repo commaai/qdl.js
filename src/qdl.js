@@ -82,6 +82,13 @@ export class qdlDevice {
 
   /**
    * @param {number} lun
+   */
+  async fixGpt(lun) {
+    await this.firehose.cmdFixGpt(lun);
+  }
+
+  /**
+   * @param {number} lun
    * @param {string[]} [preservePartitions]
    * @returns {Promise<boolean>}
    */

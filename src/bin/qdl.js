@@ -18,6 +18,7 @@ Commands:
   getactiveslot                        Get the active slot
   getstorageinfo                       Print UFS information
   printgpt                             Print GPT luns and partitions
+  fixgpt <lun>
   erase <partition>                    Erase a partition
   flash <partition> <image>            Flash an image to a partition
 
@@ -55,6 +56,10 @@ if (command === "reset") {
       uuid: info.unique.replace(/\s+/g, ""),
     })));
   }
+} else if (command === "fixgpt") {
+  if (commandArgs.length !== 1) throw "Expected physical partition number";
+  const [lun] = commandArgs;
+  await qdl.fixGpt(lun);
 } else if (command === "erase") {
   if (commandArgs.length !== 1) {
     console.error("Expected partition name");

@@ -70,6 +70,7 @@ export class Firehose {
     }
 
     const rData = await this.waitForData();
+    console.debug(new TextDecoder().decode(rData));
     const resp = this.xml.getResponse(rData);
     const status = !("value" in resp) || resp.value === "ACK" || resp.value === "true";
     if ("rawmode" in resp) {
@@ -328,5 +329,16 @@ export class Firehose {
     const resp = await this.xmlSend(toXml("getstorageinfo", { physical_partition_number: 0 }));
     if (!resp.resp || !resp.log) throw new Error("Failed to get storage info", { cause: resp.error });
     return resp.log;
+  }
+
+  /**
+   * @param {number} lun
+   * @returns {Promise<void>}
+   */
+  async cmdFixGpt(lun) {
+    const val = await this.xmlSend(toXml("fixgpt", { physical_partition_number: lun }));
+    if (!val.resp) {
+      throw "Firehose - Failed to fix gpt";
+    }
   }
 }
