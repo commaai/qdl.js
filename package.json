@@ -41,7 +41,8 @@
     "@biomejs/biome": "1.9.4",
     "@happy-dom/global-registrator": "^16.7.2",
     "@types/bun": "latest",
-    "@types/w3c-web-usb": "^1.0.10"
+    "@types/w3c-web-usb": "^1.0.10",
+    "xz-decompress": "^0.2.2"
   },
   "//dependencies": {
     "arg": "argument parsing for CLI",
