@@ -57,5 +57,5 @@ jobs:
           url=$(curl https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/agnos.json | jq -r ".[] | select(.name == \"boot\") | .url")
           curl -L $url | unxz > boot.img
 
-      - name: qdl.js flash
+      - name: qdl.js flash boot_a
         run: qdl.js flash boot_a ./boot.img
