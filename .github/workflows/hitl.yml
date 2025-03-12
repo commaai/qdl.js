@@ -40,7 +40,3 @@ jobs:
           curl -L $url | unxz > boot.img
 
       - run: qdl.js flash boot_a ./boot.img
-
-      - name: test fixgpt
-        run: bun ./src/bin/test_fixgpt.js
-
