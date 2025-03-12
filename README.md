@@ -57,13 +57,12 @@ After running the unbind command, verify no devices are bound to qcserial by run
 
 ### Desktop
 
-Create a file at `/etc/udev/rules.d/99-qualcomm-edl.rules` containing the following udev rule:
+To fix USB permissions, create a file at `/etc/udev/rules.d/99-qualcomm-edl.rules` containing the following udev rule:
 ```
 SUBSYSTEM=="usb", ATTR{idVendor}=="05c6", ATTR{idProduct}=="9008", MODE="0666"
 ```
 
-Reload udev rules and apply changes:
+For your udev rule changes to take effect, reboot or run:
 ```
-sudo udevadm control --reload-rules
-sudo udevadm trigger
+sudo udevadm trigger --attr-match=subsystem=usb
 ```
