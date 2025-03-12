@@ -85,7 +85,7 @@ export class qdlDevice {
    * @param {string[]} [preservePartitions]
    * @returns {Promise<boolean>}
    */
-  async eraseLun(lun, preservePartitions = ["gpt-current", "gpt-backup", "persist"]) {
+  async eraseLun(lun, preservePartitions = ["gpt", "persist"]) {
     const [guidGpt] = await this.getGpt(lun);
     if (guidGpt === null) {
       throw new Error(`Could not read GPT data for LUN ${lun}`);
@@ -93,10 +93,8 @@ export class qdlDevice {
     const { header } = guidGpt;
 
     const protectedRanges = [];
-    if ("gpt-current" in preservePartitions) {
+    if ("gpt" in preservePartitions) {
       protectedRanges.push({ name: "gpt-current", start: header.currentLba, end: header.currentLba });
-    }
-    if ("gpt-backup" in preservePartitions) {
       protectedRanges.push({ name: "gpt-backup", start: header.backupLba, end: header.backupLba });
     }
     for (const name of preservePartitions) {
