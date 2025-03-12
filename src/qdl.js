@@ -282,7 +282,7 @@ export class qdlDevice {
         const [backupGuidGpt] = await this.getGpt(lun, guidGpt.header.backupLba);
         let partition = backupGuidGpt.partentries[partitionName];
         if (!partition) {
-          console.warn(`Partition ${partitionName} not found in backup GPT`);
+          // console.warn(`Partition ${partitionName} not found in backup GPT`);
           partition = guidGpt.partentries[partitionName];
         }
         const active = (((BigInt(partition.flags) >> (BigInt(gpt.AB_FLAG_OFFSET) * BigInt(8))))
