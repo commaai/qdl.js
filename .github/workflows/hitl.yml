@@ -23,7 +23,8 @@ jobs:
 
       - name: Power cycle USB ports
         run: |
-          sudo uhubctl -s QUSB -a cycle || sudo uhubctl -l 1-1 -a on
+          uhubctl -a cycle -l 1 || true
+          uhubctl -a cycle -l 3 || true  # Pi 5
           sleep 1
 
       - name: connect to qdl (upload loader)
