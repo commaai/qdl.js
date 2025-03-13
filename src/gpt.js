@@ -203,9 +203,9 @@ function checkHeaderCrc(gptData, guidGpt) {
   const testView = new DataView(testHeader.buffer);
 
   const headerCrc = guidGpt.header.crc32;
-  const testHeaderCrc = testView.getUint32(16, true);
+  const testHeaderCrc = testView.getUint32(0x10, true);
   const partTableCrc = guidGpt.header.crc32PartEntries;
-  const testPartTableCrc = testView.getUint32(88, true);
+  const testPartTableCrc = testView.getUint32(0x58, true);
 
   return [(headerCrc !== testHeaderCrc) || (partTableCrc !== testPartTableCrc), partTableCrc];
 }
