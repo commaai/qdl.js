@@ -60,7 +60,7 @@ export class qdlDevice {
   /**
    * @param {number} lun
    * @param {number} startSector
-   * @returns {Promise<[gpt.gpt, Uint8Array] | [null, null]>}
+   * @returns {Promise<[gpt.gpt, Uint8Array]>}
    */
   async getGpt(lun, startSector=1) {
     let data = concatUint8Array([
@@ -69,23 +69,47 @@ export class qdlDevice {
     ]);
     const guidGpt = new gpt.gpt();
     const header = guidGpt.parseHeader(data, this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
-    if (containsBytes("EFI PART", header.signature)) {
-      const partTableSize = header.numPartEntries * header.partEntrySize;
-      const sectors = Math.floor(partTableSize / this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
-      data = concatUint8Array([data, await this.firehose.cmdReadBuffer(lun, header.partEntryStartLba, sectors)]);
-      guidGpt.parse(data, this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
-      return [guidGpt, data];
-    } else {
+    if (!containsBytes("EFI PART", header.signature)) {
       throw "Error reading gpt header";
     }
+    const partTableSize = header.numPartEntries * header.partEntrySize;
+    const sectors = Math.floor(partTableSize / this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
+    data = concatUint8Array([data, await this.firehose.cmdReadBuffer(lun, header.partEntryStartLba, sectors)]);
+    guidGpt.parse(data, this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
+    return [guidGpt, data];
   }
 
   /**
    * @param {number} lun
-   * @param {boolean} [growLastPartition]
+   * @param {Blob} primaryGptBlob
+   * @returns {Promise<boolean>}
    */
-  async fixGpt(lun, growLastPartition = true) {
-    await this.firehose.cmdFixGpt(lun, growLastPartition ? 1 : 0);
+  async repairGpt(lun, primaryGptBlob) {
+    console.info(`Repairing GPT on LUN ${lun}`);
+
+    if (!await this.firehose.cmdProgram(lun, 0, primaryGptBlob)) {
+      throw new Error("Failed to write primary GPT data");
+    }
+
+    // Fix the partition table, expanding last partition to fill available sectors
+    await this.firehose.cmdFixGpt(lun, 1);
+
+    // Read back GPT and create backup copy
+    const [primaryGpt, primaryGptData] = await this.getGpt(lun);
+    const [[backupGptData, backupLba], [partTableData, backupPartTableLba]] = gpt.createBackupGptHeader(primaryGptData, primaryGpt);
+
+    console.debug(`Writing backup partition table to LBA ${backupPartTableLba}`);
+    if (!await this.firehose.cmdProgram(lun, backupPartTableLba, new Blob([partTableData]))) {
+      throw new Error("Failed to write backup partition table");
+    }
+
+    console.debug(`Writing backup GPT header to LBA ${backupLba}`);
+    if (!await this.firehose.cmdProgram(lun, backupLba, new Blob([backupGptData]))) {
+      throw new Error("Failed to write backup GPT header");
+    }
+
+    console.info(`Successfully repaired GPT on LUN ${lun}`);
+    return true;
   }
 
   /**
@@ -168,6 +192,11 @@ export class qdlDevice {
     return true;
   }
 
+  /**
+   * @param {string} partitionName
+   * @param {boolean} [sendFull]
+   * @returns {Promise<[false] | [true, number, Uint8Array, gpt.gpt] | [true, number, gpt.partf]>}
+   */
   async detectPartition(partitionName, sendFull=false) {
     const luns = this.firehose.luns;
     for (const lun of luns) {
