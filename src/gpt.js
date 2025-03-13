@@ -1,6 +1,6 @@
 import { buf as crc32 } from "crc-32"
 
-import { containsBytes, bytes2Number, StructHelper } from "./utils"
+import { containsBytes, StructHelper } from "./utils"
 
 export const AB_FLAG_OFFSET = 6;
 export const AB_PARTITION_ATTR_SLOT_ACTIVE = (0x1 << 2);
@@ -200,11 +200,12 @@ function checkHeaderCrc(gptData, guidGpt) {
   const headerSize = guidGpt.header.headerSize;
   const testGptData = guidGpt.fixGptCrc(gptData).buffer;
   const testHeader = new Uint8Array(testGptData.slice(headerOffset, headerOffset + headerSize));
+  const testView = new DataView(testHeader.buffer);
 
   const headerCrc = guidGpt.header.crc32;
-  const testHeaderCrc = bytes2Number(testHeader.slice(0x10, 0x10 + 4));
+  const testHeaderCrc = testView.getUint32(16);
   const partTableCrc = guidGpt.header.crc32PartEntries;
-  const testPartTableCrc = bytes2Number(testHeader.slice(0x58, 0x58 + 4));
+  const testPartTableCrc = testView.getUint32(88);
 
   return [(headerCrc !== testHeaderCrc) || (partTableCrc !== testPartTableCrc), partTableCrc];
 }

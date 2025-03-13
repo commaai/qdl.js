@@ -105,19 +105,6 @@ export function compareStringToBytes(compareString, array) {
 
 
 /**
- * @param {Uint8Array} array
- * @returns {bigint|number}
- */
-export function bytes2Number(array) {
-  const view = new DataView(array.buffer, 0);
-  if (array.length !== 8 && array.length !== 4) {
-    throw "Only convert to 64 and 32 bit Number";
-  }
-  return (array.length === 8) ? view.getBigUint64(0, true) : view.getUint32(0, true);
-}
-
-
-/**
  * @template T
  * @param {Promise<T>} promise
  * @param {number} timeout
