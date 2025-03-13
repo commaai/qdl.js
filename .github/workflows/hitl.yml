@@ -30,6 +30,28 @@ jobs:
           sleep 1
           qdl.js getactiveslot
 
+      - run: qdl.js setactiveslot a
+
+      - name: verify slot is a
+        run: |
+          NEW_SLOT=$(qdl.js getactiveslot)
+          echo "New active slot: $NEW_SLOT"
+          if [ "$NEW_SLOT" != "a" ]; then
+            echo "ERROR: Slot did not change!"
+            exit 1
+          fi
+
+      - run: qdl.js setactiveslot b
+
+      - name: verify slot is b
+        run: |
+          NEW_SLOT=$(qdl.js getactiveslot)
+          echo "New active slot: $NEW_SLOT"
+          if [ "$NEW_SLOT" != "b" ]; then
+            echo "ERROR: Slot did not change!"
+            exit 1
+          fi
+
       - run: qdl.js printgpt
 
       - run: qdl.js erase boot_a
