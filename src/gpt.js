@@ -2,6 +2,40 @@ import { buf as crc32 } from "crc-32"
 
 import { containsBytes, StructHelper } from "./utils"
 
+/**
+ * @param {Uint8Array} primaryGptData - The original GPT data containing the primary header
+ * @param {gpt} primaryGpt - The parsed GPT object
+ * @returns {[[Uint8Array, bigint], [Uint8Array, bigint]]} The backup GPT data and partition table, and where they should be written
+ */
+export function createBackupGptHeader(primaryGptData, primaryGpt) {
+  const sectorSize = primaryGpt.sectorSize;
+  const headerSize = primaryGpt.header.headerSize;
+
+  const backupHeader = new Uint8Array(headerSize);
+  backupHeader.set(primaryGptData.slice(sectorSize, sectorSize + headerSize));
+
+  const partTableOffset = primaryGpt.sectorSize * 2;
+  const partTableSize = primaryGpt.header.numPartEntries * primaryGpt.header.partEntrySize;
+  const partTableSectors = Math.ceil(partTableSize / sectorSize);
+  const partTableData = primaryGptData.slice(partTableOffset, partTableOffset + partTableSize);
+
+  const backupView = new DataView(backupHeader.buffer);
+  backupView.setUint32(16, 0, true);  // crc32
+  backupView.setBigUint64(24, BigInt(primaryGpt.header.backupLba), true);  // currentLba
+  backupView.setBigUint64(32, BigInt(primaryGpt.header.currentLba), true);  // backupLba
+
+  const backupPartTableLba = primaryGpt.header.backupLba - BigInt(partTableSectors);
+  backupView.setBigUint64(0x48, backupPartTableLba, true);
+
+  const partEntriesCrc = crc32(partTableData);
+  backupView.setInt32(88, partEntriesCrc, true);
+
+  const crcValue = crc32(backupHeader);
+  backupView.setInt32(16, crcValue, true);
+
+  return [[backupHeader, primaryGpt.header.backupLba], [partTableData, backupPartTableLba]];
+}
+
 export const AB_FLAG_OFFSET = 6;
 export const AB_PARTITION_ATTR_SLOT_ACTIVE = (0x1 << 2);
 export const PART_ATT_PRIORITY_BIT = BigInt(48)
@@ -22,12 +56,12 @@ class gptHeader {
     this.headerSize = sh.dword();
     this.crc32 = sh.dword();
     this.reserved = sh.dword();
-    this.currentLba = Number(sh.qword());
-    this.backupLba = Number(sh.qword());
-    this.firstUsableLba = Number(sh.qword());
-    this.lastUsableLba = Number(sh.qword());
+    this.currentLba = sh.qword();
+    this.backupLba = sh.qword();
+    this.firstUsableLba = sh.qword();
+    this.lastUsableLba = sh.qword();
     this.diskGuid = sh.bytes(16);
-    this.partEntryStartLba = Number(sh.qword());
+    this.partEntryStartLba = sh.qword();
     this.numPartEntries = sh.dword();
     this.partEntrySize = sh.dword();
     this.crc32PartEntries = sh.dword();
@@ -40,9 +74,9 @@ export class gptPartition {
     const sh = new StructHelper(data)
     this.type = sh.bytes(16);
     this.unique = sh.bytes(16);
-    this.firstLba = Number(sh.qword());
-    this.lastLba = Number(sh.qword());
-    this.flags = Number(sh.qword());
+    this.firstLba = sh.qword();
+    this.lastLba = sh.qword();
+    this.flags = sh.qword();
     this.name = sh.bytes(72);
   }
 
@@ -69,12 +103,12 @@ export class gptPartition {
 }
 
 
-class partf {
-  firstLba = 0;
-  lastLba = 0;
-  flags = 0;
-  sector = 0;
-  sectors = 0;
+export class partf {
+  firstLba = 0n;
+  lastLba = 0n;
+  flags = 0n;
+  sector = 0n;
+  sectors = 0n;
   entryOffset = 0;
   type = null;
   name = "";
@@ -84,16 +118,29 @@ class partf {
 
 export class gpt {
   constructor() {
+    /** @type {gptHeader|null} */
     this.header = null;
+    /** @type {number|null} */
     this.sectorSize = null;
+    /** @type {Record<string, partf>} */
     this.partentries = {};
   }
 
-  parseHeader(gptData, sectorSize=512) {
+  /**
+   * @param {Uint8Array} gptData
+   * @param {number} [sectorSize]
+   * @returns {gptHeader}
+   */
+  parseHeader(gptData, sectorSize = 512) {
     return new gptHeader(gptData.slice(sectorSize, sectorSize + 0x5C));
   }
 
-  parse(gptData, sectorSize=512) {
+  /**
+   * @param {Uint8Array} gptData
+   * @param {number} [sectorSize]
+   * @returns {boolean}
+   */
+  parse(gptData, sectorSize = 512) {
     this.header = this.parseHeader(gptData, sectorSize);
     this.sectorSize = sectorSize;
 
@@ -119,11 +166,12 @@ export class gpt {
       }
 
       const partentry = new gptPartition(data);
+      const uniqueView = new DataView(partentry.unique.buffer);
       const pa = new partf();
-      const guid1 = new DataView(partentry.unique.slice(0, 0x4).buffer, 0).getUint32(0, true);
-      const guid2 = new DataView(partentry.unique.slice(0x4, 0x6).buffer, 0).getUint16(0, true);
-      const guid3 = new DataView(partentry.unique.slice(0x6, 0x8).buffer, 0).getUint16(0, true);
-      const guid4 = new DataView(partentry.unique.slice(0x8, 0xA).buffer, 0).getUint16(0, true);
+      const guid1 = uniqueView.getUint32(0x0, true);
+      const guid2 = uniqueView.getUint16(0x4, true);
+      const guid3 = uniqueView.getUint16(0x6, true);
+      const guid4 = uniqueView.getUint16(0x8, true);
       const guid5 = Array.from(partentry.unique.subarray(0xA, 0x10))
           .map(byte => byte.toString(16).padStart(2, '0'))
           .join('');
@@ -133,10 +181,10 @@ export class gpt {
                   ${guid4.toString(16).padStart(4, '0')}-
                   ${guid5}`;
       pa.sector = partentry.firstLba;
-      pa.sectors = partentry.lastLba - partentry.firstLba + 1;
+      pa.sectors = partentry.lastLba - partentry.firstLba + 1n;
       pa.flags = partentry.flags;
       pa.entryOffset = start + (idx * entrySize);
-      const typeOfPartentry = new DataView(partentry.type.slice(0, 0x4).buffer, 0).getUint32(0, true);
+      const typeOfPartentry = new DataView(partentry.type.buffer).getUint32(0, true);
       if (typeOfPartentry in efiType) {
         pa.type = efiType[typeOfPartentry];
       } else {
@@ -154,6 +202,10 @@ export class gpt {
     return true;
   }
 
+  /**
+   * @param {Uint8Array} data
+   * @returns {Uint8Array}
+   */
   fixGptCrc(data) {
     const headerOffset = this.sectorSize;
     const partentryOffset = 2 * this.sectorSize;
@@ -175,9 +227,15 @@ export class gpt {
 }
 
 
-// 0x003a for inactive and 0x006f for active boot partitions. This follows fastboot standard
+/**
+ * @param {bigint} flags
+ * @param {boolean} active
+ * @param {boolean} isBoot
+ * @returns {bigint}
+ */
 export function setPartitionFlags(flags, active, isBoot) {
-  let newFlags = BigInt(flags);
+  // 0x003a for inactive and 0x006f for active boot partitions. This follows fastboot standard
+  let newFlags = flags;
   if (active) {
     if (isBoot) {
       newFlags = BigInt(0x006f) << PART_ATT_PRIORITY_BIT;
@@ -191,11 +249,16 @@ export function setPartitionFlags(flags, active, isBoot) {
       newFlags &= ~PART_ATT_ACTIVE_VAL;
     }
   }
-  return Number(newFlags);
+  return newFlags;
 }
 
 
-function checkHeaderCrc(gptData, guidGpt) {
+/**
+ * @param {Uint8Array} gptData
+ * @param {gpt} guidGpt
+ * @returns {[boolean, number]}
+ */
+export function checkHeaderCrc(gptData, guidGpt) {
   const headerOffset = guidGpt.sectorSize;
   const headerSize = guidGpt.header.headerSize;
   const testGptData = guidGpt.fixGptCrc(gptData).buffer;
@@ -211,6 +274,13 @@ function checkHeaderCrc(gptData, guidGpt) {
 }
 
 
+/**
+ * @param {Uint8Array} gptData
+ * @param {Uint8Array} backupGptData
+ * @param {gpt} guidGpt
+ * @param {gpt} backupGuidGpt
+ * @returns {Uint8Array}
+ */
 export function ensureGptHdrConsistency(gptData, backupGptData, guidGpt, backupGuidGpt) {
   const partTableOffset = guidGpt.sectorSize * 2;
 

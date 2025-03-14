@@ -3,9 +3,9 @@ import { usbClass } from "@commaai/qdl/usblib";
 
 interface PartitionInfo {
   name: string;
-  sector: number;
-  sectors: number;
-  flags: number;
+  sector: bigint;
+  sectors: bigint;
+  flags: bigint;
   type: string;
   unique: string;
 }
@@ -13,11 +13,11 @@ interface PartitionInfo {
 interface GptHeaderInfo {
   crc32: number;
   crc32PartEntries: number;
-  firstUsableLba: number;
-  lastUsableLba: number;
-  currentLba: number;
-  backupLba: number;
-  partEntryStartLba: number;
+  firstUsableLba: bigint;
+  lastUsableLba: bigint;
+  currentLba: bigint;
+  backupLba: bigint;
+  partEntryStartLba: bigint;
   numPartEntries: number;
   partEntrySize: number;
 }
@@ -138,7 +138,7 @@ window.connectDevice = async () => {
             numPartEntries: backupGuidGpt.header.numPartEntries,
             partEntrySize: backupGuidGpt.header.partEntrySize
           } : null as any,
-          partitions: guidGpt.partentries
+          partitions: guidGpt.partentries as unknown as Record<string, PartitionInfo>,
         });
 
         // Add partition names to the set

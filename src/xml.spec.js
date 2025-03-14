@@ -12,9 +12,9 @@ describe("toXml", () => {
     const expected = `<?xml version="1.0" ?><data><program SECTOR_SIZE_IN_BYTES="4096" num_partition_sectors="500" physical_partition_number="0" start_sector="0" /></data>`;
     expect(toXml("program", {
       SECTOR_SIZE_IN_BYTES: 4096,
-      num_partition_sectors: 500,
+      num_partition_sectors: 500n,
       physical_partition_number: 0,
-      start_sector: 0,
+      start_sector: 0n,
     })).toBe(expected);
   });
   test("empty", () => {
