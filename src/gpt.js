@@ -24,8 +24,8 @@ export function createBackupGptHeader(primaryGptData, primaryGpt) {
   backupView.setBigUint64(24, BigInt(primaryGpt.header.backupLba), true);  // currentLba
   backupView.setBigUint64(32, BigInt(primaryGpt.header.currentLba), true);  // backupLba
 
-  const backupPartTableLba = primaryGpt.header.backupLba - partTableSectors;
-  backupView.setBigUint64(0x48, BigInt(backupPartTableLba), true);
+  const backupPartTableLba = primaryGpt.header.backupLba - BigInt(partTableSectors);
+  backupView.setBigUint64(0x48, backupPartTableLba, true);
 
   const partEntriesCrc = crc32(partTableData);
   backupView.setInt32(88, partEntriesCrc, true);
