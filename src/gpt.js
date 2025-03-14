@@ -137,7 +137,7 @@ export class gpt {
 
   /**
    * @param {Uint8Array} gptData
-   * @param {number} sectorSize
+   * @param {number} [sectorSize]
    * @returns {boolean}
    */
   parse(gptData, sectorSize = 512) {
@@ -202,6 +202,10 @@ export class gpt {
     return true;
   }
 
+  /**
+   * @param {Uint8Array} data
+   * @returns {Uint8Array}
+   */
   fixGptCrc(data) {
     const headerOffset = this.sectorSize;
     const partentryOffset = 2 * this.sectorSize;
