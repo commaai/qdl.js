@@ -98,7 +98,9 @@ export class Firehose {
     if (!logs || !logs.length) return;
     for (const log of logs) {
       if (log.startsWith("ERROR:")) {
-        console.error(`[Device] ${log}`);
+        console.error(`[Device] ${log.substring(6).trim()}`);
+      } else if (log.startsWith("INFO:")) {
+        console.info(`[Device] ${log.substring(5).trim()}`);
       } else {
         console.info(`[Device] ${log}`);
       }
