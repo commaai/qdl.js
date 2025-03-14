@@ -47,10 +47,8 @@ if (command === "reset") {
   storageInfo.serial_num = storageInfo.serial_num.toString(16).padStart(8, "0");
   console.info(storageInfo);
 } else if (command === "printgpt") {
-  for (const lun of qdl.firehose.luns) {
-    console.info(`LUN ${lun} - Main GPT`);
-    const [guidGpt] = await qdl.getGpt(lun);
-    console.table(Object.entries(guidGpt.partentries).map(([name, info]) => ({
+  function printGpt(gpt) {
+    console.table(Object.entries(gpt.partentries).map(([name, info]) => ({
       name,
       startSector: info.sector,
       sectorCount: info.sectors,
@@ -58,19 +56,18 @@ if (command === "reset") {
       flags: `0x${info.flags.toString(16)}`,
       uuid: info.unique.replace(/\s+/g, ""),
     })));
+  }
+
+  for (const lun of qdl.firehose.luns) {
+    console.info(`LUN ${lun} - Main GPT`);
+    const [guidGpt] = await qdl.getGpt(lun);
+    printGpt(guidGpt);
 
     if (args["--backup"]) {
       console.info(`LUN ${lun} - Backup GPT at LBA ${guidGpt.header.backupLba}`);
       try {
         const [backupGpt] = await qdl.getGpt(lun, guidGpt.header.backupLba);
-        console.table(Object.entries(backupGpt.partentries).map(([name, info]) => ({
-          name,
-          startSector: info.sector,
-          sectorCount: info.sectors,
-          type: info.type,
-          flags: `0x${info.flags.toString(16)}`,
-          uuid: info.unique.replace(/\s+/g, ""),
-        })));
+        printGpt(backupGpt);
       } catch (error) {
         console.error(`Error reading backup GPT: ${error.message || error}`);
       }
