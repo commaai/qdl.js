@@ -258,7 +258,7 @@ export function setPartitionFlags(flags, active, isBoot) {
  * @param {gpt} guidGpt
  * @returns {[boolean, number]}
  */
-function checkHeaderCrc(gptData, guidGpt) {
+export function checkHeaderCrc(gptData, guidGpt) {
   const headerOffset = guidGpt.sectorSize;
   const headerSize = guidGpt.header.headerSize;
   const testGptData = guidGpt.fixGptCrc(gptData).buffer;

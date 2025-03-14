@@ -2,6 +2,7 @@
 import arg from "arg";
 
 import { createProgress, createQdl } from "../cli";
+import { checkHeaderCrc } from "../gpt";
 
 const args = arg({
   "--help": Boolean,
@@ -59,15 +60,21 @@ if (command === "reset") {
   }
 
   for (const lun of qdl.firehose.luns) {
-    console.info(`LUN ${lun} - Main GPT`);
-    const [guidGpt] = await qdl.getGpt(lun);
-    printGpt(guidGpt);
+    console.info(`LUN ${lun} - Primary GPT`);
+    const [primaryGpt, mainData] = await qdl.getGpt(lun);
+    printGpt(primaryGpt);
+    const [primaryGptCorrupted, primaryPartTableCrc] = checkHeaderCrc(mainData, primaryGpt);
+    if (primaryGptCorrupted) console.warn("Primary GPT is corrupted");
 
     if (args["--backup"]) {
-      console.info(`LUN ${lun} - Backup GPT at LBA ${guidGpt.header.backupLba}`);
+      console.info("");
+      console.info(`LUN ${lun} - Backup GPT at LBA ${primaryGpt.header.backupLba}`);
       try {
-        const [backupGpt] = await qdl.getGpt(lun, guidGpt.header.backupLba);
+        const [backupGpt, backupData] = await qdl.getGpt(lun, primaryGpt.header.backupLba);
         printGpt(backupGpt);
+        const [backupGptCorrupted, backupPartTableCrc] = checkHeaderCrc(backupData, backupGpt);
+        if (backupGptCorrupted) console.warn("Backup GPT is corrupted");
+        if (primaryPartTableCrc !== backupPartTableCrc) console.warn("Primary and backup GPT mismatch");
       } catch (error) {
         console.error(`Error reading backup GPT: ${error.message || error}`);
       }
