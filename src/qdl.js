@@ -59,10 +59,10 @@ export class qdlDevice {
 
   /**
    * @param {number} lun
-   * @param {number} startSector
+   * @param {bigint} startSector
    * @returns {Promise<[gpt.gpt, Uint8Array]>}
    */
-  async getGpt(lun, startSector=1) {
+  async getGpt(lun, startSector = 1n) {
     let data = concatUint8Array([
       await this.firehose.cmdReadBuffer(lun, 0, 1),
       await this.firehose.cmdReadBuffer(lun, startSector, 1),
@@ -249,7 +249,7 @@ export class qdlDevice {
       if (offset % this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
         throw "qdl - Offset not aligned to sector size";
       }
-      const sector = partition.sector + offset / this.firehose.cfg.SECTOR_SIZE_IN_BYTES;
+      const sector = (partition.sector + BigInt(offset)) / BigInt(this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
       const onChunkProgress = (progress) => onProgress?.(offset + progress);
       if (!await this.firehose.cmdProgram(lun, sector, chunk, onChunkProgress)) {
         console.debug("qdl - Failed to program chunk")
