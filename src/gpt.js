@@ -104,11 +104,11 @@ export class gptPartition {
 
 
 export class partf {
-  firstLba = 0;
-  lastLba = 0;
-  flags = 0;
-  sector = 0;
-  sectors = 0;
+  firstLba = 0n;
+  lastLba = 0n;
+  flags = 0n;
+  sector = 0n;
+  sectors = 0n;
   entryOffset = 0;
   type = null;
   name = "";
@@ -166,11 +166,12 @@ export class gpt {
       }
 
       const partentry = new gptPartition(data);
+      const uniqueView = new DataView(partentry.unique.buffer);
       const pa = new partf();
-      const guid1 = new DataView(partentry.unique.slice(0, 0x4).buffer, 0).getUint32(0, true);
-      const guid2 = new DataView(partentry.unique.slice(0x4, 0x6).buffer, 0).getUint16(0, true);
-      const guid3 = new DataView(partentry.unique.slice(0x6, 0x8).buffer, 0).getUint16(0, true);
-      const guid4 = new DataView(partentry.unique.slice(0x8, 0xA).buffer, 0).getUint16(0, true);
+      const guid1 = uniqueView.getUint32(0x0, true);
+      const guid2 = uniqueView.getUint16(0x4, true);
+      const guid3 = uniqueView.getUint16(0x6, true);
+      const guid4 = uniqueView.getUint16(0x8, true);
       const guid5 = Array.from(partentry.unique.subarray(0xA, 0x10))
           .map(byte => byte.toString(16).padStart(2, '0'))
           .join('');
@@ -180,10 +181,10 @@ export class gpt {
                   ${guid4.toString(16).padStart(4, '0')}-
                   ${guid5}`;
       pa.sector = partentry.firstLba;
-      pa.sectors = partentry.lastLba - partentry.firstLba + 1;
+      pa.sectors = partentry.lastLba - partentry.firstLba + 1n;
       pa.flags = partentry.flags;
       pa.entryOffset = start + (idx * entrySize);
-      const typeOfPartentry = new DataView(partentry.type.slice(0, 0x4).buffer, 0).getUint32(0, true);
+      const typeOfPartentry = new DataView(partentry.type.buffer).getUint32(0, true);
       if (typeOfPartentry in efiType) {
         pa.type = efiType[typeOfPartentry];
       } else {
