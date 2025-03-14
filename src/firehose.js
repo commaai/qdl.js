@@ -75,18 +75,37 @@ export class Firehose {
     if ("rawmode" in resp) {
       if (resp.rawmode === "false") {
         const log = this.xml.getLog(rData);
+        this.#printLogMessages(log);
         return new response(status, rData, "", log)
       }
     } else {
       if (status) {
         if (containsBytes("log value=", rData)) {
           const log = this.xml.getLog(rData);
+          this.#printLogMessages(log);
           return new response(status, rData, "", log);
         }
         return new response(status, rData);
       }
     }
     return new response(true, rData);
+  }
+  
+  /**
+   * Prints log messages from the device using appropriate log levels
+   * @param {string[]} logs - Array of log messages
+   * @private
+   */
+  #printLogMessages(logs) {
+    if (!logs || !logs.length) return;
+    
+    for (const log of logs) {
+      if (log.startsWith("ERROR:")) {
+        console.error(`[Device] ${log}`);
+      } else {
+        console.info(`[Device] ${log}`);
+      }
+    }
   }
 
   /**
@@ -115,6 +134,7 @@ export class Firehose {
       throw new Error("Negative response");
     }
     const log = this.xml.getLog(data);
+    this.#printLogMessages(log);
     if (!log.find((message) => message.includes("Calling handler for configure"))) {
       throw new Error("Failed to configure: handler not called");
     }
@@ -141,6 +161,9 @@ export class Firehose {
 
     let data = await this.waitForData(1);
     let rsp = this.xml.getResponse(data);
+    const logs = this.xml.getLog(data);
+    this.#printLogMessages(logs);
+    
     if (rsp.value !== "ACK") {
       throw new Error("Failed to read buffer: negative response code");
     }
@@ -157,6 +180,9 @@ export class Firehose {
 
     data = await this.waitForData();
     rsp = this.xml.getResponse(data);
+    const finalLogs = this.xml.getLog(data);
+    this.#printLogMessages(finalLogs);
+    
     if (rsp.value !== "ACK") {
       console.error("Negative response code", rsp);
       throw new Error("Failed to read buffer: negative response code")
@@ -232,6 +258,9 @@ export class Firehose {
 
     const wd = await this.waitForData();
     const response = this.xml.getResponse(wd);
+    const logs = this.xml.getLog(wd);
+    this.#printLogMessages(logs);
+    
     if (!("value" in response)){
       console.error("Firehose - Failed to program: no return value");
       return false;
@@ -277,6 +306,9 @@ export class Firehose {
 
       const res = await this.waitForData();
       const response = this.xml.getResponse(res);
+      const logs = this.xml.getLog(res);
+      this.#printLogMessages(logs);
+      
       if ("value" in response) {
         if (response.value !== "ACK") {
           throw "Failed to erase: NAK";
