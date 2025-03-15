@@ -338,7 +338,18 @@ export class qdlDevice {
     }
   }
 
-  patchNewGptData(gptDataA, gptDataB, guidGpt, partA, partB, slot_a_status, slot_b_status, isBoot) {
+  /**
+   * @param {Uint8Array} gptDataA
+   * @param {Uint8Array} gptDataB
+   * @param {gpt.gpt} guidGpt
+   * @param {gpt.partf} partA
+   * @param {gpt.partf} partB
+   * @param {"a" | "b"} slot
+   * @param {boolean} isBoot
+   * @returns {[Uint8Array, number, Uint8Array, number]}
+   * @private
+   */
+  #patchNewGptData(gptDataA, gptDataB, guidGpt, partA, partB, slot, isBoot) {
     const partEntrySize = guidGpt.header.partEntrySize;
 
     const sdataA = gptDataA.slice(partA.entryOffset, partA.entryOffset+partEntrySize);
@@ -347,8 +358,8 @@ export class qdlDevice {
     const partEntryA = new gpt.gptPartition(sdataA);
     const partEntryB = new gpt.gptPartition(sdataB);
 
-    partEntryA.flags = gpt.setPartitionFlags(partEntryA.flags, slot_a_status, isBoot);
-    partEntryB.flags = gpt.setPartitionFlags(partEntryB.flags, slot_b_status, isBoot);
+    partEntryA.flags = gpt.setPartitionFlags(partEntryA.flags, slot === "a", isBoot);
+    partEntryB.flags = gpt.setPartitionFlags(partEntryB.flags, slot === "b", isBoot);
     const tmp = partEntryB.type;
     partEntryB.type = partEntryA.type;
     partEntryA.type = tmp;
@@ -357,93 +368,88 @@ export class qdlDevice {
     return [pDataA, partA.entryOffset, pDataB, partB.entryOffset];
   }
 
+  /**
+   * @param {"a" | "b"} slot
+   * @returns {Promise<boolean>}
+   */
   async setActiveSlot(slot) {
-    slot = slot.toLowerCase();
-    const luns = this.firehose.luns
-    let slot_a_status, slot_b_status;
+    if (slot !== "a" || slot !== "b") throw "Slot must be a or b";
 
-    if (slot === "a") {
-      slot_a_status = true;
-    } else if (slot === "b") {
-      slot_a_status = false;
-    }
-    slot_b_status = !slot_a_status;
-
-    for (const lunA of luns) {
+    for (const lunA of this.firehose.luns) {
       let checkGptHeader = false;
       let sameLun = false;
       let hasPartitionA = false;
-      let [guidGptA, gptDataA] = await this.getGpt(lunA);
-      if (guidGptA === null) {
+      let [primaryGptA, primaryGptDataA] = await this.getGpt(lunA);
+      if (primaryGptA === null) {
         throw "Error while getting gpt header data";
       }
 
-      const [backupGuidGptA, backupGptDataA] = await this.getGpt(lunA, guidGptA.header.backupLba);
-      let lunB, gptDataB, guidGptB, backupGptDataB, backupGuidGptB;
+      const [backupGptA, backupGptDataA] = await this.getGpt(lunA, primaryGptA.header.backupLba);
+      let lunB, primaryGptB, primaryGptDataB, backupGptB, backupGptDataB;
 
-      for (const partitionNameA in guidGptA.partentries) {
+      for (const partitionNameA in primaryGptA.partentries) {
         const slotSuffix = partitionNameA.toLowerCase().slice(-2);
         if (slotSuffix !== "_a") {
           continue;
         }
-        const partitionNameB = partitionNameA.slice(0, partitionNameA.length-1) + "b";
+        const partitionNameB = `${partitionNameA.slice(0, partitionNameA.length - 1)}b`;
         let sts;
         if (!checkGptHeader) {
           hasPartitionA = true;
-          if (partitionNameB in guidGptA.partentries) {
+          if (partitionNameB in primaryGptA.partentries) {
             lunB = lunA;
             sameLun = true;
-            gptDataB = gptDataA;
-            guidGptB = guidGptA;
+            primaryGptB = primaryGptA;
+            primaryGptDataB = primaryGptDataA;
+            backupGptB = backupGptA;
             backupGptDataB = backupGptDataA;
-            backupGuidGptB = backupGuidGptA;
           } else {
             const resp = await this.detectPartition(partitionNameB, true);
             sts = resp[0];
             if (!sts) {
               throw `Cannot find partition ${partitionNameB}`;
             }
-            [sts, lunB, gptDataB, guidGptB] = resp;
-            [backupGuidGptB, backupGptDataB] = await this.getGpt(lunB, guidGptB.header.backupLba);
+            [sts, lunB, primaryGptDataB, primaryGptB] = resp;
+            [backupGptB, backupGptDataB] = await this.getGpt(lunB, primaryGptB.header.backupLba);
           }
         }
 
         if (!checkGptHeader && partitionNameA.slice(0, 3) !== "xbl") { // xbl partitions aren't affected by failure of changing slot, saves time
-          gptDataA = gpt.ensureGptHdrConsistency(gptDataA, backupGptDataA, guidGptA, backupGuidGptA);
+          primaryGptDataA = gpt.ensureGptHdrConsistency(primaryGptDataA, backupGptDataA, primaryGptA, backupGptA);
           if (!sameLun) {
-            gptDataB = gpt.ensureGptHdrConsistency(gptDataB, backupGptDataB, guidGptB, backupGuidGptB);
+            primaryGptDataB = gpt.ensureGptHdrConsistency(primaryGptDataB, backupGptDataB, primaryGptB, backupGptB);
           }
           checkGptHeader = true;
         }
 
-        const partA = guidGptA.partentries[partitionNameA];
-        const partB = guidGptB.partentries[partitionNameB];
+        const partA = primaryGptA.partentries[partitionNameA];
+        const partB = primaryGptB.partentries[partitionNameB];
 
         let isBoot = false;
         if (partitionNameA === "boot_a") {
           isBoot = true;
         }
-        const [pDataA, pOffsetA, pDataB, pOffsetB] = this.patchNewGptData(
-          gptDataA, gptDataB, guidGptA, partA, partB, slot_a_status, slot_b_status, isBoot
+        const [pDataA, pOffsetA, pDataB, pOffsetB] = this.#patchNewGptData(
+          primaryGptDataA, primaryGptDataB, primaryGptA, partA, partB, slot, isBoot
         );
 
-        gptDataA.set(pDataA, pOffsetA)
-        guidGptA.fixGptCrc(gptDataA);
+        primaryGptDataA.set(pDataA, pOffsetA)
+        primaryGptA.fixGptCrc(primaryGptDataA);
         if (lunA === lunB) {
-          gptDataB = gptDataA;
+          primaryGptDataB = primaryGptDataA;
         }
-        gptDataB.set(pDataB, pOffsetB)
-        guidGptB.fixGptCrc(gptDataB);
+        primaryGptDataB.set(pDataB, pOffsetB)
+        primaryGptB.fixGptCrc(primaryGptDataB);
       }
 
       if (!hasPartitionA) {
         continue;
       }
       const writeOffset = this.firehose.cfg.SECTOR_SIZE_IN_BYTES;
-      const gptBlobA = new Blob([gptDataA.slice(writeOffset)]);
+      const gptBlobA = new Blob([primaryGptDataA.slice(writeOffset)]);
       await this.firehose.cmdProgram(lunA, 1, gptBlobA);
       if (!sameLun) {
-        const gptBlobB = new Blob([gptDataB.slice(writeOffset)]);
+        const gptBlobB = new Blob([primaryGptDataB.slice(writeOffset)]);
         await this.firehose.cmdProgram(lunB, 1, gptBlobB);
       }
     }
