@@ -297,3 +297,47 @@ export function ensureGptHdrConsistency(gptData, backupGptData, guidGpt, backupG
   }
   return gptData;
 }
+
+
+/**
+ * Checks if a partition is active based on its flags
+ *
+ * @param {partf} partition - The partition to check
+ * @returns {boolean} Whether the partition is active
+ */
+export function isPartitionActive(partition) {
+  return (((BigInt(partition.flags) >> (BigInt(AB_FLAG_OFFSET) * BigInt(8))))
+    & BigInt(AB_PARTITION_ATTR_SLOT_ACTIVE)) === BigInt(AB_PARTITION_ATTR_SLOT_ACTIVE);
+}
+
+
+/**
+ * Patches GPT data to update partition information
+ *
+ * @param {Uint8Array} gptDataA - GPT data for slot A
+ * @param {Uint8Array} gptDataB - GPT data for slot B
+ * @param {gpt} guidGpt - GPT object
+ * @param {partf} partA - Partition A information
+ * @param {partf} partB - Partition B information
+ * @param {"a" | "b"} slot - Which slot to set as active
+ * @param {boolean} isBoot - Whether this is a boot partition
+ * @returns {[Uint8Array, number, Uint8Array, number]} Updated partition data and offsets
+ */
+export function patchNewGptData(gptDataA, gptDataB, guidGpt, partA, partB, slot, isBoot) {
+  const partEntrySize = guidGpt.header.partEntrySize;
+
+  const sdataA = gptDataA.slice(partA.entryOffset, partA.entryOffset + partEntrySize);
+  const sdataB = gptDataB.slice(partB.entryOffset, partB.entryOffset + partEntrySize);
+
+  const partEntryA = new gptPartition(sdataA);
+  const partEntryB = new gptPartition(sdataB);
+
+  partEntryA.flags = setPartitionFlags(partEntryA.flags, slot === "a", isBoot);
+  partEntryB.flags = setPartitionFlags(partEntryB.flags, slot === "b", isBoot);
+  const tmp = partEntryB.type;
+  partEntryB.type = partEntryA.type;
+  partEntryA.type = tmp;
+  const pDataA = partEntryA.create(), pDataB = partEntryB.create();
+
+  return [pDataA, partA.entryOffset, pDataB, partB.entryOffset];
+}

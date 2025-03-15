@@ -297,9 +297,12 @@ export class qdlDevice {
     return [slots.length, partitions];
   }
 
+  /**
+   * Gets the active slot from the GPT partitions
+   * @returns {Promise<"a"|"b">} The active slot (a or b)
+   */
   async getActiveSlot() {
-    const luns = this.firehose.luns;
-    for (const lun of luns) {
+    for (const lun of this.firehose.luns) {
       const [guidGpt] = await this.getGpt(lun);
       if (guidGpt === null) {
         throw "Cannot get active slot."
@@ -313,8 +316,7 @@ export class qdlDevice {
           // console.warn(`Partition ${partitionName} not found in backup GPT`);
           partition = guidGpt.partentries[partitionName];
         }
-        const active = (((BigInt(partition.flags) >> (BigInt(gpt.AB_FLAG_OFFSET) * BigInt(8))))
-                      & BigInt(gpt.AB_PARTITION_ATTR_SLOT_ACTIVE)) === BigInt(gpt.AB_PARTITION_ATTR_SLOT_ACTIVE);
+        const active = gpt.isPartitionActive(partition);
         if (slot === "_a" && active) {
           return "a";
         } else if (slot === "_b" && active) {
@@ -339,42 +341,12 @@ export class qdlDevice {
   }
 
   /**
-   * @param {Uint8Array} gptDataA
-   * @param {Uint8Array} gptDataB
-   * @param {gpt.gpt} guidGpt
-   * @param {gpt.partf} partA
-   * @param {gpt.partf} partB
-   * @param {"a" | "b"} slot
-   * @param {boolean} isBoot
-   * @returns {[Uint8Array, number, Uint8Array, number]}
-   * @private
-   */
-  #patchNewGptData(gptDataA, gptDataB, guidGpt, partA, partB, slot, isBoot) {
-    const partEntrySize = guidGpt.header.partEntrySize;
-
-    const sdataA = gptDataA.slice(partA.entryOffset, partA.entryOffset+partEntrySize);
-    const sdataB = gptDataB.slice(partB.entryOffset, partB.entryOffset+partEntrySize);
-
-    const partEntryA = new gpt.gptPartition(sdataA);
-    const partEntryB = new gpt.gptPartition(sdataB);
-
-    partEntryA.flags = gpt.setPartitionFlags(partEntryA.flags, slot === "a", isBoot);
-    partEntryB.flags = gpt.setPartitionFlags(partEntryB.flags, slot === "b", isBoot);
-    const tmp = partEntryB.type;
-    partEntryB.type = partEntryA.type;
-    partEntryA.type = tmp;
-    const pDataA = partEntryA.create(), pDataB = partEntryB.create();
-
-    return [pDataA, partA.entryOffset, pDataB, partB.entryOffset];
-  }
-
-  /**
-   * @param {"a" | "b"} slot
-   * @returns {Promise<boolean>}
+   * Sets the active slot in the GPT partitions
+   * @param {"a" | "b"} slot - Which slot to set as active
+   * @returns {Promise<boolean>} Whether the operation was successful
    */
   async setActiveSlot(slot) {
-    if (slot !== "a" || slot !== "b") throw "Slot must be a or b";
-
+    if (slot !== "a" && slot !== "b") throw "Slot must be a or b";
     for (const lunA of this.firehose.luns) {
       let checkGptHeader = false;
       let sameLun = false;
@@ -429,7 +401,7 @@ export class qdlDevice {
         if (partitionNameA === "boot_a") {
           isBoot = true;
         }
-        const [pDataA, pOffsetA, pDataB, pOffsetB] = this.#patchNewGptData(
+        const [pDataA, pOffsetA, pDataB, pOffsetB] = gpt.patchNewGptData(
           primaryGptDataA, primaryGptDataB, primaryGptA, partA, partB, slot, isBoot
         );
 
