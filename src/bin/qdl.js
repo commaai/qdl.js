@@ -4,7 +4,8 @@ import arg from "arg";
 import { createProgress, createQdl } from "../cli";
 import { LogLevel, createLogger } from "../logger";
 
-const logger = createLogger("cli");
+// Create CLI logger with empty name so messages aren't prefixed
+const logger = createLogger("");
 
 const args = arg({
   "--help": Boolean,

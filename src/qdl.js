@@ -226,10 +226,12 @@ export class qdlDevice {
       const sector = partition.sector + offset / this.firehose.cfg.SECTOR_SIZE_IN_BYTES;
       const onChunkProgress = (progress) => onProgress?.(offset + progress);
       if (!await this.firehose.cmdProgram(lun, sector, chunk, onChunkProgress)) {
-        console.debug("qdl - Failed to program chunk")
+        logger.debug("Failed to program chunk")
         return false;
       }
     }
+    
+    // Auto-debouncing will handle device messages
     return true;
   }
 
@@ -242,6 +244,7 @@ export class qdlDevice {
         logger.info(`Erasing ${partitionName}...`);
         await this.firehose.cmdErase(lun, partition.sector, partition.sectors);
         logger.debug(`Erased ${partitionName} starting at sector ${partition.sector} with sectors ${partition.sectors}`);
+        // Auto-debouncing will handle device messages
       }
     }
     return true;
