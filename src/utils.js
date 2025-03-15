@@ -1,4 +1,3 @@
-
 export class StructHelper {
   /**
    * @param {Uint8Array} data

@@ -38,22 +38,38 @@ export class Logger {
 
   debug(...args) {
     if (this.level < LogLevel.DEBUG) return;
-    console.debug(this.prefix, ...args);
+    if (this.prefix) {
+      console.debug(this.prefix, ...args);
+    } else {
+      console.debug(...args);
+    }
   }
 
   info(...args) {
     if (this.level < LogLevel.INFO) return;
-    console.info(this.prefix, ...args);
+    if (this.prefix) {
+      console.info(this.prefix, ...args);
+    } else {
+      console.info(...args);
+    }
   }
 
   warn(...args) {
     if (this.level < LogLevel.WARN) return;
-    console.warn(this.prefix, ...args);
+    if (this.prefix) {
+      console.warn(this.prefix, ...args);
+    } else {
+      console.warn(...args);
+    }
   }
 
   error(...args) {
     if (this.level < LogLevel.ERROR) return;
-    console.error(this.prefix, ...args);
+    if (this.prefix) {
+      console.error(this.prefix, ...args);
+    } else {
+      console.error(...args);
+    }
   }
 
   /**
