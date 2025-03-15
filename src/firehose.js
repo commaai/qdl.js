@@ -337,7 +337,6 @@ export class Firehose {
       try {
         const rData = await this.waitForData();
         this.#printLogMessages(this.xml.getLog(rData));
-        // Auto-debouncing will handle duplicate messages
       } catch {
         // Ignore any errors
       }

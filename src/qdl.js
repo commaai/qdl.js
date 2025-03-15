@@ -231,7 +231,6 @@ export class qdlDevice {
       }
     }
     
-    // Auto-debouncing will handle device messages
     return true;
   }
 
@@ -243,8 +242,7 @@ export class qdlDevice {
         const partition = guidGpt.partentries[partitionName];
         logger.info(`Erasing ${partitionName}...`);
         await this.firehose.cmdErase(lun, partition.sector, partition.sectors);
-        logger.debug(`Erased ${partitionName} starting at sector ${partition.sector} with sectors ${partition.sectors}`);
-        // Auto-debouncing will handle device messages
+        logger.debug(`Erased ${partitionName} starting at sector ${partition.sector} with sectors ${partition.sectors}`)
       }
     }
     return true;
