@@ -38,11 +38,9 @@ if (args["--help"] || commands.length === 0) {
   process.exit(0);
 }
 
-// Set log level if specified
 if (args["--log-level"]) {
   const level = args["--log-level"].toLowerCase();
   let logLevel;
-  
   switch (level) {
     case "silent":
       logLevel = LogLevel.SILENT;
@@ -63,7 +61,6 @@ if (args["--log-level"]) {
       logger.warn(`Unknown log level: '${level}', using 'info' level`);
       logLevel = LogLevel.INFO;
   }
-  
   // Set environment variable so it's passed to the QDL instance
   process.env.QDL_LOG_LEVEL = logLevel.toString();
 }
@@ -84,14 +81,16 @@ if (command === "reset") {
   for (const lun of qdl.firehose.luns) {
     logger.info(`LUN ${lun}`);
     const [guidGpt] = await qdl.getGpt(lun);
-    console.table(Object.entries(guidGpt.partentries).map(([name, info]) => ({
-      name,
-      startSector: info.sector,
-      sectorCount: info.sectors,
-      type: info.type,
-      flags: `0x${info.flags.toString(16)}`,
-      uuid: info.unique.replace(/\s+/g, ""),
-    })));
+    if (logger.level >= LogLevel.INFO) {
+      console.table(Object.entries(guidGpt.partentries).map(([name, info]) => ({
+        name,
+        startSector: info.sector,
+        sectorCount: info.sectors,
+        type: info.type,
+        flags: `0x${info.flags.toString(16)}`,
+        uuid: info.unique.replace(/\s+/g, ""),
+      })));
+    }
   }
 } else if (command === "fixgpt") {
   if (commandArgs.length < 1 || commandArgs.length > 2) throw "Usage: qdl.js fixgpt <lun> [grow]";
@@ -117,7 +116,7 @@ if (command === "reset") {
   await qdl.flashBlob(partitionName, image, createProgress(image.size));
 } else {
   logger.error(`Unrecognized command: ${commands[0]}`);
-  logger.info(`\n${help}`)
+  logger.info(`\n${help}`);
   process.exit(1);
 }
 

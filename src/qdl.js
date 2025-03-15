@@ -2,10 +2,10 @@ import { Firehose } from "./firehose"
 import * as gpt from "./gpt"
 import { Sahara } from "./sahara";
 import * as Sparse from "./sparse";
-import { concatUint8Array, containsBytes } from "./utils"
-import { createLogger } from "./logger"
+import { concatUint8Array, containsBytes } from "./utils";
+import { createLogger } from "./logger";
 
-const logger = createLogger("qdl")
+const logger = createLogger("qdl");
 
 
 export class qdlDevice {
@@ -230,7 +230,7 @@ export class qdlDevice {
         return false;
       }
     }
-    
+
     return true;
   }
 
