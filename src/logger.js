@@ -9,6 +9,15 @@ export const LogLevel = {
   DEBUG: 4,
 };
 
+/**
+ * Configurable logger with different log levels and device message deduplication.
+ * 
+ * Features:
+ * - Supports SILENT, ERROR, WARN, INFO, and DEBUG log levels
+ * - Automatically deduplicates device messages to reduce noise
+ * - Uses debouncing to group repeated messages and show counts instead
+ * - Prefix-aware output formatting
+ */
 export class Logger {
   /**
    * @param {string} name
