@@ -35,6 +35,30 @@ Bundles JS and generates type declarations
 bun run build
 ```
 
+## Logging
+
+qdl.js includes a configurable logging system that allows you to control the verbosity of log messages. The following log levels are available, in order of increasing verbosity:
+
+- `silent`: No log messages
+- `error`: Only error messages
+- `warn`: Error and warning messages
+- `info`: Error, warning, and informational messages (default)
+- `debug`: All messages, including detailed debug information
+
+You can set the log level in three ways:
+
+1. **Command line option**: Use the `--log-level` or `-l` flag when running qdl.js
+   ```sh
+   qdl.js --log-level debug flash system system.img
+   ```
+
+2. **Environment variable**: Set the `QDL_LOG_LEVEL` environment variable
+   ```sh
+   QDL_LOG_LEVEL=debug qdl.js flash system system.img
+   ```
+
+3. **Programmatically**: When using qdl.js as a library, you can set process.env.QDL_LOG_LEVEL before importing the package
+
 ## Linux instructions
 
 ### Web
