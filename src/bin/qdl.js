@@ -58,16 +58,14 @@ if (command === "reset") {
   for (const lun of qdl.firehose.luns) {
     logger.info(`LUN ${lun}`);
     const [guidGpt] = await qdl.getGpt(lun);
-    if (logger.level >= LogLevel.INFO) {
-      console.table(Object.entries(guidGpt.partentries).map(([name, info]) => ({
-        name,
-        startSector: info.sector,
-        sectorCount: info.sectors,
-        type: info.type,
-        flags: `0x${info.flags.toString(16)}`,
-        uuid: info.unique.replace(/\s+/g, ""),
-      })));
-    }
+    console.table(Object.entries(guidGpt.partentries).map(([name, info]) => ({
+      name,
+      startSector: info.sector,
+      sectorCount: info.sectors,
+      type: info.type,
+      flags: `0x${info.flags.toString(16)}`,
+      uuid: info.unique.replace(/\s+/g, ""),
+    })));
   }
 } else if (command === "fixgpt") {
   if (commandArgs.length < 1 || commandArgs.length > 2) throw "Usage: qdl.js fixgpt <lun> [grow]";
