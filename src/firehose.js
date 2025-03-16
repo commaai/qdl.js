@@ -98,10 +98,7 @@ export class Firehose {
    * @private
    */
   #printLogMessages(logs) {
-    if (!logs || !logs.length) return;
-    for (const log of logs) {
-      logger.deviceMessage(log);
-    }
+    for (const log of logs) logger.deviceMessage(log);
   }
 
   /**
