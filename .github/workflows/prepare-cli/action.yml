@@ -11,8 +11,9 @@ runs:
     - shell: bash
       name: Power cycle USB ports
       run: |
-        END=4
-        for i in $(seq 1 $END); do uhubctl -l $i -a off || true; done
+        uhubctl -l 2 -a 0 || true
+        uhubctl -l 4 -a 0 || true
         sleep 1
-        for i in $(seq 1 $END); do uhubctl -l $i -a on || true; done
+        uhubctl -l 2 -a 1 || true
+        uhubctl -l 4 -a 1 || true
         sleep 1
