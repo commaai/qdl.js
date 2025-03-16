@@ -2,7 +2,10 @@ import { Firehose } from "./firehose"
 import * as gpt from "./gpt"
 import { Sahara } from "./sahara";
 import * as Sparse from "./sparse";
-import { concatUint8Array, containsBytes } from "./utils"
+import { concatUint8Array, containsBytes } from "./utils";
+import { createLogger } from "./logger";
+
+const logger = createLogger("qdl");
 
 
 export class qdlDevice {
@@ -41,11 +44,11 @@ export class qdlDevice {
   async connect(cdc) {
     if (!cdc.connected) await cdc.connect();
     if (!cdc.connected) throw new Error("Could not connect to device");
-    console.debug("[qdl] QDL device detected");
+    logger.debug("QDL device detected");
     this.sahara = new Sahara(cdc, this.programmer);
     this.mode = await this.sahara.connect();
     if (this.mode === "sahara") {
-      console.debug("[qdl] Connected to Sahara");
+      logger.debug("Connected to Sahara");
       this.mode = await this.sahara.uploadLoader();
     }
     if (this.mode !== "firehose") {
@@ -53,7 +56,7 @@ export class qdlDevice {
     }
     this.#firehose = new Firehose(cdc);
     if (!await this.firehose.configure()) throw new Error("Could not configure Firehose");
-    console.debug("[qdl] Firehose configured");
+    logger.debug("Firehose configured");
   }
 
   /**
@@ -180,14 +183,14 @@ export class qdlDevice {
         const chunkSectors = Math.min(range.end - sector + 1, maxSectors);
         const result = await this.firehose.cmdErase(lun, sector, chunkSectors);
         if (!result) {
-          console.error(`Failed to erase sectors chunk ${sectors}-${sectors + chunkSectors - 1}`);
+          logger.error(`Failed to erase sectors chunk ${sectors}-${sectors + chunkSectors - 1}`);
           return false;
         }
         sector = sector + chunkSectors;
       }
     }
 
-    console.info(`Successfully erased LUN ${lun} while preserving specified partitions`);
+    logger.info(`Successfully erased LUN ${lun} while preserving specified partitions`);
     return true;
   }
 
@@ -228,21 +231,21 @@ export class qdlDevice {
     }
     const imgSectors = Math.ceil(blob.size / this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
     if (imgSectors > partition.sectors) {
-      console.error("partition has fewer sectors compared to the flashing image");
+      logger.error("partition has fewer sectors compared to the flashing image");
       return false;
     }
-    console.info(`Flashing ${partitionName}...`);
-    console.debug(`startSector ${partition.sector}, sectors ${partition.sectors}`);
+    logger.info(`Flashing ${partitionName}...`);
+    logger.debug(`startSector ${partition.sector}, sectors ${partition.sectors}`);
     const sparse = await Sparse.from(blob);
     if (sparse === null) {
       return await this.firehose.cmdProgram(lun, partition.sector, blob, onProgress);
     }
-    console.debug(`Erasing ${partitionName}...`);
+    logger.debug(`Erasing ${partitionName}...`);
     if (!await this.firehose.cmdErase(lun, partition.sector, partition.sectors)) {
-      console.error("qdl - Failed to erase partition before sparse flashing");
+      logger.error("Failed to erase partition before sparse flashing");
       return false;
     }
-    console.debug(`Writing chunks to ${partitionName}...`);
+    logger.debug(`Writing chunks to ${partitionName}...`);
     for await (const [offset, chunk] of sparse.read()) {
       if (!chunk) continue;
       if (offset % this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
@@ -251,10 +254,11 @@ export class qdlDevice {
       const sector = (partition.sector + BigInt(offset)) / BigInt(this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
       const onChunkProgress = (progress) => onProgress?.(offset + progress);
       if (!await this.firehose.cmdProgram(lun, sector, chunk, onChunkProgress)) {
-        console.debug("qdl - Failed to program chunk")
+        logger.debug("Failed to program chunk")
         return false;
       }
     }
+
     return true;
   }
 
@@ -264,9 +268,9 @@ export class qdlDevice {
       const [guidGpt] = await this.getGpt(lun);
       if (partitionName in guidGpt.partentries) {
         const partition = guidGpt.partentries[partitionName];
-        console.info(`Erasing ${partitionName}...`);
+        logger.info(`Erasing ${partitionName}...`);
         await this.firehose.cmdErase(lun, partition.sector, partition.sectors);
-        console.debug(`Erased ${partitionName} starting at sector ${partition.sector} with sectors ${partition.sectors}`);
+        logger.debug(`Erased ${partitionName} starting at sector ${partition.sector} with sectors ${partition.sectors}`)
       }
     }
     return true;
@@ -449,7 +453,7 @@ export class qdlDevice {
     }
     const activeBootLunId = (slot === "a") ? 1 : 2;
     await this.firehose.cmdSetBootLunId(activeBootLunId);
-    console.info(`Successfully set slot ${slot} active`);
+    logger.info(`Successfully set slot ${slot} active`);
     return true;
   }
 

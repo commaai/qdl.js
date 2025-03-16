@@ -11,6 +11,9 @@ runs:
     - shell: bash
       name: Power cycle USB ports
       run: |
-        uhubctl -a cycle -l 1 || true
-        uhubctl -a cycle -l 3 || true  # Pi 5
+        uhubctl -l 2 -a 0 -N || true
+        uhubctl -l 4 -a 0 -N || true
+        sleep 1
+        uhubctl -l 2 -a 1 -N || true
+        uhubctl -l 4 -a 1 -N || true
         sleep 1

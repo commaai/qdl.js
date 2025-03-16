@@ -10,6 +10,8 @@ const args = arg({
   "--programmer": String,
   "--backup": Boolean,
   "-b": "--backup",
+  "--log-level": String,
+  "-l": "--log-level",
 });
 
 const { _: commands } = args;
@@ -28,11 +30,17 @@ Commands:
 Flags:
   --programmer <url>                   Use a different loader [default is comma 3/3X]
   -b, --backup                         Include backup GPT in operations like printgpt
+  --log-level, -l <level>              Set log level (silent, error, warn, info, debug) [default is info]
   -h, --help                           Display this menu and exit`;
 
 if (args["--help"] || commands.length === 0) {
   console.info(help);
   process.exit(0);
+}
+
+if (args["--log-level"]) {
+  // Set environment variable so it's passed to the QDL instance
+  process.env.QDL_LOG_LEVEL = args["--log-level"].toLowerCase();
 }
 
 const qdl = await createQdl(args["--programmer"]);
@@ -104,8 +112,9 @@ if (command === "reset") {
   await qdl.flashBlob(partitionName, image, createProgress(image.size));
 } else {
   console.error(`Unrecognized command: ${commands[0]}`);
-  console.info(`\n${help}`)
+  console.info(`\n${help}`);
   process.exit(1);
 }
 
+qdl.firehose.flushDeviceMessages();
 process.exit(0);

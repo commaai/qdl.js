@@ -1,5 +1,8 @@
 import { concatUint8Array, containsBytes, compareStringToBytes, runWithTimeout } from "./utils"
+import { createLogger } from "./logger"
 import { toXml, xmlParser } from "./xml"
+
+const logger = createLogger("firehose")
 
 
 /**
@@ -95,16 +98,7 @@ export class Firehose {
    * @private
    */
   #printLogMessages(logs) {
-    if (!logs || !logs.length) return;
-    for (const log of logs) {
-      if (log.startsWith("ERROR:")) {
-        console.error(`[Device] ${log.substring(6).trim()}`);
-      } else if (log.startsWith("INFO:")) {
-        console.info(`[Device] ${log.substring(5).trim()}`);
-      } else {
-        console.info(`[Device] ${log}`);
-      }
-    }
+    for (const log of logs) logger.deviceMessage(log);
   }
 
   /**
@@ -181,7 +175,7 @@ export class Firehose {
     this.#printLogMessages(this.xml.getLog(data));
 
     if (rsp.value !== "ACK") {
-      console.error("Negative response code", rsp);
+      logger.error("Negative response code", rsp);
       throw new Error("Failed to read buffer: negative response code")
     }
 
@@ -225,7 +219,7 @@ export class Firehose {
       start_sector: startSector,
     }));
     if (!rsp.resp) {
-      console.error("Firehose - Failed to program");
+      logger.error("Failed to program");
       return false;
     }
 
@@ -258,11 +252,11 @@ export class Firehose {
     this.#printLogMessages(this.xml.getLog(wd));
 
     if (!("value" in response)){
-      console.error("Firehose - Failed to program: no return value");
+      logger.error("Failed to program: no return value");
       return false;
     }
     if (response.value !== "ACK") {
-      console.error("Firehose - Failed to program: negative response");
+      logger.error("Failed to program: negative response");
       return false;
     }
     return true;
@@ -322,10 +316,10 @@ export class Firehose {
   async cmdSetBootLunId(lun) {
     const val = await this.xmlSend(toXml("setbootablestoragedrive", { value: lun }));
     if (val.resp) {
-      console.info(`Successfully set bootID to lun ${lun}`);
+      logger.info(`Successfully set bootID to lun ${lun}`);
       return true;
     } else {
-      throw `Firehose - Failed to set boot lun ${lun}`;
+      throw `Failed to set boot lun ${lun}`;
     }
   }
 
@@ -335,7 +329,7 @@ export class Firehose {
   async cmdReset() {
     const val = await this.xmlSend(toXml("power", { value: "reset" }));
     if (val.resp) {
-      console.info("Reset succeeded");
+      logger.info("Reset succeeded");
       // Drain log buffer
       try {
         const rData = await this.waitForData();
@@ -345,7 +339,7 @@ export class Firehose {
       }
       return true;
     } else {
-      throw "Firehose - Reset failed";
+      throw "Reset failed";
     }
   }
 
@@ -368,5 +362,9 @@ export class Firehose {
     if (!val.resp) {
       throw "Firehose - Failed to fix gpt";
     }
+  }
+
+  flushDeviceMessages() {
+    logger.flushDeviceMessages()
   }
 }

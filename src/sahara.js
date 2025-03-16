@@ -1,6 +1,9 @@
 import { CommandHandler, cmd_t, sahara_mode_t, status_t, exec_cmd_t } from "./saharaDefs"
 import { containsBytes, packGenerator, runWithTimeout } from "./utils";
+import { createLogger } from "./logger";
 import { toXml } from "./xml.js";
+
+const logger = createLogger("sahara");
 
 
 export class Sahara {
@@ -52,7 +55,7 @@ export class Sahara {
         return "sahara";
       }
     }
-    console.error("Device is in Sahara error state, please reboot the device.");
+    logger.error("Device is in Sahara error state, please reboot the device.");
     return "error";
   }
 
@@ -95,11 +98,11 @@ export class Sahara {
       } else if (pkt.cmd === cmd_t.SAHARA_CMD_READY || pkt.cmd === cmd_t.SAHARA_RESET_RSP) {
         return {"cmd": pkt.cmd, "data": null };
       } else {
-        console.error("Didn't match any cmd_t")
+        logger.error("Didn't match any cmd_t")
       }
       return {};
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       return {};
     }
   }
@@ -157,7 +160,7 @@ export class Sahara {
     await this.cmdModeSwitch(sahara_mode_t.SAHARA_MODE_COMMAND);
 
     await this.connect();
-    console.debug("[sahara] Uploading loader...");
+    logger.debug("Uploading loader...");
     if (!(await this.cmdHello(sahara_mode_t.SAHARA_MODE_IMAGE_TX_PENDING))) {
       throw "Sahara - Error while uploading loader";
     }
@@ -177,7 +180,7 @@ export class Sahara {
           throw "Sahara - Unknown sahara id";
         }
         if (this.mode !== "firehose") {
-          console.debug("[sahara] Firehose mode detected, uploading...");
+          logger.debug("Firehose mode detected, uploading...");
           this.mode = "firehose";
         }
 
@@ -198,7 +201,7 @@ export class Sahara {
           if (!await this.cmdDone()) {
             throw "Sahara - Failed to upload loader";
           }
-          console.debug(`[sahara] Loader successfully uploaded in ${(performance.now() - start).toFixed(3)}ms`);
+          logger.debug(`Loader successfully uploaded in ${(performance.now() - start).toFixed(3)}ms`);
           return this.mode;
         }
       }
@@ -218,7 +221,7 @@ export class Sahara {
         if ("data" in res) {
           const pkt = res.data;
           if (pkt.image_tx_status === status_t.SAHARA_NAK_INVALID_CMD) {
-            console.error("Invalid transfer command received");
+            logger.error("Invalid transfer command received");
             return false;
           }
         }
