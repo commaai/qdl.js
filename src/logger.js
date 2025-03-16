@@ -66,9 +66,8 @@ export class Logger {
   }
 
   /**
-   * Print a device message with appropriate log level
    * @param {string} message
-   * @param {LogLevel} logLevel
+   * @param {number} logLevel
    * @private
    */
   #printDeviceMessage(message, logLevel) {
@@ -78,7 +77,6 @@ export class Logger {
   }
 
   /**
-   * Print message showing duplicate count if any are pending
    * @private
    */
   #printPendingDeviceDuplicates() {
@@ -88,9 +86,7 @@ export class Logger {
     state.count = 1;
   }
 
-  /**
-   * Flush any pending duplicate message counts and clear timeouts
-   */
+  /** Flush any pending duplicate message counts and clear timeouts */
   flushDeviceMessages() {
     const state = this.deviceState;
     if (state.timeout) {
@@ -124,7 +120,7 @@ export const globalLogLevel = getGlobalLogLevel();
 
 /**
  * @param {string} [name]
- * @param {LogLevel} [level]
+ * @param {number} [level]
  * @returns {Logger}
  */
 export function createLogger(name = "", level = globalLogLevel) {
