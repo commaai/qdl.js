@@ -2,40 +2,6 @@ import { buf as crc32 } from "crc-32"
 
 import { containsBytes, StructHelper } from "./utils"
 
-/**
- * @param {Uint8Array} primaryGptData - The original GPT data containing the primary header
- * @param {gpt} primaryGpt - The parsed GPT object
- * @returns {[[Uint8Array, bigint], [Uint8Array, bigint]]} The backup GPT data and partition table, and where they should be written
- */
-export function createBackupGptHeader(primaryGptData, primaryGpt) {
-  const sectorSize = primaryGpt.sectorSize;
-  const headerSize = primaryGpt.header.headerSize;
-
-  const backupHeader = new Uint8Array(headerSize);
-  backupHeader.set(primaryGptData.slice(sectorSize, sectorSize + headerSize));
-
-  const partTableOffset = primaryGpt.sectorSize * 2;
-  const partTableSize = primaryGpt.header.numPartEntries * primaryGpt.header.partEntrySize;
-  const partTableSectors = Math.ceil(partTableSize / sectorSize);
-  const partTableData = primaryGptData.slice(partTableOffset, partTableOffset + partTableSize);
-
-  const backupView = new DataView(backupHeader.buffer);
-  backupView.setUint32(16, 0, true);  // crc32
-  backupView.setBigUint64(24, BigInt(primaryGpt.header.backupLba), true);  // currentLba
-  backupView.setBigUint64(32, BigInt(primaryGpt.header.currentLba), true);  // backupLba
-
-  const backupPartTableLba = primaryGpt.header.backupLba - BigInt(partTableSectors);
-  backupView.setBigUint64(0x48, backupPartTableLba, true);
-
-  const partEntriesCrc = crc32(partTableData);
-  backupView.setInt32(88, partEntriesCrc, true);
-
-  const crcValue = crc32(backupHeader);
-  backupView.setInt32(16, crcValue, true);
-
-  return [[backupHeader, primaryGpt.header.backupLba], [partTableData, backupPartTableLba]];
-}
-
 export const AB_FLAG_OFFSET = 6;
 export const AB_PARTITION_ATTR_SLOT_ACTIVE = (0x1 << 2);
 export const PART_ATT_PRIORITY_BIT = BigInt(48)
@@ -296,4 +262,39 @@ export function ensureGptHdrConsistency(gptData, backupGptData, guidGpt, backupG
     gptData = guidGpt.fixGptCrc(gptData);
   }
   return gptData;
+}
+
+
+/**
+ * @param {Uint8Array} primaryGptData - The original GPT data containing the primary header
+ * @param {gpt} primaryGpt - The parsed GPT object
+ * @returns {[[Uint8Array, bigint], [Uint8Array, bigint]]} The backup GPT data and partition table, and where they should be written
+ */
+export function createBackupGptHeader(primaryGptData, primaryGpt) {
+  const sectorSize = primaryGpt.sectorSize;
+  const headerSize = primaryGpt.header.headerSize;
+
+  const backupHeader = new Uint8Array(headerSize);
+  backupHeader.set(primaryGptData.slice(sectorSize, sectorSize + headerSize));
+
+  const partTableOffset = primaryGpt.sectorSize * 2;
+  const partTableSize = primaryGpt.header.numPartEntries * primaryGpt.header.partEntrySize;
+  const partTableSectors = Math.ceil(partTableSize / sectorSize);
+  const partTableData = primaryGptData.slice(partTableOffset, partTableOffset + partTableSize);
+
+  const backupView = new DataView(backupHeader.buffer);
+  backupView.setUint32(16, 0, true);  // crc32
+  backupView.setBigUint64(24, BigInt(primaryGpt.header.backupLba), true);  // currentLba
+  backupView.setBigUint64(32, BigInt(primaryGpt.header.currentLba), true);  // backupLba
+
+  const backupPartTableLba = primaryGpt.header.backupLba - BigInt(partTableSectors);
+  backupView.setBigUint64(0x48, backupPartTableLba, true);
+
+  const partEntriesCrc = crc32(partTableData);
+  backupView.setInt32(88, partEntriesCrc, true);
+
+  const crcValue = crc32(backupHeader);
+  backupView.setInt32(16, crcValue, true);
+
+  return [[backupHeader, primaryGpt.header.backupLba], [partTableData, backupPartTableLba]];
 }
