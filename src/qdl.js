@@ -205,24 +205,23 @@ export class qdlDevice {
     }
     console.info(`Flashing ${partitionName}...`);
     console.debug(`startSector ${partition.sector}, sectors ${partition.sectors}`);
-    const sparse = await Sparse.from(blob);
+    const sparse = await Sparse.from(blob.stream());
     if (sparse === null) {
-      return await this.firehose.cmdProgram(lun, partition.sector, blob, onProgress);
+      return this.firehose.cmdProgram(lun, partition.sector, new Uint8Array(await blob.arrayBuffer()), onProgress);
     }
     console.debug(`Erasing ${partitionName}...`);
     if (!await this.firehose.cmdErase(lun, partition.sector, partition.sectors)) {
-      console.error("qdl - Failed to erase partition before sparse flashing");
-      return false;
+      throw new Error("Failed to erase partition before sparse flashing");
     }
     console.debug(`Writing chunks to ${partitionName}...`);
-    for await (const [offset, chunk] of sparse.read()) {
-      if (!chunk) continue;
+    for await (const [offset, data] of sparse) {
+      if (!data) continue;
       if (offset % this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
         throw "qdl - Offset not aligned to sector size";
       }
       const sector = partition.sector + offset / this.firehose.cfg.SECTOR_SIZE_IN_BYTES;
       const onChunkProgress = (progress) => onProgress?.(offset + progress);
-      if (!await this.firehose.cmdProgram(lun, sector, chunk, onChunkProgress)) {
+      if (!await this.firehose.cmdProgram(lun, sector, data, onChunkProgress)) {
         console.debug("qdl - Failed to program chunk")
         return false;
       }
@@ -412,11 +411,9 @@ export class qdlDevice {
         continue;
       }
       const writeOffset = this.firehose.cfg.SECTOR_SIZE_IN_BYTES;
-      const gptBlobA = new Blob([gptDataA.slice(writeOffset)]);
-      await this.firehose.cmdProgram(lunA, 1, gptBlobA);
+      await this.firehose.cmdProgram(lunA, 1, gptDataA.slice(writeOffset));
       if (!sameLun) {
-        const gptBlobB = new Blob([gptDataB.slice(writeOffset)]);
-        await this.firehose.cmdProgram(lunB, 1, gptBlobB);
+        await this.firehose.cmdProgram(lunB, 1, gptDataB.slice(writeOffset));
       }
     }
     const activeBootLunId = (slot === "a") ? 1 : 2;

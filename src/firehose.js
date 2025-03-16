@@ -211,22 +211,23 @@ export class Firehose {
   /**
    * @param {number} physicalPartitionNumber
    * @param {number} startSector
-   * @param {Blob} blob
+   * @param {Uint8Array} data
    * @param {progressCallback|undefined} [onProgress] - Returns number of bytes written
    * @returns {Promise<boolean>}
    */
-  async cmdProgram(physicalPartitionNumber, startSector, blob, onProgress = undefined) {
-    const total = blob.size;
-
-    const rsp = await this.xmlSend(toXml("program", {
+  async cmdProgram(physicalPartitionNumber, startSector, data, onProgress = undefined) {
+    const total = data.byteLength;
+    const attributes = {
       SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
       num_partition_sectors: Math.ceil(total / this.cfg.SECTOR_SIZE_IN_BYTES),
       physical_partition_number: physicalPartitionNumber,
       start_sector: startSector,
-    }));
+    };
+
+    const rsp = await this.xmlSend(toXml("program", attributes));
     if (!rsp.resp) {
-      console.error("Firehose - Failed to program");
-      return false;
+      console.error("Firehose - Failed to program", attributes, rsp);
+      throw new Error("Failed to program");
     }
 
     let i = 0;
@@ -235,11 +236,12 @@ export class Firehose {
 
     while (bytesToWrite > 0) {
       const wlen = Math.min(bytesToWrite, this.cfg.MaxPayloadSizeToTargetInBytes);
-      let wdata = new Uint8Array(await blob.slice(offset, offset + wlen).arrayBuffer());
+      let wdata = data.subarray(offset, offset + wlen);
       if (wlen % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
-        const fillLen = (Math.floor(wlen / this.cfg.SECTOR_SIZE_IN_BYTES) + 1) * this.cfg.SECTOR_SIZE_IN_BYTES;
-        const fillArray = new Uint8Array(fillLen - wlen).fill(0x00);
-        wdata = concatUint8Array([wdata, fillArray]);
+        const fillLen = Math.ceil(wlen / this.cfg.SECTOR_SIZE_IN_BYTES) * this.cfg.SECTOR_SIZE_IN_BYTES;
+        const fillArray = new Uint8Array(fillLen);
+        fillArray.set(wdata);
+        wdata = fillArray;
       }
       await this.cdc.write(wdata);
       await this.cdc.write(new Uint8Array(0));
