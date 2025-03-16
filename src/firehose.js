@@ -146,8 +146,8 @@ export class Firehose {
 
   /**
    * @param {number} physicalPartitionNumber
-   * @param {number|bigint} startSector
-   * @param {number|bigint} numPartitionSectors
+   * @param {bigint} startSector
+   * @param {number} numPartitionSectors
    * @returns {Promise<Uint8Array>}
    */
   async cmdReadBuffer(physicalPartitionNumber, startSector, numPartitionSectors) {
@@ -171,7 +171,7 @@ export class Firehose {
 
     let buffer;
     try {
-      buffer = await runWithTimeout(this.cdc.read(this.cfg.SECTOR_SIZE_IN_BYTES * Number(numPartitionSectors)), 2000);
+      buffer = await runWithTimeout(this.cdc.read(this.cfg.SECTOR_SIZE_IN_BYTES * numPartitionSectors), 2000);
     } catch {
       throw new Error("Failed to read buffer: timed out");
     }
@@ -210,7 +210,7 @@ export class Firehose {
 
   /**
    * @param {number} physicalPartitionNumber
-   * @param {number|bigint} startSector
+   * @param {bigint} startSector
    * @param {Blob} blob
    * @param {progressCallback|undefined} [onProgress] - Returns number of bytes written
    * @returns {Promise<boolean>}
@@ -270,8 +270,8 @@ export class Firehose {
 
   /**
    * @param {number} physicalPartitionNumber
-   * @param {number|bigint} startSector
-   * @param {number|bigint} numPartitionSectors
+   * @param {bigint} startSector
+   * @param {number} numPartitionSectors
    * @returns {Promise<boolean>}
    */
   async cmdErase(physicalPartitionNumber, startSector, numPartitionSectors) {
@@ -289,7 +289,7 @@ export class Firehose {
       return true;
     }
     const rsp = await this.xmlSend(toXml("program", attributes));
-    let bytesToWrite = this.cfg.SECTOR_SIZE_IN_BYTES * Number(numPartitionSectors);
+    let bytesToWrite = this.cfg.SECTOR_SIZE_IN_BYTES * numPartitionSectors;
     const empty = new Uint8Array(this.cfg.MaxPayloadSizeToTargetInBytes).fill(0);
 
     if (rsp.resp) {
