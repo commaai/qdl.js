@@ -42,7 +42,9 @@ export class Logger {
       formattedMessage = message.substring(6).trim();
       logLevel = LogLevel.ERROR;
     } else if (message.startsWith("INFO:")) {
+      // treat INFO messages from device as DEBUG
       formattedMessage = message.substring(5).trim();
+      logLevel = LogLevel.DEBUG;
     } else {
       formattedMessage = message;
     }
@@ -82,7 +84,7 @@ export class Logger {
   #printPendingDeviceDuplicates() {
     const state = this.deviceState;
     if (state.count <= 1) return;
-    this.#printDeviceMessage(`Last message repeated ${state.count - 1} times`);
+    this.#printDeviceMessage(`Last message repeated ${state.count - 1} times`, state.lastLogLevel);
     state.count = 1;
   }
 
