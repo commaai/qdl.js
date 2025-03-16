@@ -66,14 +66,25 @@ export class Logger {
   }
 
   /**
+   * Print a device message with appropriate log level
+   * @param {string} message
+   * @param {LogLevel} logLevel
+   * @private
+   */
+  #printDeviceMessage(message, logLevel) {
+    if (this.level < logLevel) return;
+    const logMethod = logLevel === LogLevel.ERROR ? console.error : console.info;
+    logMethod(`[Device] ${message}`);
+  }
+
+  /**
    * Print message showing duplicate count if any are pending
    * @private
    */
   #printPendingDeviceDuplicates() {
     const state = this.deviceState;
     if (state.count <= 1) return;
-    const logMethod = state.lastLogLevel === LogLevel.ERROR ? console.error : console.info;
-    logMethod(`[Device] Last message repeated ${state.count - 1} times`);
+    this.#printDeviceMessage(`Last message repeated ${state.count - 1} times`);
     state.count = 1;
   }
 
@@ -81,10 +92,10 @@ export class Logger {
    * Flush any pending duplicate message counts and clear timeouts
    */
   flushDeviceMessages() {
-    const { timeout } = this.deviceState;
-    if (timeout) {
-      clearTimeout(timeout);
-      this.deviceState.timeout = null;
+    const state = this.deviceState;
+    if (state.timeout) {
+      clearTimeout(state.timeout);
+      state.timeout = null;
     }
     this.#printPendingDeviceDuplicates();
   }
