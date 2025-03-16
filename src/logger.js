@@ -103,8 +103,9 @@ export class Logger {
  * @returns {number}
  */
 function getGlobalLogLevel() {
-  const envLevel = typeof process !== "undefined" && process.env?.QDL_LOG_LEVEL;
-  if (!envLevel) return LogLevel.INFO;
+  if (typeof process === "undefined") return LogLevel.INFO;
+  const envLevel = process.env?.QDL_LOG_LEVEL;
+  if (!envLevel) return process.env?.CI ? LogLevel.DEBUG : LogLevel.INFO;
 
   const intLevel = Number.parseInt(envLevel, 10);
   if (!Number.isNaN(intLevel) && intLevel >= LogLevel.SILENT && intLevel <= LogLevel.DEBUG) return intLevel;
