@@ -2,7 +2,7 @@
 import arg from "arg";
 
 import { createProgress, createQdl } from "../cli";
-import { LogLevel, createLogger } from "../logger";
+import { createLogger, LogLevel } from "../logger";
 
 const logger = createLogger();
 
@@ -38,30 +38,8 @@ if (args["--help"] || commands.length === 0) {
 }
 
 if (args["--log-level"]) {
-  const level = args["--log-level"].toLowerCase();
-  let logLevel;
-  switch (level) {
-    case "silent":
-      logLevel = LogLevel.SILENT;
-      break;
-    case "error":
-      logLevel = LogLevel.ERROR;
-      break;
-    case "warn":
-      logLevel = LogLevel.WARN;
-      break;
-    case "info":
-      logLevel = LogLevel.INFO;
-      break;
-    case "debug":
-      logLevel = LogLevel.DEBUG;
-      break;
-    default:
-      logger.warn(`Unknown log level: '${level}', using 'info' level`);
-      logLevel = LogLevel.INFO;
-  }
   // Set environment variable so it's passed to the QDL instance
-  process.env.QDL_LOG_LEVEL = logLevel.toString();
+  process.env.QDL_LOG_LEVEL = args["--log-level"].toLowerCase();
 }
 
 const qdl = await createQdl(args["--programmer"]);

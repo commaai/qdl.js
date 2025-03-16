@@ -108,21 +108,23 @@ function getGlobalLogLevel() {
   const envLevel = typeof process !== "undefined" && process.env?.QDL_LOG_LEVEL;
   if (!envLevel) return LogLevel.INFO;
 
-  const level = Number.parseInt(envLevel, 10);
-  if (!Number.isNaN(level) && level >= 0 && level <= 4) return level;
+  const intLevel = Number.parseInt(envLevel, 10);
+  if (!Number.isNaN(intLevel) && intLevel >= LogLevel.SILENT && intLevel <= LogLevel.DEBUG) return intLevel;
 
-  const namedLevels = {
+  const level = ({
     "silent": LogLevel.SILENT, "error": LogLevel.ERROR, "warn": LogLevel.WARN,
     "info": LogLevel.INFO, "debug": LogLevel.DEBUG,
-  };
-  return namedLevels[envLevel.toLowerCase()] || LogLevel.INFO;
+  })[envLevel.toLowerCase()];
+  if (level) return level;
+  console.warn(`Unknown log level: '${level}', using 'info' level`);
+  return LogLevel.INFO;
 }
 
 export const globalLogLevel = getGlobalLogLevel();
 
 /**
  * @param {string} [name]
- * @param {number} [level]
+ * @param {LogLevel} [level]
  * @returns {Logger}
  */
 export function createLogger(name = "", level = globalLogLevel) {
