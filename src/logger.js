@@ -1,22 +1,9 @@
-/**
- * @enum {number}
- */
-export const LogLevel = {
-  SILENT: 0,
-  ERROR: 1,
-  WARN: 2,
-  INFO: 3,
-  DEBUG: 4,
-};
+/** @enum {number} */
+export const LogLevel = { SILENT: 0, ERROR: 1, WARN: 2, INFO: 3, DEBUG: 4 };
 
 /**
  * Configurable logger with different log levels and device message deduplication.
- * 
- * Features:
- * - Supports SILENT, ERROR, WARN, INFO, and DEBUG log levels
- * - Automatically deduplicates device messages to reduce noise
- * - Uses debouncing to group repeated messages and show counts instead
- * - Prefix-aware output formatting
+ * Features: log levels, auto-deduplication, debouncing for repeated messages.
  */
 export class Logger {
   /**
@@ -27,59 +14,21 @@ export class Logger {
     this.name = name;
     this.level = level;
     this.prefix = name ? `[${name}] ` : "";
-
-    // Device message deduplication state
     this.deviceState = {
-      lastMessage: "",
-      lastLogLevel: LogLevel.INFO,
-      count: 0,
-      timeout: null,
-      debounceMs: 100, // Wait this many ms before showing duplicates
+      lastMessage: "", lastLogLevel: LogLevel.INFO, count: 0,
+      timeout: null, debounceMs: 100,
     };
   }
 
-  /**
-   * @param {LogLevel} level
-   */
-  setLevel(level) {
-    this.level = level;
+  #log(method, logLevel, args) {
+    if (this.level < logLevel) return;
+    this.prefix ? method(this.prefix, ...args) : method(...args);
   }
 
-  debug(...args) {
-    if (this.level < LogLevel.DEBUG) return;
-    if (this.prefix) {
-      console.debug(this.prefix, ...args);
-    } else {
-      console.debug(...args);
-    }
-  }
-
-  info(...args) {
-    if (this.level < LogLevel.INFO) return;
-    if (this.prefix) {
-      console.info(this.prefix, ...args);
-    } else {
-      console.info(...args);
-    }
-  }
-
-  warn(...args) {
-    if (this.level < LogLevel.WARN) return;
-    if (this.prefix) {
-      console.warn(this.prefix, ...args);
-    } else {
-      console.warn(...args);
-    }
-  }
-
-  error(...args) {
-    if (this.level < LogLevel.ERROR) return;
-    if (this.prefix) {
-      console.error(this.prefix, ...args);
-    } else {
-      console.error(...args);
-    }
-  }
+  debug(...args) { this.#log(console.debug, LogLevel.DEBUG, args); }
+  info(...args) { this.#log(console.info, LogLevel.INFO, args); }
+  warn(...args) { this.#log(console.warn, LogLevel.WARN, args); }
+  error(...args) { this.#log(console.error, LogLevel.ERROR, args); }
 
   /**
    * Process and potentially display a device message
@@ -88,8 +37,7 @@ export class Logger {
   deviceMessage(message) {
     if (this.level < LogLevel.INFO) return;
 
-    let formattedMessage;
-    let logLevel = LogLevel.INFO;
+    let formattedMessage, logLevel = LogLevel.INFO;
     if (message.startsWith("ERROR:")) {
       formattedMessage = message.substring(6).trim();
       logLevel = LogLevel.ERROR;
@@ -113,45 +61,30 @@ export class Logger {
       this.#printDeviceMessage(formattedMessage, logLevel);
     } else {
       state.count++;
-      state.timeout = setTimeout(() => {
-        this.#printPendingDeviceDuplicates();
-      }, state.debounceMs);
+      state.timeout = setTimeout(() => this.#printPendingDeviceDuplicates(), state.debounceMs);
     }
   }
 
   /**
-   * Print a device message with appropriate log level
-   * @param {string} message
-   * @param {LogLevel} logLevel
-   * @private
-   */
-  #printDeviceMessage(message, logLevel) {
-    if (this.level < logLevel) return;
-    const logMethod = logLevel === LogLevel.ERROR ? console.error : console.info;
-    logMethod(`[Device] ${message}`);
-  }
-
-  /**
-   * Print a message showing the count of duplicates if any are pending
+   * Print message showing duplicate count if any are pending
    * @private
    */
   #printPendingDeviceDuplicates() {
     const state = this.deviceState;
-    if (state.count > 1) {
-      const logMethod = state.lastLogLevel === LogLevel.ERROR ? console.error : console.info;
-      logMethod(`[Device] Last message repeated ${state.count - 1} times`);
-      state.count = 1; // Reset to 1 since we've handled all but the most recent
-    }
+    if (state.count <= 1) return;
+    const logMethod = state.lastLogLevel === LogLevel.ERROR ? console.error : console.info;
+    logMethod(`[Device] Last message repeated ${state.count - 1} times`);
+    state.count = 1;
   }
 
   /**
    * Flush any pending duplicate message counts and clear timeouts
    */
   flushDeviceMessages() {
-    const state = this.deviceState;
-    if (state.timeout) {
-      clearTimeout(state.timeout);
-      state.timeout = null;
+    const { timeout } = this.deviceState;
+    if (timeout) {
+      clearTimeout(timeout);
+      this.deviceState.timeout = null;
     }
     this.#printPendingDeviceDuplicates();
   }
@@ -162,26 +95,16 @@ export class Logger {
  */
 function getGlobalLogLevel() {
   const envLevel = typeof process !== "undefined" && process.env?.QDL_LOG_LEVEL;
-  if (envLevel) {
-    const level = Number.parseInt(envLevel, 10);
-    if (!Number.isNaN(level) && level >= 0 && level <= 4) {
-      return level;
-    }
+  if (!envLevel) return LogLevel.INFO;
 
-    const namedLevels = {
-      "silent": LogLevel.SILENT,
-      "error": LogLevel.ERROR,
-      "warn": LogLevel.WARN,
-      "info": LogLevel.INFO,
-      "debug": LogLevel.DEBUG,
-    };
-    const normalizedLevel = envLevel.toLowerCase();
-    if (normalizedLevel in namedLevels) {
-      return namedLevels[normalizedLevel];
-    }
-  }
+  const level = Number.parseInt(envLevel, 10);
+  if (!Number.isNaN(level) && level >= 0 && level <= 4) return level;
 
-  return LogLevel.INFO;
+  const namedLevels = {
+    "silent": LogLevel.SILENT, "error": LogLevel.ERROR, "warn": LogLevel.WARN,
+    "info": LogLevel.INFO, "debug": LogLevel.DEBUG,
+  };
+  return namedLevels[envLevel.toLowerCase()] || LogLevel.INFO;
 }
 
 export const globalLogLevel = getGlobalLogLevel();
