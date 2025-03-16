@@ -45,12 +45,14 @@
     "xz-decompress": "^0.2.2"
   },
   "//dependencies": {
+    "@incognitojam/tiny-struct": "parse binary structs",
     "arg": "argument parsing for CLI",
     "crc-32": "crc32s are used in the gpt header calculations",
     "fast-xml-parser": "parse XML to JS object, fast, works in browser and node",
     "usb": "node.js lib for communicating with USB devices, has WebUSB compatible API"
   },
   "dependencies": {
+    "@incognitojam/tiny-struct": "npm:@jsr/incognitojam__tiny-struct@^0.1.2",
     "arg": "^5.0.2",
     "crc-32": "^1.2.2",
     "fast-xml-parser": "^5.0.8",
