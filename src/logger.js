@@ -78,9 +78,7 @@ export class Logger {
     logMethod(`[Device] ${message}`);
   }
 
-  /**
-   * @private
-   */
+  /** @private */
   #printPendingDeviceDuplicates() {
     const state = this.deviceState;
     if (state.count <= 1) return;
