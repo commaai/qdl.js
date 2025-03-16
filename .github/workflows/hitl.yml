@@ -47,14 +47,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/workflows/prepare-cli
 
-      - name: download gpt image
+      - name: download gpt images
         run: |
-          url=$(curl https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/all-partitions.json | jq -r ".[] | select(.name == \"gpt_main_0\") | .url")
-          curl -L $url | unxz > gpt_main_0.img
+          END=5
+          for i in $(seq 0 $END); do
+            url=$(curl https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/all-partitions.json | jq -r ".[] | select(.name == \"gpt_main_$i\") | .url")
+            curl -L $url | unxz > gpt_main_$i.img
+          done
 
       - run: qdl.js printgpt --backup
 
-      - run: qdl.js repairgpt 0 ./gpt_main_0.img
+      - run: |
+          END=5
+          for i in $(seq 0 $END); do
+            qdl.js repairgpt $i ./gpt_main_$i.img
+          done
 
       - run: qdl.js printgpt --backup
 
