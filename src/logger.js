@@ -110,10 +110,10 @@ function getGlobalLogLevel() {
 export const globalLogLevel = getGlobalLogLevel();
 
 /**
- * @param {string} name
+ * @param {string} [name]
  * @param {number} [level]
  * @returns {Logger}
  */
-export function createLogger(name, level = globalLogLevel) {
+export function createLogger(name = "", level = globalLogLevel) {
   return new Logger(name, level);
 }
