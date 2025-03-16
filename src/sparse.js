@@ -1,3 +1,5 @@
+import { createLogger } from "./logger";
+
 const FILE_MAGIC = 0xed26ff3a;
 export const FILE_HEADER_SIZE = 28;
 const CHUNK_HEADER_SIZE = 12;
@@ -30,6 +32,8 @@ const ChunkType = {
  * @property {number} blocks
  * @property {Blob} data
  */
+
+const logger = createLogger("sparse");
 
 
 export class Sparse {
@@ -65,7 +69,7 @@ export class Sparse {
       blobOffset += totalBytes;
     }
     if (blobOffset !== this.blob.size) {
-      console.warn("Sparse - Backing data larger expected");
+      logger.warn("Sparse - Backing data larger expected");
     }
   }
 
@@ -122,11 +126,11 @@ export async function parseFileHeader(blob) {
   const fileHeaderSize = view.getUint16(8, true);
   const chunkHeaderSize = view.getUint16(10, true);
   if (fileHeaderSize !== FILE_HEADER_SIZE) {
-    console.error(`The file header size was expected to be 28, but is ${fileHeaderSize}.`);
+    logger.error(`The file header size was expected to be 28, but is ${fileHeaderSize}`);
     return null;
   }
   if (chunkHeaderSize !== CHUNK_HEADER_SIZE) {
-    console.error(`The chunk header size was expected to be 12, but is ${chunkHeaderSize}.`);
+    logger.error(`The chunk header size was expected to be 12, but is ${chunkHeaderSize}`);
     return null;
   }
   return {

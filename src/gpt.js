@@ -1,5 +1,6 @@
 import { buf as crc32 } from "crc-32"
 
+import { createLogger } from "./logger";
 import { containsBytes, StructHelper } from "./utils"
 
 export const AB_FLAG_OFFSET = 6;
@@ -12,6 +13,8 @@ const efiType = {
   0x00000000 : "EFI_UNUSED",
   0xEBD0A0A2 : "EFI_BASIC_DATA",
 }
+
+const logger = createLogger("gpt");
 
 
 class gptHeader {
@@ -111,11 +114,12 @@ export class gpt {
     this.sectorSize = sectorSize;
 
     if (!containsBytes("EFI PART", this.header.signature)) {
+      logger.error("Invalid signature");
       return false;
     }
 
     if (this.header.revision !== 0x10000) {
-      console.error("Unknown GPT revision.");
+      logger.error("Unknown GPT revision");
       return false;
     }
 

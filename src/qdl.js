@@ -87,7 +87,7 @@ export class qdlDevice {
    * @returns {Promise<boolean>}
    */
   async repairGpt(lun, primaryGptBlob) {
-    console.info(`Repairing GPT on LUN ${lun}`);
+    logger.info(`Repairing GPT on LUN ${lun}`);
 
     if (!await this.firehose.cmdProgram(lun, 0, primaryGptBlob)) {
       throw new Error("Failed to write primary GPT data");
@@ -100,17 +100,17 @@ export class qdlDevice {
     const [primaryGpt, primaryGptData] = await this.getGpt(lun);
     const [[backupGptData, backupLba], [partTableData, backupPartTableLba]] = gpt.createBackupGptHeader(primaryGptData, primaryGpt);
 
-    console.debug(`Writing backup partition table to LBA ${backupPartTableLba}`);
+    logger.debug(`Writing backup partition table to LBA ${backupPartTableLba}`);
     if (!await this.firehose.cmdProgram(lun, backupPartTableLba, new Blob([partTableData]))) {
       throw new Error("Failed to write backup partition table");
     }
 
-    console.debug(`Writing backup GPT header to LBA ${backupLba}`);
+    logger.debug(`Writing backup GPT header to LBA ${backupLba}`);
     if (!await this.firehose.cmdProgram(lun, backupLba, new Blob([backupGptData]))) {
       throw new Error("Failed to write backup GPT header");
     }
 
-    console.info(`Successfully repaired GPT on LUN ${lun}`);
+    logger.info(`Successfully repaired GPT on LUN ${lun}`);
     return true;
   }
 
@@ -157,7 +157,7 @@ export class qdlDevice {
       mergedProtectedRanges.push(currentRange);
     }
     for (const range of mergedProtectedRanges) {
-      console.debug(`Preserving ${range.name} (sectors ${range.start}-${range.end})`);
+      logger.debug(`Preserving ${range.name} (sectors ${range.start}-${range.end})`);
     }
 
     const erasableRanges = [];
@@ -174,7 +174,7 @@ export class qdlDevice {
 
     for (const range of erasableRanges) {
       const sectors = range.end - range.start + 1;
-      console.debug(`Erasing sectors ${range.start}-${range.end} (${sectors} sectors)`);
+      logger.debug(`Erasing sectors ${range.start}-${range.end} (${sectors} sectors)`);
 
       // Erase command times out for larger numbers of sectors
       const maxSectors = 512 * 1024;
@@ -314,7 +314,7 @@ export class qdlDevice {
         const [backupGuidGpt] = await this.getGpt(lun, guidGpt.header.backupLba);
         let partition = backupGuidGpt.partentries[partitionName];
         if (!partition) {
-          // console.warn(`Partition ${partitionName} not found in backup GPT`);
+          // logger.warn(`Partition ${partitionName} not found in backup GPT`);
           partition = guidGpt.partentries[partitionName];
         }
         const active = (((BigInt(partition.flags) >> (BigInt(gpt.AB_FLAG_OFFSET) * BigInt(8))))
