@@ -45,19 +45,8 @@ qdl.js includes a configurable logging system that allows you to control the ver
 - `info`: Error, warning, and informational messages (default)
 - `debug`: All messages, including detailed debug information
 
-You can set the log level in three ways:
-
-1. **Command line option**: Use the `--log-level` or `-l` flag when running qdl.js
-   ```sh
-   qdl.js --log-level debug flash system system.img
-   ```
-
-2. **Environment variable**: Set the `QDL_LOG_LEVEL` environment variable
-   ```sh
-   QDL_LOG_LEVEL=debug qdl.js flash system system.img
-   ```
-
-3. **Programmatically**: When using qdl.js as a library, you can set process.env.QDL_LOG_LEVEL before importing the package
+You can set the log level using the `--log-level` or `-l` flash when running qdl.js, or by setting the `QDL_LOG_LEVEL`
+environment variable.
 
 ## Linux instructions
 
