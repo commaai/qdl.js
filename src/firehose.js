@@ -363,4 +363,8 @@ export class Firehose {
       throw "Firehose - Failed to fix gpt";
     }
   }
+
+  flushDeviceMessages() {
+    logger.flushDeviceMessages()
+  }
 }

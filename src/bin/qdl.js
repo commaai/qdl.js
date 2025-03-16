@@ -95,4 +95,5 @@ if (command === "reset") {
   process.exit(1);
 }
 
+qdl.firehose.flushDeviceMessages();
 process.exit(0);
