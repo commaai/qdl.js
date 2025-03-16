@@ -4,7 +4,7 @@ import arg from "arg";
 import { createProgress, createQdl } from "../cli";
 import { createLogger, LogLevel } from "../logger";
 
-const logger = createLogger();
+const logger = createLogger("", LogLevel.INFO);
 
 const args = arg({
   "--help": Boolean,
