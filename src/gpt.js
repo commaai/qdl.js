@@ -1,7 +1,7 @@
 import { buf as crc32 } from "crc-32"
+import { bytes, custom, string, struct, uint32, uint64 } from "@incognitojam/tiny-struct";
 
 import { createLogger } from "./logger";
-import { containsBytes, StructHelper } from "./utils"
 
 export const AB_FLAG_OFFSET = 6;
 export const AB_PARTITION_ATTR_SLOT_ACTIVE = (0x1 << 2);
@@ -16,60 +16,75 @@ const efiType = {
 
 const logger = createLogger("gpt");
 
-
-class gptHeader {
-  constructor(data) {
-    const sh = new StructHelper(data);
-    this.signature = sh.bytes(8);
-    this.revision = sh.dword();
-    this.headerSize = sh.dword();
-    this.crc32 = sh.dword();
-    this.reserved = sh.dword();
-    this.currentLba = sh.qword();
-    this.backupLba = sh.qword();
-    this.firstUsableLba = sh.qword();
-    this.lastUsableLba = sh.qword();
-    this.diskGuid = sh.bytes(16);
-    this.partEntryStartLba = sh.qword();
-    this.numPartEntries = sh.dword();
-    this.partEntrySize = sh.dword();
-    this.crc32PartEntries = sh.dword();
+const utf16cstring = (length) => custom(length * 2, (buffer, offset, littleEndian) => {
+  const charCodes = [];
+  for (let i = 0; i < length; i++) {
+    const charCode = buffer.getUint16(offset + i * 2, littleEndian);
+    if (charCode === 0) break;
+    charCodes.push(charCode);
   }
-}
-
-
-export class gptPartition {
-  constructor(data) {
-    const sh = new StructHelper(data)
-    this.type = sh.bytes(16);
-    this.unique = sh.bytes(16);
-    this.firstLba = sh.qword();
-    this.lastLba = sh.qword();
-    this.flags = sh.qword();
-    this.name = sh.bytes(72);
+  return String.fromCharCode(...charCodes);
+}, (buffer, offset, value, littleEndian) => {
+  for (let i = 0; i < length; i++) {
+    buffer.setUint16(value.charCodeAt(i), offset + i * 2, littleEndian);
   }
+});
 
-  create() {
-    const buffer = new ArrayBuffer(16 + 16 + 8 + 8 + 8 + 72);
-    const view = new DataView(buffer);
-    let offset = 0;
-    for (let i = 0; i < this.type.length; i++) {
-      view.setUint8(offset++, this.type[i], true);
-    }
-    for (let i = 0; i < this.unique.length; i++) {
-      view.setUint8(offset++, this.unique[i], true);
-    }
-    const tmp = [BigInt(this.firstLba), BigInt(this.lastLba), BigInt(this.flags)];
-    for (let i = 0; i < 3; i++) {
-      view.setBigUint64(offset, tmp[i], true);
-      offset += 8;
-    }
-    for (let i = 0; i < 72; i++) {
-      view.setUint8(offset++, this.name[i]);
-    }
-    return new Uint8Array(view.buffer);
-  }
-}
+
+/**
+ * @see {@link https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-header}
+ */
+const GPTHeader = struct("GPTHeader", {
+  signature: string(8),  // must be "EFI PART"
+  revision: uint32(),  // must be 0x00010000
+  headerSize: uint32(),  // greater than or equal to 96, less than or equal to block size
+  crc32: uint32(),
+  reserved: uint32(),  // must be zero
+  currentLba: uint64(),
+  backupLba: uint64(),
+  firstUsableLba: uint64(),
+  lastUsableLba: uint64(),
+  diskGuid: bytes(16),
+  partEntryStartLba: uint64(),
+  numPartEntries: uint32(),
+  partEntrySize: uint32(),
+  crc32PartEntries: uint32(),
+}, { littleEndian: true });
+
+
+// FIXME: required until we switch to typescript, types from tiny-struct can't be exported
+/**
+ * @typedef {Object} BasicGPTHeader
+ * @property {string} signature
+ * @property {number} revision
+ * @property {number} headerSize
+ * @property {number} crc32
+ * @property {bigint} currentLba
+ * @property {bigint} backupLba
+ * @property {bigint} firstUsableLba
+ * @property {bigint} lastUsableLba
+ * @property {Uint8Array} diskGuid
+ * @property {bigint} partEntryStartLba
+ * @property {number} numPartEntries
+ * @property {number} partEntrySize
+ * @property {number} crc32PartEntries
+ */
+
+
+/**
+ * @see {@link https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-partition-entry-array}
+ */
+const GPTPartitionEntry = struct("GPTPartitionEntry", {
+  type: bytes(16),
+  /**
+   * @see {@link https://uefi.org/specs/UEFI/2.10/Apx_A_GUID_and_Time_Formats.html#efi-guid-format-apxa-guid-and-time-formats}
+   */
+  unique: bytes(16),
+  firstLba: uint64(),
+  lastLba: uint64(),
+  flags: uint64(),
+  name: utf16cstring(36),
+}, { littleEndian: true });
 
 
 export class partf {
@@ -86,90 +101,77 @@ export class partf {
 
 
 export class gpt {
-  constructor() {
-    /** @type {gptHeader|null} */
+  /**
+   * @param {number} sectorSize
+   */
+  constructor(sectorSize) {
+    this.sectorSize = sectorSize;
+    /** @type {BasicGPTHeader|null} */
     this.header = null;
-    /** @type {number|null} */
-    this.sectorSize = null;
     /** @type {Record<string, partf>} */
     this.partentries = {};
   }
 
   /**
    * @param {Uint8Array} gptData
-   * @param {number} [sectorSize]
-   * @returns {gptHeader}
+   * @returns {BasicGPTHeader|null}
    */
-  parseHeader(gptData, sectorSize = 512) {
-    return new gptHeader(gptData.slice(sectorSize, sectorSize + 0x5C));
+  parseHeader(gptData) {
+    this.header = GPTHeader.from(gptData);
+    if (this.header.signature !== "EFI PART") {
+      logger.error(`Invalid signature: "${this.header.signature}"`);
+      return null;
+    }
+    if (this.header.revision !== 0x10000) {
+      logger.error(`Unknown GPT revision: ${this.header.revision.toString(16)}`);
+      return null;
+    }
+    return this.header;
   }
 
   /**
-   * @param {Uint8Array} gptData
-   * @param {number} [sectorSize]
-   * @returns {boolean}
+   * @param {Uint8Array} partTableData
    */
-  parse(gptData, sectorSize = 512) {
-    this.header = this.parseHeader(gptData, sectorSize);
-    this.sectorSize = sectorSize;
-
-    if (!containsBytes("EFI PART", this.header.signature)) {
-      logger.error("Invalid signature");
-      return false;
-    }
-
-    if (this.header.revision !== 0x10000) {
-      logger.error("Unknown GPT revision");
-      return false;
-    }
-
-    // mbr (even for backup gpt header to ensure offset consistency) + gpt header + part_table
-    const start = 2 * sectorSize;
-
+  parsePartTable(partTableData) {
     const entrySize = this.header.partEntrySize;
     this.partentries = {};
-    const numPartEntries = this.header.numPartEntries;
-    for (let idx = 0; idx < numPartEntries; idx++) {
-      const data = gptData.slice(start + (idx * entrySize), start + (idx * entrySize) + entrySize);
-      if (new DataView(data.slice(16,32).buffer, 0).getUint32(0, true) === 0) {
-        break;
-      }
-
-      const partentry = new gptPartition(data);
-      const uniqueView = new DataView(partentry.unique.buffer);
+    for (let idx = 0; idx < this.header.numPartEntries; idx++) {
+      const partEntry = GPTPartitionEntry.from(partTableData.subarray(idx * entrySize, (idx + 1) * entrySize));
       const pa = new partf();
-      const guid1 = uniqueView.getUint32(0x0, true);
-      const guid2 = uniqueView.getUint16(0x4, true);
-      const guid3 = uniqueView.getUint16(0x6, true);
-      const guid4 = uniqueView.getUint16(0x8, true);
-      const guid5 = Array.from(partentry.unique.subarray(0xA, 0x10))
-          .map(byte => byte.toString(16).padStart(2, '0'))
-          .join('');
-      pa.unique =`${guid1.toString(16).padStart(8, '0')}-
-                  ${guid2.toString(16).padStart(4, '0')}-
-                  ${guid3.toString(16).padStart(4, '0')}-
-                  ${guid4.toString(16).padStart(4, '0')}-
-                  ${guid5}`;
-      pa.sector = partentry.firstLba;
-      pa.sectors = partentry.lastLba - partentry.firstLba + 1n;
-      pa.flags = partentry.flags;
-      pa.entryOffset = start + (idx * entrySize);
-      const typeOfPartentry = new DataView(partentry.type.buffer).getUint32(0, true);
-      if (typeOfPartentry in efiType) {
-        pa.type = efiType[typeOfPartentry];
+
+      const typeOfPartEntry = new DataView(partEntry.type.buffer).getUint32(0, true);
+      if (typeOfPartEntry in efiType) {
+        pa.type = efiType[typeOfPartEntry];
       } else {
-        pa.type = typeOfPartentry.toString(16);
+        pa.type = typeOfPartEntry.toString(16);
       }
-      const nullIndex = Array.from(partentry.name).findIndex((element, index) => index % 2 === 0 && element === 0);
-      const nameWithoutNull = partentry.name.slice(0, nullIndex);
-      const decodedName = new TextDecoder('utf-16').decode(nameWithoutNull);
-      pa.name = decodedName;
-      if (pa.type === "EFI_UNUSED") {
-        continue;
-      }
+      if (pa.type === "EFI_UNUSED") continue;
+
+      const guidView = new DataView(partEntry.unique.buffer);
+      const timeLow = guidView.getUint32(0, true);
+      const timeMid = guidView.getUint16(4, true);
+      const timeHighAndVersion = guidView.getUint16(6, true);
+      const clockSeqHighAndReserved = guidView.getUint8(8);
+      const clockSeqLow = guidView.getUint8(9);
+      const node = Array.from(partEntry.unique.slice(10, 16))
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("");
+
+      pa.unique = [
+        timeLow.toString(16).padStart(8, "0"),
+        timeMid.toString(16).padStart(4, "0"),
+        timeHighAndVersion.toString(16).padStart(4, "0"),
+        clockSeqHighAndReserved.toString(16).padStart(2, "0") + clockSeqLow.toString(16).padStart(2, "0"),
+        node,
+      ].join("-");
+      pa.sector = partEntry.firstLba;
+      pa.sectors = partEntry.lastLba - partEntry.firstLba + 1n;
+      pa.flags = partEntry.flags;
+      pa.name = partEntry.name;
+      pa.entryOffset = idx * entrySize;
+
       this.partentries[pa.name] = pa;
     }
-    return true;
   }
 
   /**
@@ -301,4 +303,52 @@ export function createBackupGptHeader(primaryGptData, primaryGpt) {
   backupView.setInt32(16, crcValue, true);
 
   return [[backupHeader, primaryGpt.header.backupLba], [partTableData, backupPartTableLba]];
+}
+
+
+/**
+ * @param {gpt} mainGpt
+ * @param {gpt} backupGpt
+ * @returns {"a"|"b"|null}
+ */
+export function getActiveSlot(mainGpt, backupGpt) {
+  for (const partitionName in mainGpt.partentries) {
+    const slot = partitionName.slice(-2);
+    if (slot !== "_a" && slot !== "_b") continue;
+    let partition = backupGpt.partentries[partitionName];
+    if (!partition) {
+      logger.warn(`Partition ${partitionName} not found in backup GPT`);
+      partition = mainGpt.partentries[partitionName];
+    }
+    const active = (((BigInt(partition.flags) >> (BigInt(AB_FLAG_OFFSET) * BigInt(8))))
+      & BigInt(AB_PARTITION_ATTR_SLOT_ACTIVE)) === BigInt(AB_PARTITION_ATTR_SLOT_ACTIVE);
+    if (active) {
+      if (slot === "_a") return "a";
+      if (slot === "_b") return "b";
+    }
+  }
+}
+
+
+/**
+ * @param {Uint8Array} gptDataA
+ * @param {Uint8Array} gptDataB
+ * @param {partf} partA
+ * @param {partf} partB
+ * @param {"a"|"b"} slot
+ * @param {boolean} isBoot
+ * @returns {[ArrayBuffer, ArrayBuffer]}
+ */
+export function patchNewGptData(gptDataA, gptDataB, partA, partB, slot, isBoot) {
+  const partEntryA = GPTPartitionEntry.from(gptDataA.subarray(partA.entryOffset));
+  partEntryA.flags = setPartitionFlags(partEntryA.flags, slot === "a", isBoot);
+
+  const partEntryB = GPTPartitionEntry.from(gptDataB.subarray(partB.entryOffset));
+  partEntryB.flags = setPartitionFlags(partEntryB.flags, slot === "b", isBoot);
+
+  const tmp = partEntryB.type;
+  partEntryB.type = partEntryA.type;
+  partEntryA.type = tmp;
+
+  return [partEntryA.$toBuffer(), partEntryB.$toBuffer()];
 }

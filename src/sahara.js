@@ -1,7 +1,61 @@
-import { CommandHandler, cmd_t, sahara_mode_t, status_t, exec_cmd_t } from "./saharaDefs"
+import { custom, struct, uint32 } from "@incognitojam/tiny-struct";
+
+import { cmd_t, sahara_mode_t, status_t, exec_cmd_t } from "./saharaDefs"
 import { containsBytes, packGenerator, runWithTimeout } from "./utils";
 import { createLogger } from "./logger";
-import { toXml } from "./xml.js";
+import { toXml } from "./xml";
+
+// parse uint64 but cast to Number
+const uint64 = () => custom(8, (buffer, offset, littleEndian) => {
+  return Number(buffer.getBigUint64(offset, littleEndian));
+}, (buffer, offset, value, littleEndian) => {
+  buffer.setBigUint64(offset, value, littleEndian);
+});
+
+const CommandHandler = {
+  pkt_cmd_hdr: struct("pkt_cmd_hdr", {
+    cmd: uint32(),
+    len: uint32(),
+  }, { littleEndian: true }),
+  pkt_hello_req: struct("pkt_hello_req", {
+    cmd: uint32(),
+    len: uint32(),
+    version: uint32(),
+    version_supported: uint32(),
+    cmd_packet_length: uint32(),
+    mode: uint32(),
+    reserved1: uint32(),
+    reserved2: uint32(),
+    reserved3: uint32(),
+    reserved4: uint32(),
+    reserved5: uint32(),
+    reserved6: uint32(),
+  }, { littleEndian: true }),
+  pkt_image_end: struct("pkt_image_end", {
+    cmd: uint32(),
+    len: uint32(),
+    image_id: uint32(),
+    image_tx_status: uint32(),
+  }, { littleEndian: true }),
+  pkt_done: struct("pkt_done", {
+    cmd: uint32(),
+    len: uint32(),
+    image_tx_status: uint32(),
+  }, { littleEndian: true }),
+  pkt_read_data_64: struct("pkt_read_data_64", {
+    cmd: uint32(),
+    len: uint32(),
+    image_id: uint64(),
+    data_offset: uint64(),
+    data_len: uint64(),
+  }, { littleEndian: true }),
+  pkt_execute_rsp_cmd: struct("pkt_execute_rsp_cmd", {
+    cmd: uint32(),
+    len: uint32(),
+    client_cmd: uint32(),
+    data_len: uint32(),
+  }, { littleEndian: true }),
+};
 
 const logger = createLogger("sahara");
 
@@ -14,7 +68,6 @@ export class Sahara {
   constructor(cdc, programmer) {
     this.cdc = cdc;
     this.programmer = programmer;
-    this.ch = new CommandHandler();
     this.id = null;
     this.serial = "";
     this.mode = "";
@@ -28,7 +81,7 @@ export class Sahara {
     let resp = await runWithTimeout(respPromise, 500).catch(() => new Uint8Array());
     if (resp.length > 1) {
       if (resp[0] === 0x01) {
-        const pkt = this.ch.pkt_cmd_hdr(resp);
+        const pkt = CommandHandler.pkt_cmd_hdr.from(resp);
         if (pkt.cmd === cmd_t.SAHARA_HELLO_REQ) {
           return "sahara";
         }
@@ -75,30 +128,34 @@ export class Sahara {
     return true;
   }
 
+  /**
+   * @returns {Promise<{}|{firehose: string}|{cmd: *, data: null}|{cmd: *, data: *}>}
+   */
   async getResponse() {
     try {
       const data = await this.cdc.read();
-      const data_text = new TextDecoder('utf-8').decode(data);
       if (data.length === 0) {
         return {};
-      } else if (data_text.includes("<?xml")) {
-        return {"firehose" : "yes"};
       }
-      const pkt = this.ch.pkt_cmd_hdr(data);
+      const dataText = new TextDecoder("utf-8").decode(data);
+      if (dataText.includes("<?xml")) {
+        return { "firehose": "yes" };
+      }
+      const pkt = CommandHandler.pkt_cmd_hdr.from(data);
       if (pkt.cmd === cmd_t.SAHARA_HELLO_REQ) {
-        return {"cmd" : pkt.cmd, "data" : this.ch.pkt_hello_req(data)};
+        return { "cmd": pkt.cmd, "data": CommandHandler.pkt_hello_req.from(data) };
       } else if (pkt.cmd === cmd_t.SAHARA_DONE_RSP) {
-        return {"cmd": pkt.cmd, "data":this.ch.pkt_done(data)}
+        return { "cmd": pkt.cmd, "data": CommandHandler.pkt_done.from(data) };
       } else if (pkt.cmd === cmd_t.SAHARA_END_TRANSFER) {
-        return {"cmd": pkt.cmd, "data": this.ch.pkt_image_end(data)};
+        return { "cmd": pkt.cmd, "data": CommandHandler.pkt_image_end.from(data) };
       } else if (pkt.cmd === cmd_t.SAHARA_64BIT_MEMORY_READ_DATA) {
-        return {"cmd": pkt.cmd, "data": this.ch.pkt_read_data_64(data)}
+        return { "cmd": pkt.cmd, "data": CommandHandler.pkt_read_data_64.from(data) };
       } else if (pkt.cmd === cmd_t.SAHARA_EXECUTE_RSP) {
-        return {"cmd": pkt.cmd, "data": this.ch.pkt_execute_rsp_cmd(data)};
+        return { "cmd": pkt.cmd, "data": CommandHandler.pkt_execute_rsp_cmd.from(data) };
       } else if (pkt.cmd === cmd_t.SAHARA_CMD_READY || pkt.cmd === cmd_t.SAHARA_RESET_RSP) {
-        return {"cmd": pkt.cmd, "data": null };
+        return { "cmd": pkt.cmd, "data": null };
       } else {
-        logger.error("Didn't match any cmd_t")
+        logger.error("Didn't match any cmd_t");
       }
       return {};
     } catch (error) {
