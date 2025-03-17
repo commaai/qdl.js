@@ -188,20 +188,20 @@ export class gpt {
    */
   fixGptCrc(data) {
     const headerOffset = this.sectorSize;
-    const partentryOffset = 2 * this.sectorSize;
-    const partentrySize = this.header.numPartEntries * this.header.partEntrySize;
-    const partdata = Uint8Array.from(data.slice(partentryOffset, partentryOffset + partentrySize));
-    const headerdata = Uint8Array.from(data.slice(headerOffset, headerOffset + this.header.headerSize));
+    const partTableOffset = 2 * this.sectorSize;
+    const partTableSize = this.header.numPartEntries * this.header.partEntrySize;
+    const partData = Uint8Array.from(data.slice(partTableOffset, partTableOffset + partTableSize));
+    const headerData = Uint8Array.from(data.slice(headerOffset, headerOffset + this.header.headerSize));
 
     const view = new DataView(new ArrayBuffer(4));
-    view.setInt32(0, crc32(partdata), true);
-    headerdata.set(new Uint8Array(view.buffer), 0x58);
+    view.setInt32(0, crc32(partData), true);
+    headerData.set(new Uint8Array(view.buffer), 0x58);
     view.setInt32(0, 0, true);
-    headerdata.set(new Uint8Array(view.buffer) , 0x10);
-    view.setInt32(0, crc32(headerdata), true);
-    headerdata.set(new Uint8Array(view.buffer), 0x10);
+    headerData.set(new Uint8Array(view.buffer) , 0x10);
+    view.setInt32(0, crc32(headerData), true);
+    headerData.set(new Uint8Array(view.buffer), 0x10);
 
-    data.set(headerdata, headerOffset);
+    data.set(headerData, headerOffset);
     return data;
   }
 }
@@ -224,25 +224,21 @@ export function getPartitionABFlags(partition) {
 
 
 /**
- * @param {bigint} flags
+ * @param {partf} partition
  * @param {boolean} active
  * @param {boolean} successful
  * @param {boolean} unbootable
  * @param {number} triesRemaining
- * @returns {bigint}
  */
-export function setPartitionABFlags(flags, active, successful, unbootable, triesRemaining = 0) {
-  let newFlags = flags;
-  newFlags &= ~(AB_PARTITION_ATTR_SLOT_ACTIVE | AB_PARTITION_ATTR_BOOT_SUCCESSFUL | AB_PARTITION_ATTR_UNBOOTABLE | AB_PARTITION_ATTR_TRIES_MASK) << AB_FLAG_OFFSET;
+export function setPartitionABFlags(partition, active, successful, unbootable, triesRemaining = 0) {
+  partition.flags &= ~(AB_PARTITION_ATTR_SLOT_ACTIVE | AB_PARTITION_ATTR_BOOT_SUCCESSFUL | AB_PARTITION_ATTR_UNBOOTABLE | AB_PARTITION_ATTR_TRIES_MASK) << AB_FLAG_OFFSET;
 
-  if (active) newFlags |= AB_PARTITION_ATTR_SLOT_ACTIVE << AB_FLAG_OFFSET;
-  if (successful) newFlags |= AB_PARTITION_ATTR_BOOT_SUCCESSFUL << AB_FLAG_OFFSET;
-  if (unbootable) newFlags |= AB_PARTITION_ATTR_UNBOOTABLE << AB_FLAG_OFFSET;
+  if (active) partition.flags |= AB_PARTITION_ATTR_SLOT_ACTIVE << AB_FLAG_OFFSET;
+  if (successful) partition.flags |= AB_PARTITION_ATTR_BOOT_SUCCESSFUL << AB_FLAG_OFFSET;
+  if (unbootable) partition.flags |= AB_PARTITION_ATTR_UNBOOTABLE << AB_FLAG_OFFSET;
 
   const triesValue = (BigInt(triesRemaining) & 0xFn) << 8n;
-  newFlags |= triesValue << AB_FLAG_OFFSET;
-
-  return newFlags;
+  partition.flags |= triesValue << AB_FLAG_OFFSET;
 }
 
 
@@ -362,15 +358,20 @@ export function getActiveSlot(mainGpt, backupGpt) {
  * @returns {[ArrayBuffer, ArrayBuffer]}
  */
 export function patchNewGptData(gptDataA, gptDataB, partA, partB, slot, isBoot) {
+  if (slot !== "a" && slot !== "b") throw new Error(`Invalid slot: "${slot}"`);
+
+  // FIXME: add sector size to offset?
   const partEntryA = GPTPartitionEntry.from(gptDataA.subarray(partA.entryOffset));
-  partEntryA.flags = setPartitionABFlags(partEntryA.flags, slot === "a", isBoot, !isBoot);
+  setPartitionABFlags(partEntryA, slot === "a", isBoot, !isBoot);
 
   const partEntryB = GPTPartitionEntry.from(gptDataB.subarray(partB.entryOffset));
-  partEntryB.flags = setPartitionABFlags(partEntryB.flags, slot === "b", isBoot, !isBoot);
+  setPartitionABFlags(partEntryB, slot === "b", isBoot, !isBoot);
 
-  const tmp = partEntryB.type;
-  partEntryB.type = partEntryA.type;
-  partEntryA.type = tmp;
+  // FIXME: what did this do?
+  // logger.debug("partA type", partEntryA.type, "part B type", partEntryB.type);
+  // const tmp = partEntryB.type;
+  // partEntryB.type = partEntryA.type;
+  // partEntryA.type = tmp;
 
   return [partEntryA.$toBuffer(), partEntryB.$toBuffer()];
 }
