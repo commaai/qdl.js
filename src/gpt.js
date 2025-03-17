@@ -35,7 +35,22 @@ const utf16cstring = (maxLength) => custom(maxLength * 2, (buffer, offset, littl
 });
 
 
+// FIXME: required until we switch to typescript, types from tiny-struct can't be exported
 /**
+ * @typedef {Object} GPTHeader
+ * @property {string} signature
+ * @property {number} revision
+ * @property {number} headerSize
+ * @property {number} crc32
+ * @property {bigint} currentLba
+ * @property {bigint} backupLba
+ * @property {bigint} firstUsableLba
+ * @property {bigint} lastUsableLba
+ * @property {Uint8Array} diskGuid
+ * @property {bigint} partEntryStartLba
+ * @property {number} numPartEntries
+ * @property {number} partEntrySize
+ * @property {number} crc32PartEntries
  * @see {@link https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-header}
  */
 const GPTHeader = struct("GPTHeader", {
@@ -56,26 +71,14 @@ const GPTHeader = struct("GPTHeader", {
 }, { littleEndian: true });
 
 
-// FIXME: required until we switch to typescript, types from tiny-struct can't be exported
 /**
- * @typedef {Object} BasicGPTHeader
- * @property {string} signature
- * @property {number} revision
- * @property {number} headerSize
- * @property {number} crc32
- * @property {bigint} currentLba
- * @property {bigint} backupLba
- * @property {bigint} firstUsableLba
- * @property {bigint} lastUsableLba
- * @property {Uint8Array} diskGuid
- * @property {bigint} partEntryStartLba
- * @property {number} numPartEntries
- * @property {number} partEntrySize
- * @property {number} crc32PartEntries
- */
-
-
-/**
+ * @typedef {Object} GPTPartitionEntry
+ * @property {Uint8Array} type
+ * @property {Uint8Array} unique
+ * @property {bigint} firstLba
+ * @property {bigint} lastLba
+ * @property {bigint} flags
+ * @property {string} name
  * @see {@link https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-partition-entry-array}
  */
 const GPTPartitionEntry = struct("GPTPartitionEntry", {
@@ -94,34 +97,21 @@ const GPTPartitionEntry = struct("GPTPartitionEntry", {
 }, { littleEndian: true });
 
 
-export class partf {
-  firstLba = 0n;
-  lastLba = 0n;
-  flags = 0n;
-  sector = 0n;
-  sectors = 0n;
-  entryOffset = 0;
-  type = null;
-  name = "";
-  unique = new Uint8Array();
-}
-
-
 export class gpt {
   /**
    * @param {number} sectorSize
    */
   constructor(sectorSize) {
     this.sectorSize = sectorSize;
-    /** @type {BasicGPTHeader|null} */
+    /** @type {GPTHeader|null} */
     this.header = null;
-    /** @type {Record<string, partf>} */
+    /** @type {Record<string, GPTPartitionEntry>} */
     this.partentries = {};
   }
 
   /**
    * @param {Uint8Array} gptData
-   * @returns {BasicGPTHeader|null}
+   * @returns {GPTHeader|null}
    */
   parseHeader(gptData) {
     this.header = GPTHeader.from(gptData);
@@ -146,7 +136,7 @@ export class gpt {
       const entryOffset = idx * entrySize;
       const partEntry = GPTPartitionEntry.from(partTableData.subarray(entryOffset, entryOffset + entrySize));
       const pa = new partf();
-      pa.entryOffset = entryOffset;
+      pa.entryOffset = this.sectorSize * 2 + entryOffset;
 
       const typeOfPartEntry = new DataView(partEntry.type.buffer).getUint32(0, true);
       if (typeOfPartEntry in efiType) {
