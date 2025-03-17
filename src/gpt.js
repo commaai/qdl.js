@@ -229,6 +229,16 @@ export function setPartitionFlags(flags, active, isBoot) {
 
 
 /**
+ * @param {partf} partition
+ * @returns {boolean}
+ */
+export function isPartitionActive(partition) {
+  return (((BigInt(partition.flags) >> (BigInt(AB_FLAG_OFFSET) * BigInt(8))))
+    & BigInt(AB_PARTITION_ATTR_SLOT_ACTIVE)) === BigInt(AB_PARTITION_ATTR_SLOT_ACTIVE);
+}
+
+
+/**
  * @param {Uint8Array} gptData
  * @param {gpt} guidGpt
  * @returns {[boolean, number]}
@@ -323,9 +333,7 @@ export function getActiveSlot(mainGpt, backupGpt) {
       logger.warn(`Partition ${partitionName} not found in backup GPT`);
       partition = mainGpt.partentries[partitionName];
     }
-    const active = (((BigInt(partition.flags) >> (BigInt(AB_FLAG_OFFSET) * BigInt(8))))
-      & BigInt(AB_PARTITION_ATTR_SLOT_ACTIVE)) === BigInt(AB_PARTITION_ATTR_SLOT_ACTIVE);
-    if (active) {
+    if (isPartitionActive(partition)) {
       if (slot === "_a") return "a";
       if (slot === "_b") return "b";
     }
