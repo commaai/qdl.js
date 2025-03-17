@@ -21,6 +21,7 @@ const help = `Usage: qdl.js <command> [...flags] [...args]
 Commands:
   reset                                Reboot the device
   getactiveslot                        Get the active slot
+  setactiveslot <slot>                 Set the active slot (a or b)
   getstorageinfo                       Print UFS information
   printgpt [--backup|-b]               Print GPT luns and partitions (optional: show backup GPT)
   repairgpt <lun> <image>              Repair GPT by flashing primary table and creating backup table
@@ -51,6 +52,17 @@ if (command === "reset") {
 } else if (command === "getactiveslot") {
   const activeSlot = await qdl.getActiveSlot();
   console.info(activeSlot);
+} else if (command === "setactiveslot") {
+  if (commandArgs.length !== 1) {
+    console.error("Expected slot name (a or b)");
+    process.exit(1);
+  }
+  const [slot] = commandArgs;
+  if (slot !== "a" && slot !== "b") {
+    console.error("Slot must be 'a' or 'b'");
+    process.exit(1);
+  }
+  await qdl.setActiveSlot(slot);
 } else if (command === "getstorageinfo") {
   const storageInfo = await qdl.getStorageInfo();
   storageInfo.serial_num = storageInfo.serial_num.toString(16).padStart(8, "0");

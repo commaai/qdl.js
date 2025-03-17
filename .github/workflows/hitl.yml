@@ -39,6 +39,40 @@ jobs:
 
       - run: qdl.js flash boot_a ./boot.img
 
+  test-activeslot:
+    name: Test getting and setting active slot
+    runs-on: [self-hosted, Linux, HITL]
+    timeout-minutes: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/workflows/prepare-cli
+
+      - run: qdl.js setactiveslot a
+
+      - name: verify slot is a
+        run: |
+          NEW_SLOT=$(qdl.js getactiveslot)
+          echo "New active slot: $NEW_SLOT"
+          if [ "$NEW_SLOT" != "a" ]; then
+            echo "ERROR: Slot did not change!"
+            exit 1
+          fi
+
+      - run: qdl.js printgpt -b
+
+      - run: qdl.js setactiveslot b
+
+      - name: verify slot is b
+        run: |
+          NEW_SLOT=$(qdl.js getactiveslot)
+          echo "New active slot: $NEW_SLOT"
+          if [ "$NEW_SLOT" != "b" ]; then
+            echo "ERROR: Slot did not change!"
+            exit 1
+          fi
+
+      - run: qdl.js printgpt -b
+
   test-repairgpt:
     name: Test GPT repair functionality
     runs-on: [self-hosted, Linux, HITL]
@@ -64,5 +98,3 @@ jobs:
           done
 
       - run: qdl.js printgpt --backup
-
-      - run: qdl.js getactiveslot
