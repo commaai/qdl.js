@@ -72,7 +72,6 @@ export class qdlDevice {
     if (header === null) {
       throw "Error reading gpt header";
     }
-    // logger.debug(header);
     const partTableSize = header.numPartEntries * header.partEntrySize;
     const sectors = Math.floor(partTableSize / this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
     const partTableData = await this.firehose.cmdReadBuffer(lun, header.partEntryStartLba, sectors);
