@@ -16,18 +16,20 @@ const efiType = {
 
 const logger = createLogger("gpt");
 
-const utf16cstring = (length) => custom(length * 2, (buffer, offset, littleEndian) => {
+const utf16cstring = (maxLength) => custom(maxLength * 2, (buffer, offset, littleEndian) => {
   const charCodes = [];
-  for (let i = 0; i < length; i++) {
+  for (let i = 0; i < maxLength; i++) {
     const charCode = buffer.getUint16(offset + i * 2, littleEndian);
     if (charCode === 0) break;
     charCodes.push(charCode);
   }
   return String.fromCharCode(...charCodes);
 }, (buffer, offset, value, littleEndian) => {
+  const length = Math.min(value.length, maxLength - 1);
   for (let i = 0; i < length; i++) {
-    buffer.setUint16(value.charCodeAt(i), offset + i * 2, littleEndian);
+    buffer.setUint16(offset + i * 2, value.charCodeAt(i), littleEndian);
   }
+  buffer.setUint16(offset + length * 2, 0, littleEndian);
 });
 
 
@@ -136,8 +138,10 @@ export class gpt {
     const entrySize = this.header.partEntrySize;
     this.partentries = {};
     for (let idx = 0; idx < this.header.numPartEntries; idx++) {
-      const partEntry = GPTPartitionEntry.from(partTableData.subarray(idx * entrySize, (idx + 1) * entrySize));
+      const entryOffset = idx * entrySize;
+      const partEntry = GPTPartitionEntry.from(partTableData.subarray(entryOffset, entryOffset + entrySize));
       const pa = new partf();
+      pa.entryOffset = entryOffset;
 
       const typeOfPartEntry = new DataView(partEntry.type.buffer).getUint32(0, true);
       if (typeOfPartEntry in efiType) {
@@ -168,7 +172,6 @@ export class gpt {
       pa.sectors = partEntry.lastLba - partEntry.firstLba + 1n;
       pa.flags = partEntry.flags;
       pa.name = partEntry.name;
-      pa.entryOffset = idx * entrySize;
 
       this.partentries[pa.name] = pa;
     }
