@@ -57,6 +57,8 @@ jobs:
             echo "ERROR: Slot did not change!"
             exit 1
           fi
+        env:
+          QDL_LOG_LEVEL: error
 
       - run: qdl.js printgpt -b
 
@@ -70,6 +72,8 @@ jobs:
             echo "ERROR: Slot did not change!"
             exit 1
           fi
+        env:
+          QDL_LOG_LEVEL: error
 
       - run: qdl.js printgpt -b
 
