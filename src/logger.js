@@ -13,7 +13,7 @@ export class Logger {
   constructor(name, level = LogLevel.INFO) {
     this.name = name;
     this.level = level;
-    this.prefix = name ? `[${name}] ` : "";
+    this.prefix = name ? `[${name}]` : "";
     this.deviceState = {
       lastMessage: "", lastLogLevel: LogLevel.INFO, count: 0,
       timeout: null, debounceMs: 100,

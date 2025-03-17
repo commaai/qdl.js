@@ -3,11 +3,13 @@ import { bytes, custom, string, struct, uint32, uint64 } from "@incognitojam/tin
 
 import { createLogger } from "./logger";
 
-export const AB_FLAG_OFFSET = 6;
-export const AB_PARTITION_ATTR_SLOT_ACTIVE = (0x1 << 2);
-export const PART_ATT_PRIORITY_BIT = BigInt(48)
-export const PART_ATT_ACTIVE_BIT = BigInt(50)
-export const PART_ATT_ACTIVE_VAL = BigInt(0x1) << PART_ATT_ACTIVE_BIT
+const ATTRIBUTE_FLAG_OFFSET = 48n;
+const AB_FLAG_OFFSET = ATTRIBUTE_FLAG_OFFSET + 6n;
+
+const AB_PARTITION_ATTR_SLOT_ACTIVE = BigInt(0x1 << 2);
+const AB_PARTITION_ATTR_BOOT_SUCCESSFUL = BigInt(0x1 << 6);
+const AB_PARTITION_ATTR_UNBOOTABLE = BigInt(0x1 << 7);
+const AB_PARTITION_ATTR_TRIES_MASK = BigInt(0xF << 8);
 
 const efiType = {
   0x00000000 : "EFI_UNUSED",
@@ -84,6 +86,9 @@ const GPTPartitionEntry = struct("GPTPartitionEntry", {
   unique: bytes(16),
   firstLba: uint64(),
   lastLba: uint64(),
+  /**
+   * @see {@link https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#defined-gpt-partition-entry-attributes}
+   */
   flags: uint64(),
   name: utf16cstring(36),
 }, { littleEndian: true });
@@ -203,38 +208,41 @@ export class gpt {
 
 
 /**
- * @param {bigint} flags
- * @param {boolean} active
- * @param {boolean} isBoot
- * @returns {bigint}
+ * @param {partf} partition
+ * @returns {{active: boolean, successful: boolean, unbootable: boolean, triesRemaining: number}}
  */
-export function setPartitionFlags(flags, active, isBoot) {
-  // 0x003a for inactive and 0x006f for active boot partitions. This follows fastboot standard
-  let newFlags = flags;
-  if (active) {
-    if (isBoot) {
-      newFlags = BigInt(0x006f) << PART_ATT_PRIORITY_BIT;
-    } else {
-      newFlags |= PART_ATT_ACTIVE_VAL;
-    }
-  } else {
-    if (isBoot) {
-      newFlags = BigInt(0x003a) << PART_ATT_PRIORITY_BIT;
-    } else {
-      newFlags &= ~PART_ATT_ACTIVE_VAL;
-    }
-  }
-  return newFlags;
+export function getPartitionABFlags(partition) {
+  // TODO: check partition type
+  const abFlags = partition.flags >> AB_FLAG_OFFSET;
+  return {
+    active: (abFlags & AB_PARTITION_ATTR_SLOT_ACTIVE) !== 0n,
+    successful: (abFlags & AB_PARTITION_ATTR_BOOT_SUCCESSFUL) !== 0n,
+    unbootable: (abFlags & AB_PARTITION_ATTR_UNBOOTABLE) !== 0n,
+    triesRemaining: Number((abFlags & AB_PARTITION_ATTR_TRIES_MASK) >> 8n),
+  };
 }
 
 
 /**
- * @param {partf} partition
- * @returns {boolean}
+ * @param {bigint} flags
+ * @param {boolean} active
+ * @param {boolean} successful
+ * @param {boolean} unbootable
+ * @param {number} triesRemaining
+ * @returns {bigint}
  */
-export function isPartitionActive(partition) {
-  return (((BigInt(partition.flags) >> (BigInt(AB_FLAG_OFFSET) * BigInt(8))))
-    & BigInt(AB_PARTITION_ATTR_SLOT_ACTIVE)) === BigInt(AB_PARTITION_ATTR_SLOT_ACTIVE);
+export function setPartitionABFlags(flags, active, successful, unbootable, triesRemaining = 0) {
+  let newFlags = flags;
+  newFlags &= ~(AB_PARTITION_ATTR_SLOT_ACTIVE | AB_PARTITION_ATTR_BOOT_SUCCESSFUL | AB_PARTITION_ATTR_UNBOOTABLE | AB_PARTITION_ATTR_TRIES_MASK) << AB_FLAG_OFFSET;
+
+  if (active) newFlags |= AB_PARTITION_ATTR_SLOT_ACTIVE << AB_FLAG_OFFSET;
+  if (successful) newFlags |= AB_PARTITION_ATTR_BOOT_SUCCESSFUL << AB_FLAG_OFFSET;
+  if (unbootable) newFlags |= AB_PARTITION_ATTR_UNBOOTABLE << AB_FLAG_OFFSET;
+
+  const triesValue = (BigInt(triesRemaining) & 0xFn) << 8n;
+  newFlags |= triesValue << AB_FLAG_OFFSET;
+
+  return newFlags;
 }
 
 
@@ -326,6 +334,7 @@ export function createBackupGptHeader(primaryGptData, primaryGpt) {
  */
 export function getActiveSlot(mainGpt, backupGpt) {
   for (const partitionName in mainGpt.partentries) {
+    if (!partitionName.startsWith("boot")) continue;
     const slot = partitionName.slice(-2);
     if (slot !== "_a" && slot !== "_b") continue;
     let partition = backupGpt.partentries[partitionName];
@@ -333,7 +342,9 @@ export function getActiveSlot(mainGpt, backupGpt) {
       logger.warn(`Partition ${partitionName} not found in backup GPT`);
       partition = mainGpt.partentries[partitionName];
     }
-    if (isPartitionActive(partition)) {
+    const flags = getPartitionABFlags(partition);
+    logger.debug(`${partitionName} flags:`, flags);
+    if (flags.active) {
       if (slot === "_a") return "a";
       if (slot === "_b") return "b";
     }
@@ -352,10 +363,10 @@ export function getActiveSlot(mainGpt, backupGpt) {
  */
 export function patchNewGptData(gptDataA, gptDataB, partA, partB, slot, isBoot) {
   const partEntryA = GPTPartitionEntry.from(gptDataA.subarray(partA.entryOffset));
-  partEntryA.flags = setPartitionFlags(partEntryA.flags, slot === "a", isBoot);
+  partEntryA.flags = setPartitionABFlags(partEntryA.flags, slot === "a", isBoot, !isBoot);
 
   const partEntryB = GPTPartitionEntry.from(gptDataB.subarray(partB.entryOffset));
-  partEntryB.flags = setPartitionFlags(partEntryB.flags, slot === "b", isBoot);
+  partEntryB.flags = setPartitionABFlags(partEntryB.flags, slot === "b", isBoot, !isBoot);
 
   const tmp = partEntryB.type;
   partEntryB.type = partEntryA.type;
