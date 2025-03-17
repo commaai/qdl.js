@@ -119,10 +119,6 @@ export class qdlDevice {
    */
   async eraseLun(lun, preservePartitions = ["mbr", "gpt", "persist"]) {
     const [mainGpt] = await this.getGpt(lun);
-    if (mainGpt === null) {
-      throw new Error(`Could not read GPT data for LUN ${lun}`);
-    }
-
     const { currentLba, backupLba, firstUsableLba, lastUsableLba } = mainGpt.header;
     const protectedRanges = [];
     if (preservePartitions.includes("mbr")) {
@@ -198,15 +194,10 @@ export class qdlDevice {
    * @returns {Promise<[false] | [true, number, Uint8Array, gpt.gpt] | [true, number, gpt.partf]>}
    */
   async detectPartition(partitionName, sendFull=false) {
-    const luns = this.firehose.luns;
-    for (const lun of luns) {
+    for (const lun of this.firehose.luns) {
       const [guidGpt, data] = await this.getGpt(lun);
-      if (guidGpt === null) {
-        break;
-      } else {
-        if (partitionName in guidGpt.partentries) {
-          return sendFull ? [true, lun, data, guidGpt] : [true, lun, guidGpt.partentries[partitionName]];
-        }
+      if (partitionName in guidGpt.partentries) {
+        return sendFull ? [true, lun, data, guidGpt] : [true, lun, guidGpt.partentries[partitionName]];
       }
     }
     return [false];
@@ -261,8 +252,7 @@ export class qdlDevice {
   }
 
   async erase(partitionName) {
-    const luns = this.firehose.luns;
-    for (const lun of luns) {
+    for (const lun of this.firehose.luns) {
       const [guidGpt] = await this.getGpt(lun);
       if (partitionName in guidGpt.partentries) {
         const partition = guidGpt.partentries[partitionName];
@@ -277,12 +267,8 @@ export class qdlDevice {
   async getDevicePartitionsInfo() {
     const slots = [];
     const partitions = [];
-    const luns = this.firehose.luns;
-    for (const lun of luns) {
+    for (const lun of this.firehose.luns) {
       const [guidGpt] = await this.getGpt(lun);
-      if (guidGpt === null) {
-        throw "Error while reading device partitions";
-      }
       for (let partition in guidGpt.partentries) {
         const slot = partition.slice(-2);
         if (slot === "_a" || slot === "_b") {
@@ -340,9 +326,6 @@ export class qdlDevice {
       let sameLun = false;
       let hasPartitionA = false;
       let [guidGptA, gptDataA] = await this.getGpt(lunA);
-      if (guidGptA === null) {
-        throw "Error while getting gpt header data";
-      }
 
       const [backupGuidGptA, backupGptDataA] = await this.getGpt(lunA, guidGptA.header.backupLba);
       let lunB, gptDataB, guidGptB, backupGptDataB, backupGuidGptB;
