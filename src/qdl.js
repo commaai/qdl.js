@@ -221,58 +221,57 @@ export class qdlDevice {
   }
 
   /**
-   * @param {string} partitionName
-   * @param {boolean} [sendFull]
-   * @returns {Promise<[false] | [true, number, Uint8Array, gpt.gpt] | [true, number, gpt.partf]>}
+   * @param {string} name
+   * @returns {Promise<[false] | [true, number, { sector: bigint; sectors: number }, GPT]>}
    */
-  async detectPartition(partitionName, sendFull=false) {
+  async detectPartition(name) {
     for (const lun of this.firehose.luns) {
-      const [guidGpt, data] = await this.getGpt(lun);
-      if (partitionName in guidGpt.partentries) {
-        return sendFull ? [true, lun, data, guidGpt] : [true, lun, guidGpt.partentries[partitionName]];
-      }
+      const gpt = await this.getGpt(lun);
+      const partition = gpt.locatePartition(name);
+      if (!partition) continue;
+      return [true, lun, partition, gpt];
     }
     return [false];
   }
 
   /**
-   * @param {string} partitionName
+   * @param {string} name
    * @param {Blob} blob
    * @param {progressCallback} [onProgress] - Returns number of bytes written
    * @returns {Promise<boolean>}
    */
-  async flashBlob(partitionName, blob, onProgress) {
-    const [found, lun, partition] = await this.detectPartition(partitionName);
+  async flashBlob(name, blob, onProgress) {
+    const [found, lun, partition, gpt] = await this.detectPartition(name);
     if (!found) {
-      throw `Can't find partition ${partitionName}`;
+      throw `Can't find partition ${name}`;
     }
-    if (partitionName.toLowerCase() === "gpt") {
+    if (name.toLowerCase() === "gpt") {
       // TODO: error?
       return true;
     }
-    const imgSectors = Math.ceil(blob.size / this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
+    const imgSectors = Math.ceil(blob.size / gpt.sectorSize);
     if (imgSectors > partition.sectors) {
       logger.error("partition has fewer sectors compared to the flashing image");
       return false;
     }
-    logger.info(`Flashing ${partitionName}...`);
+    logger.info(`Flashing ${name}...`);
     logger.debug(`startSector ${partition.sector}, sectors ${partition.sectors}`);
     const sparse = await Sparse.from(blob);
     if (sparse === null) {
       return await this.firehose.cmdProgram(lun, partition.sector, blob, onProgress);
     }
-    logger.debug(`Erasing ${partitionName}...`);
+    logger.debug(`Erasing ${name}...`);
     if (!await this.firehose.cmdErase(lun, partition.sector, partition.sectors)) {
       logger.error("Failed to erase partition before sparse flashing");
       return false;
     }
-    logger.debug(`Writing chunks to ${partitionName}...`);
+    logger.debug(`Writing chunks to ${name}...`);
     for await (const [offset, chunk] of sparse.read()) {
       if (!chunk) continue;
-      if (offset % this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
+      if (offset % gpt.sectorSize !== 0) {
         throw "qdl - Offset not aligned to sector size";
       }
-      const sector = (partition.sector + BigInt(offset)) / BigInt(this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
+      const sector = (partition.sector + BigInt(offset)) / BigInt(gpt.sectorSize);
       const onChunkProgress = (progress) => onProgress?.(offset + progress);
       if (!await this.firehose.cmdProgram(lun, sector, chunk, onChunkProgress)) {
         logger.debug("Failed to program chunk")
@@ -283,38 +282,30 @@ export class qdlDevice {
     return true;
   }
 
-  async erase(partitionName) {
-    for (const lun of this.firehose.luns) {
-      const gpt = await this.getGpt(lun);
-      if (partitionName in gpt.partentries) {
-        const partition = gpt.partentries[partitionName];
-        logger.info(`Erasing ${partitionName}...`);
-        await this.firehose.cmdErase(lun, partition.sector, partition.sectors);
-        logger.debug(`Erased ${partitionName} starting at sector ${partition.sector} with sectors ${partition.sectors}`)
-      }
-    }
+  /**
+   * @param {string} name
+   * @returns {Promise<boolean>}
+   */
+  async erase(name) {
+    const [found, lun, partition] = await this.detectPartition(name);
+    if (!found) throw new Error(`Partition ${name} not found`);
+    logger.info(`Erasing ${name}...`);
+    await this.firehose.cmdErase(lun, partition.sector, partition.sectors);
+    logger.debug(`Erased ${name} starting at sector ${partition.sector} with sectors ${partition.sectors}`)
     return true;
   }
 
+  /**
+   * @returns {Promise<[number, string[]]>}
+   */
   async getDevicePartitionsInfo() {
-    const slots = [];
-    const partitions = [];
+    let partitions = new Set(), slots = new Set();
     for (const lun of this.firehose.luns) {
-      const [guidGpt] = await this.getGpt(lun);
-      for (let partition in guidGpt.partentries) {
-        const slot = partition.slice(-2);
-        if (slot === "_a" || slot === "_b") {
-          partition = partition.substring(0, partition.length-2);
-          if (!slots.includes(slot)) {
-            slots.push(slot);
-          }
-        }
-        if (!partitions.includes(partition)) {
-          partitions.push(partition);
-        }
-      }
+      const diskPartitions = await this.getGpt(lun).getDevicePartitionsInfo();
+      partitions = partitions.union(diskPartitions.partitions);
+      slots = slots.union(diskPartitions.slots);
     }
-    return [slots.length, partitions];
+    return [slots.size, Array.from(partitions)];
   }
 
   /**
@@ -322,8 +313,7 @@ export class qdlDevice {
    */
   async getActiveSlot() {
     for (const lun of this.firehose.luns) {
-      const gpt = await this.getGpt(lun);
-      const slot = gpt.getActiveSlot();
+      const slot = (await this.getGpt(lun)).getActiveSlot();
       if (slot) return slot;
     }
     // TODO: fallback to A?
@@ -348,9 +338,7 @@ export class qdlDevice {
    * @returns {Promise<boolean>}
    */
   async setActiveSlot(slot) {
-    if (slot !== "a" && slot !== "b") {
-      throw new Error("Invalid slot");
-    }
+    if (slot !== "a" && slot !== "b") throw new Error("Invalid slot");
 
     for (const lun of this.firehose.luns) {
       // Update all partitions in disk

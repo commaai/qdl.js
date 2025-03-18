@@ -1,4 +1,5 @@
 import { buf as crc32 } from "crc-32"
+import { bytes, string, struct, uint32, uint64 } from "@incognitojam/tiny-struct";
 
 import { createLogger } from "./logger";
 import { guid, utf16cstring } from "./gpt-structs";
@@ -57,7 +58,6 @@ export class GPT {
   #header = null;
   /** @type {(ReturnType<typeof GPTPartitionEntry.from>|null)[]} */
   #partEntries = [];
-  /** @type {bigint} */
   #partEntriesSectors = 0n;
 
   /** @param {number} sectorSize */
@@ -193,6 +193,20 @@ export class GPT {
         sectors: partEntry.lastLba - partEntry.firstLba + 1n,
       };
     }
+  }
+
+  /** @returns {{ partitions: Set<string>, slots: Set<string> }} */
+  getPartitionsInfo() {
+    const partitions = new Set(), slots = new Set();
+    for (const partEntry of this.#partEntries) {
+      if (partEntry.type.startsWith("00000000")) continue;
+      const { name } = partEntry;
+      // FIXME: do other slot names exist?
+      if (name.endsWith("_a")) slots.add("a");
+      if (name.endsWith("_b")) slots.add("b");
+      partitions.add(name);
+    }
+    return { partitions, slots };
   }
 
   /** @returns {"a" | "b" | null} */
