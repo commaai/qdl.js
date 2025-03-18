@@ -42,12 +42,14 @@ describe("GPT", () => {
       });
     });
 
-    test.skipIf(lun !== 4)("setActiveSlot", () => {
-      expect(gpt.getActiveSlot()).toBe("a");
-      gpt.setActiveSlot("a");
-      expect(gpt.getActiveSlot()).toBe("a");
-      gpt.setActiveSlot("b");
-      expect(gpt.getActiveSlot()).toBe("b");
-    });
+    if (lun === 4) {
+      test("setActiveSlot", () => {
+        expect(gpt.getActiveSlot()).toBe("a");
+        gpt.setActiveSlot("a");
+        expect(gpt.getActiveSlot()).toBe("a");
+        gpt.setActiveSlot("b");
+        expect(gpt.getActiveSlot()).toBe("b");
+      });
+    }
   });
 });
