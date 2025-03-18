@@ -111,7 +111,7 @@ window.connectDevice = async () => {
     const partitionNames = new Set<string>();
 
     for (const lun of qdl.firehose!.luns) {
-      const [guidGpt] = await qdl.getGpt(lun);
+      const gpt = await qdl.getGpt(lun);
       if (guidGpt?.header) {
         const [backupGuidGpt] = await qdl.getGpt(lun, guidGpt.header.backupLba);
         lunInfos.push({

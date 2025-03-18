@@ -43,14 +43,26 @@ const GPTHeader = struct("GPTHeader", {
 const GPTPartitionEntry = struct("GPTPartitionEntry", {
   type: guid(),
   unique: guid(),
-  firstLba: uint64(),
-  lastLba: uint64(),
+  startingLba: uint64(),
+  endingLba: uint64(),
   /**
    * @see {@link https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#defined-gpt-partition-entry-attributes}
    */
   attributes: uint64(),
   name: utf16cstring(36),
 }, { littleEndian: true });
+
+
+/**
+ * @typedef {Object} Partition
+ * @property {string} type
+ * @property {string} uuid
+ * @property {bigint} start
+ * @property {bigint} end
+ * @property {bigint} sectors
+ * @property {string} attributes
+ * @property {string} name
+ */
 
 
 export class GPT {
@@ -158,7 +170,7 @@ export class GPT {
     const alternate = this.#header.$clone();
     alternate.currentLba = this.#header.alternateLba;
     alternate.alternateLba = this.#header.currentLba;
-    alternate.partEntryStartLba = this.#header.alternateLba - this.#partEntriesSectors;
+    alternate.partEntriesStartLba = this.#header.alternateLba - this.#partEntriesSectors;
 
     const gpt = new GPT(this.sectorSize);
     gpt.#header = alternate;
@@ -182,18 +194,27 @@ export class GPT {
     return { header, partEntries };
   }
 
+  /** @returns {IterableIterator<Partition>} */
+  [Symbol.iterator]() {
+    return this.#partEntries
+      .filter((entry) => !entry.type.startsWith("00000000"))
+      .map((entry) => ({
+        type: entry.type,
+        uuid: entry.unique,
+        start: entry.startingLba,
+        end: entry.endingLba,
+        sectors: entry.endingLba - entry.startingLba + 1n,
+        attributes: `0x${entry.attributes.toString(16).padStart(16, "0")}`,
+        name: entry.name,
+      }));
+  }
+
   /**
    * @param {string} name
-   * @returns {{ sector: bigint, sectors: bigint } | null}
+   * @returns {Partition|undefined}
    */
   locatePartition(name) {
-    for (const partEntry of this.#partEntries) {
-      if (partEntry.name !== name) continue;
-      return {
-        sector: partEntry.firstLba,
-        sectors: partEntry.lastLba - partEntry.firstLba + 1n,
-      };
-    }
+    return Array.from(this).find((entry) => entry.name === name);
   }
 
   /** @returns {{ partitions: Set<string>, slots: Set<string> }} */
@@ -210,20 +231,10 @@ export class GPT {
     return { partitions, slots };
   }
 
-  print() {
-    console.table(Object.entries(this.#partEntries).map((partEntry) => ({
-      name: partEntry.name,
-      startSector: partEntry.firstLba,
-      sectorCount: partEntry.lastLba - partEntry.firstLba + 1n,
-      type: partEntry.type,
-      attributes: `0x${partEntry.attributes.toString(16)}`,
-      uuid: info.unique,
-    })));
-  }
-
   /** @returns {"a"|"b"|null} */
   getActiveSlot() {
     for (const partEntry of this.#partEntries) {
+      if (partEntry.type.startsWith("00000000")) continue;
       const slot = partEntry.name.slice(-2);
       const slotA = slot === "_a";
       if (!slotA && slot !== "_b") continue;
@@ -238,6 +249,7 @@ export class GPT {
   setActiveSlot(slot) {
     if (slot !== "a" && slot !== "b") throw new Error("Invalid slot");
     for (const partEntry of this.#partEntries) {
+      if (partEntry.type.startsWith("00000000")) continue;
       const partSlot = partEntry.name.slice(-2);
       if (partSlot !== "_a" && partSlot !== "_b") continue;
       const bootable = partEntry.name === `boot${partSlot}`;

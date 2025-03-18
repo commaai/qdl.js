@@ -67,7 +67,7 @@ if (command === "reset") {
   for (const lun of qdl.firehose.luns) {
     console.info(`LUN ${lun}:`);
     const gpt = await qdl.getGpt(lun);
-    gpt.print();
+    console.table(Array.from(gpt));
   }
 } else if (command === "repairgpt") {
   if (commandArgs.length !== 2) throw "Usage: qdl.js repairgpt <lun> <image>";
