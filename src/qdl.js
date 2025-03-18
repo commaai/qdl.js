@@ -78,10 +78,6 @@ export class qdlDevice {
     }
     const { mismatchCrc32: primaryPartEntriesMismatchCrc32 } = primaryGpt.parsePartEntries(await this.firehose.cmdReadBuffer(lun, primaryGpt.partEntriesStartLba, primaryGpt.partEntriesSectors));
     primaryCorrupted = primaryHeader.mismatchCrc32 || primaryPartEntriesMismatchCrc32;
-    if (primaryGpt.currentLba !== sector) {
-      logger.warn(`currentLba (${primaryGpt.currentLba}) does not match actual value (1)`);
-      primaryCorrupted = true;
-    }
     if (sector !== undefined) {
       // Return early if specific sector is requested
       return primaryGpt;
