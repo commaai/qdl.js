@@ -70,41 +70,51 @@ export class GPT {
   #header;
   /** @type {(ReturnType<typeof GPTPartitionEntry.from>)[]} */
   #partEntries = [];
-  #partEntriesSectors = 0n;
 
   /** @param {number} sectorSize */
   constructor(sectorSize) {
     this.sectorSize = sectorSize;
   }
 
-  /** @returns {bigint} */
+  get headerCrc32() {
+    return this.#header.headerCrc32;
+  }
+
+  get partEntriesCrc32() {
+    return this.#header.partEntriesCrc32;
+  }
+
   get currentLba() {
     return this.#header.currentLba;
   }
 
-  /** @returns {bigint} */
   get alternateLba() {
     return this.#header.alternateLba;
   }
 
-  /** @returns {bigint} */
-  get partEntriesStartLba() {
-    return this.#header.partEntriesStartLba;
-  }
-
-  /** @returns {bigint} */
-  get partEntriesSectors() {
-    return this.#partEntriesSectors;
-  }
-
-  /** @returns {bigint} */
   get firstUsableLba() {
     return this.#header.firstUsableLba;
   }
 
-  /** @returns {bigint} */
   get lastUsableLba() {
     return this.#header.lastUsableLba;
+  }
+
+  get partEntriesStartLba() {
+    return this.#header.partEntriesStartLba;
+  }
+
+  get numPartEntries() {
+    return this.#header.numPartEntries;
+  }
+
+  get partEntrySize() {
+    return this.#header.partEntrySize;
+  }
+
+  /** @returns {number} */
+  get partEntriesSectors() {
+    return Math.ceil(Number(this.numPartEntries * this.partEntrySize / this.sectorSize));
   }
 
   /**
@@ -137,7 +147,6 @@ export class GPT {
       logger.warn(`Header CRC32 mismatch: expected 0x${this.#header.headerCrc32.toString(16)}, actual 0x${actualHeaderCrc32.toString(16)}`);
     }
 
-    this.#partEntriesSectors = BigInt(Math.ceil((this.#header.partEntrySize * this.#header.numPartEntries) / this.sectorSize));
     return {
       headerCrc32: this.#header.headerCrc32,
       mismatchCrc32,
@@ -170,12 +179,11 @@ export class GPT {
     const alternate = this.#header.$clone();
     alternate.currentLba = this.#header.alternateLba;
     alternate.alternateLba = this.#header.currentLba;
-    alternate.partEntriesStartLba = this.#header.alternateLba - this.#partEntriesSectors;
+    alternate.partEntriesStartLba = this.#header.alternateLba - this.partEntriesSectors;
 
     const gpt = new GPT(this.sectorSize);
     gpt.#header = alternate;
     gpt.#partEntries = this.#partEntries.map((partEntry) => partEntry.$clone());
-    gpt.#partEntriesSectors = this.#partEntriesSectors;
     return gpt;
   }
 
