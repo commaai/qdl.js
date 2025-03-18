@@ -124,7 +124,8 @@ export class qdlDevice {
     // Read back GPT and create backup copy
     const primaryGpt = await this.getGpt(lun);
     const backupGpt = primaryGpt.asAlternate();
-    const { header: backupHeader, partEntries: backupPartEntries } = backupGpt.build();
+    const backupPartEntries = backupGpt.buildPartEntries();
+    const backupHeader = backupGpt.buildHeader(backupPartEntries);
 
     logger.debug(`Writing backup partition table to LBA ${backupGpt.partEntriesStartLba}`);
     if (!await this.firehose.cmdProgram(lun, backupGpt.partEntriesStartLba, new Blob([backupPartEntries]))) {
@@ -347,9 +348,10 @@ export class qdlDevice {
       gpt.setActiveSlot(slot);
 
       // Write GPT header and partition entries
-      const { header, partEntries } = gpt.build();
-      await this.firehose.cmdProgram(lun, gpt.currentLba, new Blob([header]));
+      const partEntries = gpt.buildPartEntries();
       await this.firehose.cmdProgram(lun, gpt.partEntriesStartLba, new Blob([partEntries]));
+      const header = gpt.buildHeader(partEntries);
+      await this.firehose.cmdProgram(lun, gpt.currentLba, new Blob([header]));
     }
 
     const activeBootLunId = (slot === "a") ? 1 : 2;
