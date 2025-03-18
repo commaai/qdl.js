@@ -20,7 +20,7 @@ Commands:
   getactiveslot                        Get the active slot
   setactiveslot <slot>                 Set the active slot (a or b)
   getstorageinfo                       Print UFS information
-  printgpt [--backup|-b]               Print GPT luns and partitions (optional: show backup GPT)
+  printgpt                             Print GPT luns and partitions
   repairgpt <lun> <image>              Repair GPT by flashing primary table and creating backup table
   erase <partition>                    Erase a partition
   flash <partition> <image>            Flash an image to a partition
@@ -67,7 +67,7 @@ if (command === "reset") {
   for (const lun of qdl.firehose.luns) {
     console.info(`LUN ${lun}:`);
     const gpt = await qdl.getGpt(lun);
-    console.table(Array.from(gpt));
+    console.table(gpt.getPartitions());
   }
 } else if (command === "repairgpt") {
   if (commandArgs.length !== 2) throw "Usage: qdl.js repairgpt <lun> <image>";

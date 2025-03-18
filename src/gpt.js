@@ -216,8 +216,8 @@ export class GPT {
     return new Uint8Array(this.#header.$toBuffer());
   }
 
-  /** @returns {IterableIterator<Partition>} */
-  [Symbol.iterator]() {
+  /** @returns {Partition[]} */
+  getPartitions() {
     return this.#partEntries
       .filter((entry) => entry.type !== TYPE_EFI_UNUSED)
       .map((entry) => ({
@@ -236,7 +236,7 @@ export class GPT {
    * @returns {Partition|undefined}
    */
   locatePartition(name) {
-    return Array.from(this).find((entry) => entry.name === name);
+    return this.getPartitions().find((entry) => entry.name === name);
   }
 
   /** @returns {{ partitions: Set<string>, slots: Set<string> }} */

@@ -97,16 +97,17 @@ window.connectDevice = async () => {
     for (const lun of qdl.firehose!.luns) {
       const primaryGpt = await qdl.getGpt(lun, 1n);
       const backupGpt = await qdl.getGpt(lun, primaryGpt.alternateLba);
+      const partitions = primaryGpt.getPartitions();
       lunInfos.push({
         lun,
         primaryGpt,
         backupGpt,
-        partitions: Array.from(primaryGpt).reduce((partitions, part) => {
+        partitions: partitions.reduce((partitions, part) => {
           partitions[part.name] = part;
           return partitions;
         }, {} as Record<string, Partition>),
       });
-      for (const part of primaryGpt) partitionNames.add(part.name);
+      for (const part of partitions) partitionNames.add(part.name);
     }
 
     // Partition table
