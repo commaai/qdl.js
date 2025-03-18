@@ -182,7 +182,7 @@ export class qdlDevice {
       let currentRange = {...protectedRanges[0]};
       for (let i = 1; i < protectedRanges.length; i++) {
         const nextRange = protectedRanges[i];
-        if (nextRange.start <= currentRange.end + 1) {
+        if (nextRange.start <= currentRange.end + 1n) {
           currentRange.end = Math.max(currentRange.end, nextRange.end);
           currentRange.name += `,${nextRange.name}`;
         } else {
