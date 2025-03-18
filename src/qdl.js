@@ -65,30 +65,41 @@ export class qdlDevice {
    * @returns {Promise<GPT>}
    */
   async getGpt(lun, sector = undefined) {
-    let primaryCorrupted = true;
-    let backupCorrupted = true;
-    let headerConsistency = false;
+    logger.debug("getGpt", lun, sector);
 
     // TODO: get sector size from getStorageInfo
+    logger.debug("reading primary GPT");
     const primaryGpt = new GPT(this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
     const primaryHeader = primaryGpt.parseHeader(await this.firehose.cmdReadBuffer(lun, sector ?? 1n, 1), sector ?? 1n);
-    if (primaryHeader === null) {
-      // TODO: guess alternate lba and continue
-      throw new Error("Could not read GPT header");
+    let primaryCorrupted = !primaryHeader;
+    if (primaryHeader) {
+      primaryCorrupted |= primaryHeader.mismatchCrc32;
     }
-    const { mismatchCrc32: primaryPartEntriesMismatchCrc32 } = primaryGpt.parsePartEntries(await this.firehose.cmdReadBuffer(lun, primaryGpt.partEntriesStartLba, primaryGpt.partEntriesSectors));
-    primaryCorrupted = primaryHeader.mismatchCrc32 || primaryPartEntriesMismatchCrc32;
+    const primaryPartEntries = primaryGpt.parsePartEntries(await this.firehose.cmdReadBuffer(lun, primaryGpt.partEntriesStartLba, primaryGpt.partEntriesSectors));
+    primaryCorrupted |= primaryPartEntries.mismatchCrc32;
+
     if (sector !== undefined) {
       // Return early if specific sector is requested
       return primaryGpt;
     }
 
+    logger.debug("reading backup GPT");
     const backupGpt = new GPT(this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
+    // TODO: can we predict the alternate lba instead of relying on a potentially faulty value from the primary header?
     const backupHeader = backupGpt.parseHeader(await this.firehose.cmdReadBuffer(lun, primaryGpt.alternateLba, 1), primaryGpt.alternateLba);
+    let backupCorrupted = !backupHeader;
     if (backupHeader) {
-      backupCorrupted = backupHeader.mismatchCrc32;
-      headerConsistency = primaryHeader.headerCrc32 === backupHeader.headerCrc32;
+      backupCorrupted |= backupHeader.mismatchCrc32;
     }
+    const backupPartEntries = backupGpt.parsePartEntries(await this.firehose.cmdReadBuffer(lun, backupGpt.partEntriesStartLba, backupGpt.partEntriesSectors));
+    backupCorrupted |= backupPartEntries.mismatchCrc32;
+
+    const headerConsistency = primaryHeader && backupHeader && primaryHeader.headerCrc32 === backupHeader.headerCrc32;
+    logger.debug({
+      primaryCorrupted,
+      backupCorrupted,
+      headerConsistency,
+    });
 
     if (primaryCorrupted) {
       if (backupCorrupted) {
@@ -101,7 +112,6 @@ export class qdlDevice {
     if (!headerConsistency) {
       logger.warn("Primary and backup GPT headers are inconsistent, using primary");
       // TODO: create backup from primary
-      return primaryGpt;
     }
     return primaryGpt;
   }
