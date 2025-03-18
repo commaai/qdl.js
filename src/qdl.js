@@ -69,7 +69,7 @@ export class qdlDevice {
     let headerConsistency = false;
 
     const primaryGpt = new GPT(this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
-    const primaryHeader = primaryGpt.parseHeader(await this.firehose.cmdReadBuffer(lun, 1, 1));
+    const primaryHeader = primaryGpt.parseHeader(await this.firehose.cmdReadBuffer(lun, 1, 1), 1);
     if (primaryHeader === null) {
       // TODO: guess alternate lba and continue
       throw new Error("Could not read GPT header");
@@ -82,7 +82,7 @@ export class qdlDevice {
     }
 
     const backupGpt = new GPT(this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
-    const backupHeader = backupGpt.parseHeader(await this.firehose.cmdReadBuffer(lun, primaryGpt.alternateLba, 1));
+    const backupHeader = backupGpt.parseHeader(await this.firehose.cmdReadBuffer(lun, primaryGpt.alternateLba, 1), primaryGpt.alternateLba);
     if (backupHeader) {
       backupCorrupted = backupHeader.mismatchCrc32;
       headerConsistency = primaryHeader.headerCrc32 === backupHeader.headerCrc32;
