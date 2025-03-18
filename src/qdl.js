@@ -160,7 +160,7 @@ export class qdlDevice {
     /** @type {{ name: string; start: bigint; end: bigint }[]} */
     const protectedRanges = [];
     if (preservePartitions.includes("mbr")) {
-      protectedRanges.push({ name: "mbr", start: 0, end: 0 });
+      protectedRanges.push({ name: "mbr", start: 0n, end: 0n });
     }
     if (preservePartitions.includes("gpt")) {
       protectedRanges.push({ name: "gpt-current", start: currentLba, end: firstUsableLba - 1n });
