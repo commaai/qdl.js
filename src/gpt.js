@@ -140,7 +140,6 @@ export class GPT {
     if (this.#header.currentLba !== actualLba) {
       logger.warn(`currentLba (${this.#header.currentLba}) does not match actual value (${actualLba})`);
     }
-    logger.debug(this.#header);
 
     const expectedHeaderCrc32 = this.#header.headerCrc32;
     this.#header.headerCrc32 = 0;
@@ -184,7 +183,7 @@ export class GPT {
     const alternate = this.#header.$clone();
     alternate.currentLba = this.#header.alternateLba;
     alternate.alternateLba = this.#header.currentLba;
-    alternate.partEntriesStartLba = this.#header.alternateLba - this.partEntriesSectors;
+    alternate.partEntriesStartLba = this.#header.alternateLba - BigInt(this.partEntriesSectors);
 
     const gpt = new GPT(this.sectorSize);
     gpt.#header = alternate;

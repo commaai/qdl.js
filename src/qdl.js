@@ -65,8 +65,6 @@ export class qdlDevice {
    * @returns {Promise<GPT>}
    */
   async getGpt(lun, sector = undefined) {
-    logger.debug("getGpt", lun, sector);
-
     // TODO: get sector size from getStorageInfo
     logger.debug("reading primary GPT");
     const primaryGpt = new GPT(this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
