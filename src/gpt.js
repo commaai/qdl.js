@@ -210,6 +210,17 @@ export class GPT {
     return { partitions, slots };
   }
 
+  print() {
+    console.table(Object.entries(this.#partEntries).map((partEntry) => ({
+      name: partEntry.name,
+      startSector: partEntry.firstLba,
+      sectorCount: partEntry.lastLba - partEntry.firstLba + 1n,
+      type: partEntry.type,
+      attributes: `0x${partEntry.attributes.toString(16)}`,
+      uuid: info.unique,
+    })));
+  }
+
   /** @returns {"a"|"b"|null} */
   getActiveSlot() {
     for (const partEntry of this.#partEntries) {
