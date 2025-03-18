@@ -174,7 +174,7 @@ export class qdlDevice {
       }
       protectedRanges.push({ name, start: part.start, end: part.end });
     }
-    protectedRanges.sort((a, b) => a.start - b.start);
+    protectedRanges.sort((a, b) => Number(a.start - b.start));
 
     /** @type {{ name: string; start: bigint; end: bigint }[]} */
     const mergedProtectedRanges = [];
