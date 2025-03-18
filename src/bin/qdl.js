@@ -65,9 +65,22 @@ if (command === "reset") {
   console.info(storageInfo);
 } else if (command === "printgpt") {
   for (const lun of qdl.firehose.luns) {
-    console.info(`LUN ${lun}:`);
-    const gpt = await qdl.getGpt(lun);
-    console.table(gpt.getPartitions());
+    console.info(`LUN ${lun}`);
+
+    console.info("\nPrimary GPT:");
+    const primaryGpt = await qdl.getGpt(lun, 1n);
+    console.table(primaryGpt.getPartitions());
+
+    console.info("\nBackup GPT:");
+    const backupGpt = await qdl.getGpt(lun, primaryGpt.alternateLba);
+    console.table(backupGpt.getPartitions());
+
+    const consistentPartEntries = primaryGpt.partEntriesCrc32 === backupGpt.partEntriesCrc32;
+    if (!consistentPartEntries) {
+      console.warn("\nPrimary and backup GPT partition entries are inconsistent");
+    }
+
+    console.info("\n\n");
   }
 } else if (command === "repairgpt") {
   if (commandArgs.length !== 2) throw "Usage: qdl.js repairgpt <lun> <image>";
