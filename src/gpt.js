@@ -206,7 +206,7 @@ export class GPT {
     this.#header.partEntriesCrc32 = crc32(partEntries ?? this.buildPartEntries());
 
     this.#header.headerCrc32 = 0;
-    let header = this.#header.$toBuffer();
+    let header = new Uint32Array(this.#header.$toBuffer());
     this.#header.headerCrc32 = crc32(header);
     header = this.#header.$toBuffer();
 
