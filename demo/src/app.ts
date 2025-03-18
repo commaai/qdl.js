@@ -138,8 +138,8 @@ window.connectDevice = async () => {
         headerTable.className = "w-full border-collapse text-sm";
 
         const headerFields = [
-          ["Header CRC32", `0x${header.headerCrc32.toString(16).padStart(8, "0")}`],
-          ["Partition Entries CRC32", `0x${header.partEntriesCrc32.toString(16).padStart(8, "0")}`],
+          ["Header CRC32", header.headerCrc32.toString()],
+          ["Partition Entries CRC32", header.partEntriesCrc32.toString()],
           ["Current LBA", header.currentLba.toString()],
           ["Alternate LBA", header.alternateLba.toString()],
           ["First Usable LBA", header.firstUsableLba.toString()],
