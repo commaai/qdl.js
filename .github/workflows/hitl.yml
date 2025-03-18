@@ -30,18 +30,35 @@ jobs:
           sleep 1
           qdl.js getactiveslot
 
-      - run: qdl.js erase boot_a
+  test-repairgpt:
+    name: Test GPT repair functionality
+    runs-on: [self-hosted, Linux, HITL]
+    needs: test
+    timeout-minutes: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/workflows/prepare-cli
 
-      - name: download boot image
+      - name: download gpt images
         run: |
-          url=$(curl https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/agnos.json | jq -r ".[] | select(.name == \"boot\") | .url")
-          curl -L $url | unxz > boot.img
+          END=5
+          for i in $(seq 0 $END); do
+            url=$(curl https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/all-partitions.json | jq -r ".[] | select(.name == \"gpt_main_$i\") | .url")
+            curl -L $url | unxz > gpt_main_$i.img
+          done
 
-      - run: qdl.js flash boot_a ./boot.img
+      - run: |
+          END=5
+          for i in $(seq 0 $END); do
+            qdl.js repairgpt $i ./gpt_main_$i.img
+          done
+
+      - run: qdl.js printgpt
 
   test-activeslot:
     name: Test getting and setting active slot
     runs-on: [self-hosted, Linux, HITL]
+    needs: test-repairgpt
     timeout-minutes: 1
     steps:
       - uses: actions/checkout@v4
@@ -77,26 +94,26 @@ jobs:
 
       - run: qdl.js printgpt
 
-  test-repairgpt:
-    name: Test GPT repair functionality
+  test-flash:
+    name: Test flashing images
     runs-on: [self-hosted, Linux, HITL]
+    needs: test-activeslot
     timeout-minutes: 1
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/workflows/prepare-cli
 
-      - name: download gpt images
+      - name: download boot image
         run: |
-          END=5
-          for i in $(seq 0 $END); do
-            url=$(curl https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/all-partitions.json | jq -r ".[] | select(.name == \"gpt_main_$i\") | .url")
-            curl -L $url | unxz > gpt_main_$i.img
-          done
+          url=$(curl https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/agnos.json | jq -r ".[] | select(.name == \"boot\") | .url")
+          curl -L $url | unxz > boot.img
 
-      - run: |
-          END=5
-          for i in $(seq 0 $END); do
-            qdl.js repairgpt $i ./gpt_main_$i.img
-          done
+      - run: qdl.js printgpt
+
+      - run: qdl.js erase boot_a
+
+      - run: qdl.js printgpt
+
+      - run: qdl.js flash boot_a ./boot.img
 
       - run: qdl.js printgpt
