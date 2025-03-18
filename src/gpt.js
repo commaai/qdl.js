@@ -260,10 +260,10 @@ export class GPT {
       const slotA = slot === "_a";
       if (!slotA && slot !== "_b") continue;
       const flags = parseABFlags(partEntry.attributes);
-      logger.debug(`${partEntry.name} flags:`, flags);
       if (flags.active) return slotA ? "a" : "b";
     }
-    return null;
+    logger.debug("No active slot found, defaulting to A");
+    return "a";
   }
 
   /** @param {"a"|"b"} slot */
@@ -274,7 +274,7 @@ export class GPT {
       const partSlot = partEntry.name.slice(-2);
       if (partSlot !== "_a" && partSlot !== "_b") continue;
       const bootable = partEntry.name === `boot${partSlot}`;
-      partEntry.attributes = updateABFlags(partEntry.attributes, partSlot === slot, bootable, !bootable);
+      partEntry.attributes = updateABFlags(partEntry.attributes, partSlot === `_${slot}`, bootable, !bootable);
       logger.debug(`set ${partEntry.name} flags:`, parseABFlags(partEntry.attributes));
     }
   }
