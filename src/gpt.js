@@ -192,12 +192,10 @@ export class GPT {
 
   /** @returns {{ header: Uint8Array; partEntries: Uint8Array }} */
   build() {
-    this.#header.headerCrc32 = 0;
-    this.#header.partEntriesCrc32 = 0;
-
     const partEntries = concatUint8Array(this.#partEntries.map((entry) => entry.$toBuffer()));
-    this.#header.partEntriesCrc32 = crc32(partEntriesData);
+    this.#header.partEntriesCrc32 = crc32(partEntries);
 
+    this.#header.headerCrc32 = 0;
     let header = this.#header.$toBuffer();
     this.#header.headerCrc32 = crc32(header);
     header = this.#header.$toBuffer();
