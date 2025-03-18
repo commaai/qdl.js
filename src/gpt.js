@@ -54,9 +54,9 @@ const GPTPartitionEntry = struct("GPTPartitionEntry", {
 
 
 export class GPT {
-  /** @type {ReturnType<typeof GPTHeader.from>|null} */
-  #header = null;
-  /** @type {(ReturnType<typeof GPTPartitionEntry.from>|null)[]} */
+  /** @type {ReturnType<typeof GPTHeader.from>} */
+  #header;
+  /** @type {(ReturnType<typeof GPTPartitionEntry.from>)[]} */
   #partEntries = [];
   #partEntriesSectors = 0n;
 
