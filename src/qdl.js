@@ -309,7 +309,7 @@ export class qdlDevice {
   }
 
   /**
-   * @returns {Promise<"a" | "b">}
+   * @returns {Promise<"a"|"b">}
    */
   async getActiveSlot() {
     for (const lun of this.firehose.luns) {

@@ -209,7 +209,7 @@ export class GPT {
     return { partitions, slots };
   }
 
-  /** @returns {"a" | "b" | null} */
+  /** @returns {"a"|"b"|null} */
   getActiveSlot() {
     for (const partEntry of this.#partEntries) {
       const slot = partEntry.name.slice(-2);
@@ -222,7 +222,7 @@ export class GPT {
     return null;
   }
 
-  /** @param {"a" | "b"} slot */
+  /** @param {"a"|"b"} slot */
   setActiveSlot(slot) {
     if (slot !== "a" && slot !== "b") throw new Error("Invalid slot");
     for (const partEntry of this.#partEntries) {
