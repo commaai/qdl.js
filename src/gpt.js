@@ -20,11 +20,11 @@ const logger = createLogger("gpt");
  * @see {@link https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-header}
  */
 const GPTHeader = struct("GPTHeader", {
-  signature: string(8),  // must be "EFI PART"
-  revision: uint32(),  // must be 0x00010000
-  headerSize: uint32(),  // greater than or equal to 96, less than or equal to block size
+  signature: string(8),
+  revision: uint32(),
+  headerSize: uint32(),
   headerCrc32: uint32(),
-  reserved: uint32(),  // must be zero
+  reserved: uint32(),
   currentLba: uint64(),
   alternateLba: uint64(),
   firstUsableLba: uint64(),
@@ -109,7 +109,7 @@ export class GPT {
       logger.error(`Unknown GPT revision: ${this.#header.revision.toString(16)}`);
       return null;
     }
-    if (this.#header.headerSize < 96 || this.#header.headerSize > this.sectorSize) {
+    if (this.#header.headerSize < 92 || this.#header.headerSize > this.sectorSize) {
       logger.error(`Invalid header size: ${this.#header.headerSize}`);
       return null;
     }
