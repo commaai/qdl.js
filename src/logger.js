@@ -94,6 +94,7 @@ export class Logger {
       state.timeout = null;
     }
     this.#printPendingDeviceDuplicates();
+    state.lastMessage = "";
   }
 }
 
