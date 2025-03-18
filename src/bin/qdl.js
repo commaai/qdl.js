@@ -2,14 +2,11 @@
 import arg from "arg";
 
 import { createProgress, createQdl } from "../cli";
-import { checkHeaderCrc } from "../gpt";
 
 const args = arg({
   "--help": Boolean,
   "-h": "--help",
   "--programmer": String,
-  "--backup": Boolean,
-  "-b": "--backup",
   "--log-level": String,
   "-l": "--log-level",
 });
@@ -30,7 +27,6 @@ Commands:
 
 Flags:
   --programmer <url>                   Use a different loader [default is comma 3/3X]
-  -b, --backup                         Include backup GPT in operations like printgpt
   --log-level, -l <level>              Set log level (silent, error, warn, info, debug) [default is info]
   -h, --help                           Display this menu and exit`;
 
@@ -68,7 +64,9 @@ if (command === "reset") {
   storageInfo.serial_num = storageInfo.serial_num.toString(16).padStart(8, "0");
   console.info(storageInfo);
 } else if (command === "printgpt") {
-  function printGpt(gpt) {
+  for (const lun of qdl.firehose.luns) {
+    console.info(`LUN ${lun}:`);
+    const gpt = await qdl.getGpt(lun);
     console.table(Object.entries(gpt.partentries).map(([name, info]) => ({
       name,
       startSector: info.sector,
@@ -77,29 +75,6 @@ if (command === "reset") {
       flags: `0x${info.flags.toString(16)}`,
       uuid: info.unique.replace(/\s+/g, ""),
     })));
-  }
-
-  for (const lun of qdl.firehose.luns) {
-    console.info(`LUN ${lun} - Primary GPT`);
-    const [primaryGpt, mainData] = await qdl.getGpt(lun);
-    printGpt(primaryGpt);
-    const [primaryGptCorrupted, primaryPartTableCrc] = checkHeaderCrc(mainData, primaryGpt);
-    if (primaryGptCorrupted) console.warn("Primary GPT is corrupted");
-
-    if (args["--backup"]) {
-      console.info("");
-      console.info(`LUN ${lun} - Backup GPT at LBA ${primaryGpt.header.backupLba}`);
-      try {
-        const [backupGpt, backupData] = await qdl.getGpt(lun, primaryGpt.header.backupLba);
-        printGpt(backupGpt);
-        const [backupGptCorrupted, backupPartTableCrc] = checkHeaderCrc(backupData, backupGpt);
-        if (backupGptCorrupted) console.warn("Backup GPT is corrupted");
-        if (primaryPartTableCrc !== backupPartTableCrc) console.warn("Primary and backup GPT mismatch");
-      } catch (error) {
-        console.error(`Error reading backup GPT: ${error.message || error}`);
-      }
-    }
-    console.info("");
   }
 } else if (command === "repairgpt") {
   if (commandArgs.length !== 2) throw "Usage: qdl.js repairgpt <lun> <image>";
