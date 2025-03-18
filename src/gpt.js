@@ -150,16 +150,12 @@ export class GPT {
     if (mismatchCrc32) {
       logger.warn(`Header CRC32 mismatch: expected ${this.#header.headerCrc32}, actual ${actualHeaderCrc32}`);
     }
-
-    return {
-      headerCrc32: this.#header.headerCrc32,
-      mismatchCrc32,
-    };
+    return { headerCrc32: this.#header.headerCrc32, mismatchCrc32};
   }
 
   /**
    * @param {Uint8Array} data
-   * @returns {{ mismatchCrc32: boolean }}
+   * @returns {{ partEntriesCrc32: number; mismatchCrc32: boolean }}
    */
   parsePartEntries(data) {
     const entrySize = this.#header.partEntrySize;
@@ -174,8 +170,7 @@ export class GPT {
     if (mismatchCrc32) {
       logger.warn(`Partition entries CRC32 mismatch: expected ${this.#header.partEntriesCrc32}, actual 0x${actualPartEntriesCrc32}`);
     }
-
-    return { mismatchCrc32 };
+    return { partEntriesCrc32: this.#header.partEntriesCrc32, mismatchCrc32 };
   }
 
   /** @returns {GPT} */
@@ -206,13 +201,19 @@ export class GPT {
    */
   buildHeader(partEntries) {
     this.#header.partEntriesCrc32 = crc32(partEntries ?? this.buildPartEntries());
+    if (this.#header.partEntriesCrc32 === 0) {
+      throw new Error("Failed to build GPT header: partEntriesCrc32 is zero");
+    }
+    logger.debug(`partEntriesCrc32: ${this.#header.partEntriesCrc32}`);
 
     this.#header.headerCrc32 = 0;
-    let header = new Uint32Array(this.#header.$toBuffer());
-    this.#header.headerCrc32 = crc32(header);
-    header = this.#header.$toBuffer();
+    this.#header.headerCrc32 = crc32(new Uint8Array(this.#header.$toBuffer()));
+    logger.debug(`headerCrc32: ${this.#header.headerCrc32}`);
+    if (this.#header.headerCrc32 === 0) {
+      throw new Error("Failed to build GPT header: headerCrc32 is zero");
+    }
 
-    return new Uint8Array(header);
+    return new Uint8Array(this.#header.$toBuffer());
   }
 
   /** @returns {IterableIterator<Partition>} */

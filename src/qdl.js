@@ -92,7 +92,7 @@ export class qdlDevice {
     const backupPartEntries = backupGpt.parsePartEntries(await this.firehose.cmdReadBuffer(lun, backupGpt.partEntriesStartLba, backupGpt.partEntriesSectors));
     backupCorrupted |= backupPartEntries.mismatchCrc32;
 
-    const headerConsistency = primaryHeader && backupHeader && primaryHeader.headerCrc32 === backupHeader.headerCrc32;
+    const headerConsistency = primaryPartEntries && backupPartEntries && primaryPartEntries.partEntriesCrc32 === backupPartEntries.partEntriesCrc32;
     logger.debug({
       primaryCorrupted,
       backupCorrupted,
@@ -101,14 +101,16 @@ export class qdlDevice {
 
     if (primaryCorrupted) {
       if (backupCorrupted) {
-        throw new Error("Both primary and backup GPT headers are corrupted, cannot recover");
+        throw new Error(`LUN ${lun}: Both primary and backup GPT headers are corrupted, cannot recover`);
       }
       // TODO: restore primary from backup
-      logger.warn("Primary GPT header is corrupted, using backup");
+      logger.warn(`LUN ${lun}: Primary GPT header is corrupted, using backup`);
       return backupGpt;
     }
     if (!headerConsistency) {
-      logger.warn("Primary and backup GPT headers are inconsistent, using primary");
+      logger.warn(`LUN ${lun}: Primary and backup GPT headers are inconsistent, using primary`);
+      logger.debug("primaryGpt:", primaryGpt);
+      logger.debug("backupGpt:", backupGpt);
       // TODO: create backup from primary
     }
     return primaryGpt;
@@ -126,11 +128,17 @@ export class qdlDevice {
       throw new Error("Failed to write primary GPT data");
     }
 
+    // Read back GPT and create backup copy
+    // logger.debug("\n\n-- reading back flashed GPT");
+    // const tmpGpt = await this.getGpt(lun);
+
     // Fix the partition table, expanding last partition to fill available sectors
+    logger.debug("running fixgpt");
     await this.firehose.cmdFixGpt(lun, 1);
 
     // Read back GPT and create backup copy
-    const primaryGpt = await this.getGpt(lun);
+    logger.debug("\n\n-- reading back fixed GPT");
+    const primaryGpt = await this.getGpt(lun, 1n);
     const backupGpt = primaryGpt.asAlternate();
     const backupPartEntries = backupGpt.buildPartEntries();
     const backupHeader = backupGpt.buildHeader(backupPartEntries);
@@ -144,6 +152,11 @@ export class qdlDevice {
     if (!await this.firehose.cmdProgram(lun, backupGpt.currentLba, new Blob([backupHeader]))) {
       throw new Error("Failed to write backup GPT header");
     }
+
+    logger.debug("\n\n-- reading back primary GPT");
+    await this.getGpt(lun, 1n);
+    logger.debug("\n\n-- reading back backup GPT");
+    await this.getGpt(lun, backupGpt.currentLba);
 
     logger.info(`Successfully repaired GPT on LUN ${lun}`);
     return true;
