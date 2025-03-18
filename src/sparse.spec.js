@@ -1,5 +1,6 @@
 import * as Bun from "bun";
 import { beforeAll, describe, expect, test } from "bun:test";
+import { platform } from "node:os";
 
 import { simg2img } from "./bin/simg2img.js";
 import * as Sparse from "./sparse";
@@ -46,7 +47,7 @@ describe("sparse", () => {
     });
   });
 
-  test("simg2img", async () => {
+  test.skipIf(platform() !== "linux")("simg2img", async () => {
     const outputPath = `/tmp/${Bun.randomUUIDv7()}.img`;
     await simg2img(inputData.name, outputPath);
     await Bun.$`cmp ${outputPath} ${expectedPath}`;
