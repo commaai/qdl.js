@@ -119,12 +119,12 @@ export class GPT {
   }
 
   /**
-   * @param {ArrayBuffer} data
+   * @param {Uint8Array} data
    * @param {bigint} actualLba
    * @returns {{ headerCrc32: number; mismatchCrc32: boolean } | null}
    */
   parseHeader(data, actualLba) {
-    this.#header = GPTHeader.from(data);
+    this.#header = GPTHeader.from(data.slice());
     if (this.#header.signature !== SIGNATURE) {
       logger.error(`Invalid signature: "${this.#header.signature}"`);
       return null;
@@ -158,7 +158,7 @@ export class GPT {
   }
 
   /**
-   * @param {ArrayBuffer} data
+   * @param {Uint8Array} data
    * @returns {{ mismatchCrc32: boolean }}
    */
   parsePartEntries(data) {

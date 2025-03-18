@@ -23,7 +23,7 @@ describe("GPT", () => {
     });
 
     test("parseHeader", () => {
-      const headerData = gptBuffer.slice(SECTOR_SIZE, SECTOR_SIZE * 2);
+      const headerData = new Uint8Array(gptBuffer, SECTOR_SIZE, SECTOR_SIZE);
       const result = gpt.parseHeader(headerData, 1n);
       expect(gpt.currentLba).toBe(1n);
       expect(gpt.partEntriesStartLba).toBe(2n);
@@ -34,8 +34,7 @@ describe("GPT", () => {
     });
 
     test("parsePartEntries", () => {
-      const begin = Number(gpt.partEntriesStartLba) * SECTOR_SIZE;
-      const partEntriesData = gptBuffer.slice(begin, begin + gpt.partEntriesSectors * SECTOR_SIZE);
+      const partEntriesData = new Uint8Array(gptBuffer, Number(gpt.partEntriesStartLba) * SECTOR_SIZE, gpt.partEntriesSectors * SECTOR_SIZE);
       const result = gpt.parsePartEntries(partEntriesData);
       expect(result).toMatchObject({
         mismatchCrc32: false,
