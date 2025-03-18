@@ -167,6 +167,7 @@ export class qdlDevice {
       protectedRanges.push({ name: "gpt-alternate", start: lastUsableLba + 1n, end: alternateLba });
     }
     for (const name of preservePartitions) {
+      if (name === "mbr" || name === "gpt") continue;
       const part = primaryGpt.locatePartition(name);
       if (!part) {
         logger.warn(`Partition ${name} not found in GPT`);
