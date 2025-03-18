@@ -18,12 +18,15 @@ describe("GPT", async () => {
     const manifest = await fetch("https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/all-partitions.json").then((res) => res.json());
     const gptImage= manifest.find((image) => image.name === "gpt_main_0");
     const compressedResponse = await fetch(gptImage.url);
-    gptBuffer = readableStreamToArrayBuffer(new XzReadableStream(compressedResponse.body));
+    gptBuffer = await readableStreamToArrayBuffer(new XzReadableStream(compressedResponse.body));
   });
 
   test("parseHeader", () => {
-    const headerData = new Uint8Array(gptBuffer, SECTOR_SIZE, SECTOR_SIZE);
+    const headerData = gptBuffer.slice(SECTOR_SIZE, SECTOR_SIZE * 2);
     const result = gpt.parseHeader(headerData, 1n);
+    expect(gpt.currentLba).toBe(1n);
+    expect(gpt.partEntriesStartLba).toBe(2n);
+    expect(gpt.firstUsableLba).toBe(6n);
     expect(result).toMatchObject({
       mismatchCrc32: false,
     });

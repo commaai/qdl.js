@@ -1,5 +1,5 @@
 import { buf as crc32 } from "crc-32"
-import { bytes, string, struct, uint32, uint64 } from "@incognitojam/tiny-struct";
+import { bytes, int32, string, struct, uint32, uint64 } from "@incognitojam/tiny-struct";
 
 import { createLogger } from "./logger";
 import { guid, utf16cstring } from "./gpt-structs";
@@ -23,7 +23,7 @@ const GPTHeader = struct("GPTHeader", {
   signature: string(8),
   revision: uint32(),
   headerSize: uint32(),
-  headerCrc32: uint32(),
+  headerCrc32: int32(),
   reserved: uint32(),
   currentLba: uint64(),
   alternateLba: uint64(),
@@ -33,7 +33,7 @@ const GPTHeader = struct("GPTHeader", {
   partEntriesStartLba: uint64(),
   numPartEntries: uint32(),
   partEntrySize: uint32(),
-  partEntriesCrc32: uint32(),
+  partEntriesCrc32: int32(),
 }, { littleEndian: true });
 
 
@@ -140,7 +140,11 @@ export class GPT {
       return null;
     }
 
-    const actualHeaderCrc32 = crc32(data.subarray(0, this.#header.headerSize));
+    const expectedHeaderCrc32 = this.#header.headerCrc32;
+    this.#header.headerCrc32 = 0;
+    const actualHeaderCrc32 = crc32(new Uint8Array(this.#header.$toBuffer()));
+    this.#header.headerCrc32 = expectedHeaderCrc32;
+
     const mismatchCrc32 = this.#header.headerCrc32 !== actualHeaderCrc32;
     if (mismatchCrc32) {
       logger.warn(`Header CRC32 mismatch: expected 0x${this.#header.headerCrc32.toString(16)}, actual 0x${actualHeaderCrc32.toString(16)}`);
