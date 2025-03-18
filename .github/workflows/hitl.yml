@@ -60,7 +60,7 @@ jobs:
         env:
           QDL_LOG_LEVEL: error
 
-      - run: qdl.js printgpt -b
+      - run: qdl.js printgpt
 
       - run: qdl.js setactiveslot b
 
@@ -75,7 +75,7 @@ jobs:
         env:
           QDL_LOG_LEVEL: error
 
-      - run: qdl.js printgpt -b
+      - run: qdl.js printgpt
 
   test-repairgpt:
     name: Test GPT repair functionality
@@ -93,7 +93,7 @@ jobs:
             curl -L $url | unxz > gpt_main_$i.img
           done
 
-      - run: qdl.js printgpt --backup
+      - run: qdl.js printgpt
 
       - run: |
           END=5
@@ -101,4 +101,4 @@ jobs:
             qdl.js repairgpt $i ./gpt_main_$i.img
           done
 
-      - run: qdl.js printgpt --backup
+      - run: qdl.js printgpt
