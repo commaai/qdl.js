@@ -205,8 +205,8 @@ export class qdlDevice {
       }
       lastEndSector = range.end;
     }
-    if (lastEndSector < backupLba) {
-      erasableRanges.push({ start: lastEndSector + 1n, end: backupLba });
+    if (lastEndSector < alternateLba) {
+      erasableRanges.push({ start: lastEndSector + 1n, end: alternateLba });
     }
 
     for (const range of erasableRanges) {
