@@ -93,8 +93,6 @@ jobs:
             curl -L $url | unxz > gpt_main_$i.img
           done
 
-      - run: qdl.js printgpt
-
       - run: |
           END=5
           for i in $(seq 0 $END); do
