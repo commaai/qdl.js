@@ -97,6 +97,7 @@ export class GPT {
 
   /**
    * @param {Uint8Array} data
+   * @param {bigint} actualLba
    * @returns {{ headerCrc32: number; mismatchCrc32: boolean } | null}
    */
   parseHeader(data, actualLba) {

@@ -68,8 +68,9 @@ export class qdlDevice {
     let backupCorrupted = true;
     let headerConsistency = false;
 
+    // TODO: get sector size from getStorageInfo
     const primaryGpt = new GPT(this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
-    const primaryHeader = primaryGpt.parseHeader(await this.firehose.cmdReadBuffer(lun, 1, 1), 1);
+    const primaryHeader = primaryGpt.parseHeader(await this.firehose.cmdReadBuffer(lun, 1, 1), 1n);
     if (primaryHeader === null) {
       // TODO: guess alternate lba and continue
       throw new Error("Could not read GPT header");
