@@ -4,6 +4,9 @@ import { bytes, int32, string, struct, uint32, uint64 } from "@incognitojam/tiny
 import { createLogger } from "./logger";
 import { guid, utf16cstring } from "./gpt-structs";
 
+const SIGNATURE = "EFI PART";
+const TYPE_EFI_UNUSED = "00000000-0000-0000-0000-000000000000";
+
 const ATTRIBUTE_FLAG_OFFSET = 48n;
 const AB_FLAG_OFFSET = ATTRIBUTE_FLAG_OFFSET + 6n;
 
@@ -122,7 +125,7 @@ export class GPT {
    */
   parseHeader(data, actualLba) {
     this.#header = GPTHeader.from(data);
-    if (this.#header.signature !== "EFI PART") {
+    if (this.#header.signature !== SIGNATURE) {
       logger.error(`Invalid signature: "${this.#header.signature}"`);
       return null;
     }
@@ -136,7 +139,6 @@ export class GPT {
     }
     if (this.#header.currentLba !== actualLba) {
       logger.warn(`currentLba (${this.#header.currentLba}) does not match actual value (${actualLba})`);
-      return null;
     }
 
     const expectedHeaderCrc32 = this.#header.headerCrc32;
@@ -216,7 +218,7 @@ export class GPT {
   /** @returns {IterableIterator<Partition>} */
   [Symbol.iterator]() {
     return this.#partEntries
-      .filter((entry) => !entry.type.startsWith("00000000"))
+      .filter((entry) => entry.type !== TYPE_EFI_UNUSED)
       .map((entry) => ({
         type: entry.type,
         uuid: entry.unique,
@@ -240,7 +242,7 @@ export class GPT {
   getPartitionsInfo() {
     const partitions = new Set(), slots = new Set();
     for (const partEntry of this.#partEntries) {
-      if (partEntry.type.startsWith("00000000")) continue;
+      if (partEntry.type === TYPE_EFI_UNUSED) continue;
       const { name } = partEntry;
       // FIXME: do other slot names exist?
       if (name.endsWith("_a")) slots.add("a");
@@ -253,7 +255,7 @@ export class GPT {
   /** @returns {"a"|"b"|null} */
   getActiveSlot() {
     for (const partEntry of this.#partEntries) {
-      if (partEntry.type.startsWith("00000000")) continue;
+      if (partEntry.type === TYPE_EFI_UNUSED) continue;
       const slot = partEntry.name.slice(-2);
       const slotA = slot === "_a";
       if (!slotA && slot !== "_b") continue;
@@ -268,7 +270,7 @@ export class GPT {
   setActiveSlot(slot) {
     if (slot !== "a" && slot !== "b") throw new Error("Invalid slot");
     for (const partEntry of this.#partEntries) {
-      if (partEntry.type.startsWith("00000000")) continue;
+      if (partEntry.type === TYPE_EFI_UNUSED) continue;
       const partSlot = partEntry.name.slice(-2);
       if (partSlot !== "_a" && partSlot !== "_b") continue;
       const bootable = partEntry.name === `boot${partSlot}`;
