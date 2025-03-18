@@ -163,8 +163,8 @@ export class qdlDevice {
       protectedRanges.push({ name: "mbr", start: 0n, end: 0n });
     }
     if (preservePartitions.includes("gpt")) {
-      protectedRanges.push({ name: "gpt-current", start: currentLba, end: firstUsableLba - 1n });
-      protectedRanges.push({ name: "gpt-alternate", start: lastUsableLba + 1n, end: alternateLba });
+      protectedRanges.push({ name: "gpt-primary", start: currentLba, end: firstUsableLba - 1n });
+      protectedRanges.push({ name: "gpt-backup", start: lastUsableLba + 1n, end: alternateLba });
     }
     for (const name of preservePartitions) {
       if (name === "mbr" || name === "gpt") continue;
