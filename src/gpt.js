@@ -146,7 +146,7 @@ export class GPT {
 
     const mismatchCrc32 = this.#header.headerCrc32 !== actualHeaderCrc32;
     if (mismatchCrc32) {
-      logger.warn(`Header CRC32 mismatch: expected 0x${this.#header.headerCrc32.toString(16)}, actual 0x${actualHeaderCrc32.toString(16)}`);
+      logger.warn(`Header CRC32 mismatch: expected ${this.#header.headerCrc32}, actual ${actualHeaderCrc32}`);
     }
 
     return {
@@ -170,7 +170,7 @@ export class GPT {
     const actualPartEntriesCrc32 = crc32(this.buildPartEntries());
     const mismatchCrc32 = this.#header.partEntriesCrc32 !== actualPartEntriesCrc32;
     if (mismatchCrc32) {
-      logger.warn(`Partition entries CRC32 mismatch: expected 0x${this.#header.partEntriesCrc32.toString(16)}, actual 0x${actualPartEntriesCrc32.toString(16)}`);
+      logger.warn(`Partition entries CRC32 mismatch: expected ${this.#header.partEntriesCrc32}, actual 0x${actualPartEntriesCrc32}`);
     }
 
     return { mismatchCrc32 };
