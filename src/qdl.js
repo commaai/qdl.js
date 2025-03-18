@@ -61,16 +61,17 @@ export class qdlDevice {
 
   /**
    * @param {number} lun
+   * @param {bigint|undefined} [sector]
    * @returns {Promise<GPT>}
    */
-  async getGpt(lun) {
+  async getGpt(lun, sector = undefined) {
     let primaryCorrupted = true;
     let backupCorrupted = true;
     let headerConsistency = false;
 
     // TODO: get sector size from getStorageInfo
     const primaryGpt = new GPT(this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
-    const primaryHeader = primaryGpt.parseHeader(await this.firehose.cmdReadBuffer(lun, 1, 1), 1n);
+    const primaryHeader = primaryGpt.parseHeader(await this.firehose.cmdReadBuffer(lun, sector ?? 1n, 1), sector ?? 1n);
     if (primaryHeader === null) {
       // TODO: guess alternate lba and continue
       throw new Error("Could not read GPT header");
@@ -80,6 +81,10 @@ export class qdlDevice {
     if (primaryGpt.currentLba !== sector) {
       logger.warn(`currentLba (${primaryGpt.currentLba}) does not match actual value (1)`);
       primaryCorrupted = true;
+    }
+    if (sector !== undefined) {
+      // Return early if specific sector is requested
+      return primaryGpt;
     }
 
     const backupGpt = new GPT(this.firehose.cfg.SECTOR_SIZE_IN_BYTES);

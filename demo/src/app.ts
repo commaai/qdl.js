@@ -1,32 +1,16 @@
 import { qdlDevice } from "@commaai/qdl";
 import { usbClass } from "@commaai/qdl/usblib";
 
-interface PartitionInfo {
-  name: string;
-  sector: bigint;
-  sectors: bigint;
-  flags: bigint;
-  type: string;
-  unique: string;
-}
 
-interface GptHeaderInfo {
-  crc32: number;
-  crc32PartEntries: number;
-  firstUsableLba: bigint;
-  lastUsableLba: bigint;
-  currentLba: bigint;
-  backupLba: bigint;
-  partEntryStartLba: bigint;
-  numPartEntries: number;
-  partEntrySize: number;
-}
+type GPT = Awaited<ReturnType<typeof qdlDevice.prototype.getGpt>>;
+type Partition = Exclude<ReturnType<GPT["locatePartition"]>, undefined>;
+
 
 interface LunInfo {
   lun: number;
-  header: GptHeaderInfo;
-  backupHeader: GptHeaderInfo;
-  partitions: Record<string, PartitionInfo>;
+  primaryGpt: GPT;
+  backupGpt: GPT;
+  partitions: Record<string, Partition>;
 }
 
 declare global {
@@ -40,7 +24,7 @@ declare global {
 function createCell(textContent: string) {
   const el = document.createElement("td");
   el.textContent = textContent;
-  el.style.cssText = 'padding: 8px; border-bottom: 1px solid #ddd;'
+  el.style.cssText = "padding: 8px; border-bottom: 1px solid #ddd";
   return el;
 }
 
@@ -111,41 +95,18 @@ window.connectDevice = async () => {
     const partitionNames = new Set<string>();
 
     for (const lun of qdl.firehose!.luns) {
-      const gpt = await qdl.getGpt(lun);
-      if (guidGpt?.header) {
-        const [backupGuidGpt] = await qdl.getGpt(lun, guidGpt.header.backupLba);
-        lunInfos.push({
-          lun,
-          header: {
-            crc32: guidGpt.header.crc32,
-            crc32PartEntries: guidGpt.header.crc32PartEntries,
-            firstUsableLba: guidGpt.header.firstUsableLba,
-            lastUsableLba: guidGpt.header.lastUsableLba,
-            currentLba: guidGpt.header.currentLba,
-            backupLba: guidGpt.header.backupLba,
-            partEntryStartLba: guidGpt.header.partEntryStartLba,
-            numPartEntries: guidGpt.header.numPartEntries,
-            partEntrySize: guidGpt.header.partEntrySize
-          },
-          backupHeader: backupGuidGpt?.header ? {
-            crc32: backupGuidGpt.header.crc32,
-            crc32PartEntries: backupGuidGpt.header.crc32PartEntries,
-            firstUsableLba: backupGuidGpt.header.firstUsableLba,
-            lastUsableLba: backupGuidGpt.header.lastUsableLba,
-            currentLba: backupGuidGpt.header.currentLba,
-            backupLba: backupGuidGpt.header.backupLba,
-            partEntryStartLba: backupGuidGpt.header.partEntryStartLba,
-            numPartEntries: backupGuidGpt.header.numPartEntries,
-            partEntrySize: backupGuidGpt.header.partEntrySize
-          } : null as any,
-          partitions: guidGpt.partentries as unknown as Record<string, PartitionInfo>,
-        });
-
-        // Add partition names to the set
-        for (const partName in guidGpt.partentries) {
-          partitionNames.add(partName);
-        }
-      }
+      const primaryGpt = await qdl.getGpt(lun, 1n);
+      const backupGpt = await qdl.getGpt(lun, primaryGpt.alternateLba);
+      lunInfos.push({
+        lun,
+        primaryGpt,
+        backupGpt,
+        partitions: Array.from(primaryGpt).reduce((partitions, part) => {
+          partitions[part.name] = part;
+          return partitions;
+        }, {} as Record<string, Partition>),
+      });
+      for (const part of primaryGpt) partitionNames.add(part.name);
     }
 
     // Partition table
@@ -159,9 +120,9 @@ window.connectDevice = async () => {
       const headerInfo = document.createElement("div");
       headerInfo.className = "mb-4 space-y-4";
 
-      const headerTypes: [string, GptHeaderInfo][] = [
-        ['Primary', lunInfo.header],
-        ['Backup', lunInfo.backupHeader],
+      const headerTypes: [string, GPT][] = [
+        ["Primary", lunInfo.primaryGpt],
+        ["Backup", lunInfo.backupGpt],
       ];
 
       for (const [type, header] of headerTypes) {
@@ -176,15 +137,15 @@ window.connectDevice = async () => {
         headerTable.className = "w-full border-collapse text-sm";
 
         const headerFields = [
-          ['Header CRC32', '0x' + header.crc32.toString(16).padStart(8, '0')],
-          ['Partition Entries CRC32', '0x' + header.crc32PartEntries.toString(16).padStart(8, '0')],
-          ['Current LBA', header.currentLba.toString()],
-          ['Backup LBA', header.backupLba.toString()],
-          ['First Usable LBA', header.firstUsableLba.toString()],
-          ['Last Usable LBA', header.lastUsableLba.toString()],
-          ['Partition Entry Start LBA', header.partEntryStartLba.toString()],
-          ['Number of Partition Entries', header.numPartEntries.toString()],
-          ['Partition Entry Size', header.partEntrySize.toString()]
+          ["Header CRC32", `0x${header.headerCrc32.toString(16).padStart(8, "0")}`],
+          ["Partition Entries CRC32", `0x${header.partEntriesCrc32.toString(16).padStart(8, "0")}`],
+          ["Current LBA", header.currentLba.toString()],
+          ["Alternate LBA", header.alternateLba.toString()],
+          ["First Usable LBA", header.firstUsableLba.toString()],
+          ["Last Usable LBA", header.lastUsableLba.toString()],
+          ["Partition Entry Start LBA", header.partEntriesStartLba.toString()],
+          ["Number of Partition Entries", header.numPartEntries.toString()],
+          ["Partition Entry Size", header.partEntrySize.toString()]
         ];
 
         for (const [label, value] of headerFields) {
@@ -228,7 +189,7 @@ window.connectDevice = async () => {
         nameCell.className = "p-2 border";
 
         const startCell = row.insertCell();
-        startCell.textContent = info.sector.toString();
+        startCell.textContent = info.start.toString();
         startCell.className = "p-2 border font-mono";
 
         const sizeCell = row.insertCell();
@@ -240,11 +201,11 @@ window.connectDevice = async () => {
         typeCell.className = "p-2 border";
 
         const flagsCell = row.insertCell();
-        flagsCell.textContent = "0x" + info.flags.toString(16);
+        flagsCell.textContent = info.attributes;
         flagsCell.className = "p-2 border font-mono";
 
         const uuidCell = row.insertCell();
-        uuidCell.textContent = info.unique.replace(/\s+/g, '');
+        uuidCell.textContent = info.uuid;
         uuidCell.className = "p-2 border font-mono text-sm";
       }
       partitionsDiv.appendChild(table);

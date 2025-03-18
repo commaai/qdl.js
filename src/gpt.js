@@ -112,7 +112,6 @@ export class GPT {
     return this.#header.partEntrySize;
   }
 
-  /** @returns {number} */
   get partEntriesSectors() {
     return Math.ceil(Number(this.numPartEntries * this.partEntrySize / this.sectorSize));
   }
