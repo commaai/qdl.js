@@ -276,7 +276,6 @@ export class GPT {
       if (partSlot !== "_a" && partSlot !== "_b") continue;
       const bootable = partEntry.name === `boot${partSlot}`;
       partEntry.attributes = updateABFlags(partEntry.attributes, partSlot === `_${slot}`, bootable, !bootable);
-      logger.debug(`set ${partEntry.name} flags:`, parseABFlags(partEntry.attributes));
     }
   }
 }
