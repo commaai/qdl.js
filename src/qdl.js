@@ -183,7 +183,7 @@ export class qdlDevice {
       for (let i = 1; i < protectedRanges.length; i++) {
         const nextRange = protectedRanges[i];
         if (nextRange.start <= currentRange.end + 1n) {
-          currentRange.end = Math.max(currentRange.end, nextRange.end);
+          currentRange.end = currentRange.end > nextRange.end ? currentRange.end : nextRange.end;
           currentRange.name += `,${nextRange.name}`;
         } else {
           mergedProtectedRanges.push(currentRange);
@@ -200,7 +200,7 @@ export class qdlDevice {
     const erasableRanges = [];
     let lastEndSector = -1n;
     for (const range of mergedProtectedRanges) {
-      if (range.start > lastEndSector + 1) {
+      if (range.start > lastEndSector + 1n) {
         erasableRanges.push({ start: lastEndSector + 1n, end: range.start - 1n });
       }
       lastEndSector = range.end;
