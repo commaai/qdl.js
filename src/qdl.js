@@ -163,8 +163,8 @@ export class qdlDevice {
       protectedRanges.push({ name: "mbr", start: 0, end: 0 });
     }
     if (preservePartitions.includes("gpt")) {
-      protectedRanges.push({ name: "gpt-current", start: currentLba, end: firstUsableLba - 1 });
-      protectedRanges.push({ name: "gpt-alternate", start: lastUsableLba + 1, end: alternateLba });
+      protectedRanges.push({ name: "gpt-current", start: currentLba, end: firstUsableLba - 1n });
+      protectedRanges.push({ name: "gpt-alternate", start: lastUsableLba + 1n, end: alternateLba });
     }
     for (const name of preservePartitions) {
       const part = primaryGpt.locatePartition(name);
@@ -217,7 +217,7 @@ export class qdlDevice {
       const maxSectors = 512 * 1024;
       let sector = range.start;
       while (sector <= range.end) {
-        const chunkSectors = Math.min(Number(range.end - sector + 1), maxSectors);
+        const chunkSectors = Math.min(Number(range.end - sector + 1n), maxSectors);
         const result = await this.firehose.cmdErase(lun, sector, chunkSectors);
         if (!result) {
           logger.error(`Failed to erase sectors chunk ${sectors}-${sectors + BigInt(chunkSectors - 1)}`);
