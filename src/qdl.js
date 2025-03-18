@@ -352,15 +352,23 @@ export class qdlDevice {
     if (slot !== "a" && slot !== "b") throw new Error("Invalid slot");
 
     for (const lun of this.firehose.luns) {
-      // Update all partitions in disk
-      const gpt = await this.getGpt(lun);
-      gpt.setActiveSlot(slot);
+      // Update primary GPT
+      const primaryGpt = await this.getGpt(lun, 1n);
+      primaryGpt.setActiveSlot(slot);
 
-      // Write GPT header and partition entries
-      const partEntries = gpt.buildPartEntries();
-      await this.firehose.cmdProgram(lun, gpt.partEntriesStartLba, new Blob([partEntries]));
-      const header = gpt.buildHeader(partEntries);
-      await this.firehose.cmdProgram(lun, gpt.currentLba, new Blob([header]));
+      const primaryPartEntries = primaryGpt.buildPartEntries();
+      await this.firehose.cmdProgram(lun, primaryGpt.partEntriesStartLba, new Blob([primaryPartEntries]));
+      const primaryHeader = primaryGpt.buildHeader(primaryPartEntries);
+      await this.firehose.cmdProgram(lun, primaryGpt.currentLba, new Blob([primaryHeader]));
+
+      // Update backup GPT
+      const backupGpt = await this.getGpt(lun, primaryGpt.alternateLba);
+      backupGpt.setActiveSlot(slot);
+
+      const backupPartEntries = backupGpt.buildPartEntries();
+      await this.firehose.cmdProgram(lun, backupGpt.partEntriesStartLba, new Blob([backupPartEntries]));
+      const backupHeader = backupGpt.buildHeader(backupPartEntries);
+      await this.firehose.cmdProgram(lun, backupGpt.currentLba, new Blob([backupHeader]));
     }
 
     const activeBootLunId = (slot === "a") ? 1 : 2;
