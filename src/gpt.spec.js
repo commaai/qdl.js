@@ -33,7 +33,8 @@ describe("GPT", async () => {
   });
 
   test("parsePartEntries", () => {
-    const partEntriesData = new Uint8Array(gptBuffer, gpt.partEntriesStartLba, gpt.partEntriesSectors);
+    const begin = Number(gpt.partEntriesStartLba) * SECTOR_SIZE;
+    const partEntriesData = gptBuffer.slice(begin, begin + gpt.partEntriesSectors * SECTOR_SIZE);
     const result = gpt.parsePartEntries(partEntriesData);
     expect(result).toMatchObject({
       mismatchCrc32: false,

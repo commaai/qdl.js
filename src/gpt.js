@@ -3,7 +3,6 @@ import { bytes, int32, string, struct, uint32, uint64 } from "@incognitojam/tiny
 
 import { createLogger } from "./logger";
 import { guid, utf16cstring } from "./gpt-structs";
-import { concatUint8Array } from "./utils";
 
 const ATTRIBUTE_FLAG_OFFSET = 48n;
 const AB_FLAG_OFFSET = ATTRIBUTE_FLAG_OFFSET + 6n;
@@ -117,7 +116,7 @@ export class GPT {
   }
 
   /**
-   * @param {Uint8Array} data
+   * @param {ArrayBuffer} data
    * @param {bigint} actualLba
    * @returns {{ headerCrc32: number; mismatchCrc32: boolean } | null}
    */
@@ -157,18 +156,18 @@ export class GPT {
   }
 
   /**
-   * @param {Uint8Array} data
+   * @param {ArrayBuffer} data
    * @returns {{ mismatchCrc32: boolean }}
    */
   parsePartEntries(data) {
     const entrySize = this.#header.partEntrySize;
     for (let i = 0; i < this.#header.numPartEntries; i++) {
       const entryOffset = i * entrySize;
-      const partEntry = GPTPartitionEntry.from(data.subarray(entryOffset, entryOffset + entrySize));
+      const partEntry = GPTPartitionEntry.from(data.slice(entryOffset, entryOffset + entrySize));
       this.#partEntries.push(partEntry);
     }
 
-    const actualPartEntriesCrc32 = crc32(data);
+    const actualPartEntriesCrc32 = crc32(this.buildPartEntries());
     const mismatchCrc32 = this.#header.partEntriesCrc32 !== actualPartEntriesCrc32;
     if (mismatchCrc32) {
       logger.warn(`Partition entries CRC32 mismatch: expected 0x${this.#header.partEntriesCrc32.toString(16)}, actual 0x${actualPartEntriesCrc32.toString(16)}`);
@@ -190,17 +189,28 @@ export class GPT {
     return gpt;
   }
 
-  /** @returns {{ header: Uint8Array; partEntries: Uint8Array }} */
-  build() {
-    const partEntries = concatUint8Array(this.#partEntries.map((entry) => entry.$toBuffer()));
-    this.#header.partEntriesCrc32 = crc32(partEntries);
+  /** @returns {Uint8Array} */
+  buildPartEntries() {
+    const array = new Uint8Array(this.numPartEntries * this.partEntrySize);
+    for (let i = 0; i < this.numPartEntries; i++) {
+      array.set(new Uint8Array(this.#partEntries[i].$toBuffer()), i * this.partEntrySize);
+    }
+    return array;
+  }
+
+  /**
+   * @param {Uint8Array} [partEntries]
+   * @returns {Uint8Array}
+   */
+  buildHeader(partEntries) {
+    this.#header.partEntriesCrc32 = crc32(partEntries ?? this.buildPartEntries());
 
     this.#header.headerCrc32 = 0;
     let header = this.#header.$toBuffer();
     this.#header.headerCrc32 = crc32(header);
     header = this.#header.$toBuffer();
 
-    return { header, partEntries };
+    return new Uint8Array(header);
   }
 
   /** @returns {IterableIterator<Partition>} */
