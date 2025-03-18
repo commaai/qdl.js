@@ -140,6 +140,7 @@ export class GPT {
     if (this.#header.currentLba !== actualLba) {
       logger.warn(`currentLba (${this.#header.currentLba}) does not match actual value (${actualLba})`);
     }
+    logger.debug(this.#header);
 
     const expectedHeaderCrc32 = this.#header.headerCrc32;
     this.#header.headerCrc32 = 0;
