@@ -283,7 +283,7 @@ export class qdlDevice {
       if (offset % gpt.sectorSize !== 0) {
         throw "qdl - Offset not aligned to sector size";
       }
-      const sector = (partition.start + BigInt(offset)) / BigInt(gpt.sectorSize);
+      const sector = partition.start + BigInt(offset / gpt.sectorSize);
       const onChunkProgress = (progress) => onProgress?.(offset + progress);
       if (!await this.firehose.cmdProgram(lun, sector, chunk, onChunkProgress)) {
         logger.debug("Failed to program chunk")
