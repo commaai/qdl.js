@@ -241,8 +241,10 @@ export class qdlDevice {
       const gpt = await this.getGpt(lun);
       const partition = gpt.locatePartition(name);
       if (!partition) continue;
+      logger.debug("found partition", name, "in lun", lun, partition);
       return [true, lun, partition, gpt];
     }
+    logger.debug("did not find partition", name);
     return [false];
   }
 
@@ -255,15 +257,14 @@ export class qdlDevice {
   async flashBlob(name, blob, onProgress) {
     const [found, lun, partition, gpt] = await this.detectPartition(name);
     if (!found) throw `Can't find partition ${name}`;
-    const imgSectors = Math.ceil(blob.size / gpt.sectorSize);
-    if (imgSectors > partition.sectors) {
-      logger.error("partition has fewer sectors compared to the flashing image");
-      return false;
-    }
-    logger.info(`Flashing ${name}...`);
-    logger.debug(`startSector ${partition.start}, sectors ${partition.sectors}`);
+    logger.info(`Flashing ${name}`);
     const sparse = await Sparse.from(blob);
     if (sparse === null) {
+      const imgSectors = Math.ceil(blob.size / gpt.sectorSize);
+      if (imgSectors > partition.sectors) {
+        logger.error("Image too large for partition", { imgSectors, partitionSectors: partition.sectors });
+        return false;
+      }
       return await this.firehose.cmdProgram(lun, partition.start, blob, onProgress);
     }
     logger.debug(`Erasing ${name}...`);
@@ -277,7 +278,7 @@ export class qdlDevice {
       if (offset % gpt.sectorSize !== 0) {
         throw "qdl - Offset not aligned to sector size";
       }
-      const sector = (partition.start + BigInt(offset)) / BigInt(gpt.sectorSize);
+      const sector = partition.start + BigInt(offset / gpt.sectorSize);
       const onChunkProgress = (progress) => onProgress?.(offset + progress);
       if (!await this.firehose.cmdProgram(lun, sector, chunk, onChunkProgress)) {
         logger.debug("Failed to program chunk")

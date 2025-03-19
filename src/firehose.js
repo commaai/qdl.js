@@ -212,9 +212,11 @@ export class Firehose {
   async cmdProgram(physicalPartitionNumber, startSector, blob, onProgress = undefined) {
     const total = blob.size;
 
+    const numPartitionSectors = Math.ceil(total / this.cfg.SECTOR_SIZE_IN_BYTES);
+    logger.debug(`Starting program on LUN ${physicalPartitionNumber} at ${startSector} - ${BigInt(startSector) + BigInt(numPartitionSectors - 1)} (${numPartitionSectors})`);
     const rsp = await this.xmlSend(toXml("program", {
       SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
-      num_partition_sectors: Math.ceil(total / this.cfg.SECTOR_SIZE_IN_BYTES),
+      num_partition_sectors: numPartitionSectors,
       physical_partition_number: physicalPartitionNumber,
       start_sector: startSector,
     }));
