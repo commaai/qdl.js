@@ -254,13 +254,7 @@ export class qdlDevice {
    */
   async flashBlob(name, blob, onProgress) {
     const [found, lun, partition, gpt] = await this.detectPartition(name);
-    if (!found) {
-      throw `Can't find partition ${name}`;
-    }
-    if (name.toLowerCase() === "gpt") {
-      // TODO: error?
-      return true;
-    }
+    if (!found) throw `Can't find partition ${name}`;
     const imgSectors = Math.ceil(blob.size / gpt.sectorSize);
     if (imgSectors > partition.sectors) {
       logger.error("partition has fewer sectors compared to the flashing image");
