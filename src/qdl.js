@@ -251,9 +251,10 @@ export class qdlDevice {
    * @param {string} name
    * @param {Blob} blob
    * @param {progressCallback} [onProgress] - Returns number of bytes written
+   * @param {boolean} [eraseBeforeFlashSparse=true]
    * @returns {Promise<boolean>}
    */
-  async flashBlob(name, blob, onProgress) {
+  async flashBlob(name, blob, onProgress = undefined, eraseBeforeFlashSparse = true) {
     const [found, lun, partition, gpt] = await this.detectPartition(name);
     if (!found) throw `Can't find partition ${name}`;
     logger.info(`Flashing ${name}`);
@@ -266,10 +267,12 @@ export class qdlDevice {
       }
       return await this.firehose.cmdProgram(lun, partition.start, blob, onProgress);
     }
-    logger.debug(`Erasing ${name}...`);
-    if (!await this.firehose.cmdErase(lun, partition.start, partition.sectors)) {
-      logger.error("Failed to erase partition before sparse flashing");
-      return false;
+    if (eraseBeforeFlashSparse) {
+      logger.debug(`Erasing ${name}...`);
+      if (!await this.firehose.cmdErase(lun, partition.start, partition.sectors)) {
+        logger.error("Failed to erase partition before sparse flashing");
+        return false;
+      }
     }
     logger.debug(`Writing chunks to ${name}...`);
     for await (const [offset, chunk] of sparse.read()) {
