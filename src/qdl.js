@@ -2,7 +2,6 @@ import { Firehose } from "./firehose"
 import { GPT } from "./gpt"
 import { Sahara } from "./sahara";
 import * as Sparse from "./sparse";
-import { concatUint8Array, containsBytes } from "./utils";
 import { createLogger } from "./logger";
 
 const logger = createLogger("qdl");
@@ -170,8 +169,8 @@ export class qdlDevice {
       if (name === "mbr" || name === "gpt") continue;
       const part = primaryGpt.locatePartition(name);
       if (!part) {
-        logger.warn(`Partition ${name} not found in GPT`);
-        continue;
+        logger.error(`Partition ${name} not found in GPT`);
+        return false;
       }
       protectedRanges.push({ name, start: part.start, end: part.end });
     }
