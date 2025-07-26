@@ -1,5 +1,5 @@
 {
-  "name": "qdl-js",
+  "name": "@commaai/qdl",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
