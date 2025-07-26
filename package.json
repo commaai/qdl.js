@@ -1,5 +1,5 @@
 {
-  "name": "@commaai/qdl",
+  "name": "qdl-js",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
@@ -62,7 +62,7 @@
     "typescript": "does type checking, generates JS bundles and type declarations for language servers"
   },
   "peerDependencies": {
-    "typescript": "^5.7.3"
+    "typescript": "^5.8.3"
   },
   "trustedDependencies": [
     "@biomejs/biome",
