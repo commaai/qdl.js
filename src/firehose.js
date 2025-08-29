@@ -354,6 +354,16 @@ export class Firehose {
     return resp.log;
   }
 
+  async cmdDeviceType() {
+    const resp = await this.xmlSend(toXml("devicetype"));
+    try {
+      const dt = this.xml.getResponse(resp.data)['DeviceType'];
+      return dt;
+    } catch (err) {
+      throw new Error("Failed to get device type", { cause: err });
+    }
+  }
+
   /**
    * @param {number} lun
    * @param {number} grow_last_partition
