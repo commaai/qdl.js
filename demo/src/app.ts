@@ -85,7 +85,7 @@ window.connectDevice = async () => {
     const storageInfo = await qdl.getStorageInfo();
     createObjectTable(deviceDiv, {
       "Active Slot": activeSlot,
-      "SOC Serial Number": qdl.sahara!.serial,
+      "SOC Serial Number": qdl.sahara?.serial,
       "UFS Serial Number": `0x${storageInfo.serial_num.toString(16).padStart(8, "0")}`,
     });
     createObjectTable(storageDiv, storageInfo);
@@ -94,20 +94,22 @@ window.connectDevice = async () => {
     const lunInfos: LunInfo[] = [];
     const partitionNames = new Set<string>();
 
-    for (const lun of qdl.firehose!.luns) {
-      const primaryGpt = await qdl.getGpt(lun, 1n);
-      const backupGpt = await qdl.getGpt(lun, primaryGpt.alternateLba);
-      const partitions = primaryGpt.getPartitions();
-      lunInfos.push({
-        lun,
-        primaryGpt,
-        backupGpt,
-        partitions: partitions.reduce((partitions, part) => {
-          partitions[part.name] = part;
-          return partitions;
-        }, {} as Record<string, Partition>),
-      });
-      for (const part of partitions) partitionNames.add(part.name);
+    if (qdl.firehose) {
+      for (const lun of qdl.firehose.luns) {
+        const primaryGpt = await qdl.getGpt(lun, 1n);
+        const backupGpt = await qdl.getGpt(lun, primaryGpt.alternateLba);
+        const partitions = primaryGpt.getPartitions();
+        lunInfos.push({
+          lun,
+          primaryGpt,
+          backupGpt,
+          partitions: partitions.reduce((partitions, part) => {
+            partitions[part.name] = part;
+            return partitions;
+          }, {} as Record<string, Partition>),
+        });
+        for (const part of partitions) partitionNames.add(part.name);
+      }
     }
 
     // Partition table

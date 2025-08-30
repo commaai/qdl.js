@@ -103,10 +103,9 @@ export class usbClass {
         }
       } while (received < length);
       return concatUint8Array(chunks);
-    } else {
-      const result = await this.device.transferIn(this.epIn.endpointNumber, this.maxSize);
-      return new Uint8Array(result.data?.buffer);
     }
+    const result = await this.device.transferIn(this.epIn.endpointNumber, this.maxSize);
+    return new Uint8Array(result.data?.buffer);
   }
 
   /**
