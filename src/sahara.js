@@ -144,19 +144,23 @@ export class Sahara {
       const pkt = CommandHandler.pkt_cmd_hdr.from(data);
       if (pkt.cmd === cmd_t.SAHARA_HELLO_REQ) {
         return { "cmd": pkt.cmd, "data": CommandHandler.pkt_hello_req.from(data) };
-      } else if (pkt.cmd === cmd_t.SAHARA_DONE_RSP) {
-        return { "cmd": pkt.cmd, "data": CommandHandler.pkt_done.from(data) };
-      } else if (pkt.cmd === cmd_t.SAHARA_END_TRANSFER) {
-        return { "cmd": pkt.cmd, "data": CommandHandler.pkt_image_end.from(data) };
-      } else if (pkt.cmd === cmd_t.SAHARA_64BIT_MEMORY_READ_DATA) {
-        return { "cmd": pkt.cmd, "data": CommandHandler.pkt_read_data_64.from(data) };
-      } else if (pkt.cmd === cmd_t.SAHARA_EXECUTE_RSP) {
-        return { "cmd": pkt.cmd, "data": CommandHandler.pkt_execute_rsp_cmd.from(data) };
-      } else if (pkt.cmd === cmd_t.SAHARA_CMD_READY || pkt.cmd === cmd_t.SAHARA_RESET_RSP) {
-        return { "cmd": pkt.cmd, "data": null };
-      } else {
-        logger.error("Didn't match any cmd_t");
       }
+      if (pkt.cmd === cmd_t.SAHARA_DONE_RSP) {
+        return { "cmd": pkt.cmd, "data": CommandHandler.pkt_done.from(data) };
+      }
+      if (pkt.cmd === cmd_t.SAHARA_END_TRANSFER) {
+        return { "cmd": pkt.cmd, "data": CommandHandler.pkt_image_end.from(data) };
+      }
+      if (pkt.cmd === cmd_t.SAHARA_64BIT_MEMORY_READ_DATA) {
+        return { "cmd": pkt.cmd, "data": CommandHandler.pkt_read_data_64.from(data) };
+      }
+      if (pkt.cmd === cmd_t.SAHARA_EXECUTE_RSP) {
+        return { "cmd": pkt.cmd, "data": CommandHandler.pkt_execute_rsp_cmd.from(data) };
+      }
+      if (pkt.cmd === cmd_t.SAHARA_CMD_READY || pkt.cmd === cmd_t.SAHARA_RESET_RSP) {
+        return { "cmd": pkt.cmd, "data": null };
+      }
+      logger.error("Didn't match any cmd_t");
       return {};
     } catch (error) {
       logger.error(error);
@@ -175,7 +179,8 @@ export class Sahara {
         const data = packGenerator([cmd_t.SAHARA_EXECUTE_DATA, 0xC, mcmd]);
         await this.cdc.write(data);
         return await this.cdc.read(pkt.data_len);
-      } else if (cmd === cmd_t.SAHARA_END_TRANSFER) {
+      }
+      if (cmd === cmd_t.SAHARA_END_TRANSFER) {
         throw "Sahara - error while executing command";
       }
       return null;
@@ -189,7 +194,7 @@ export class Sahara {
       throw "Sahara - Unable to get serial number of device";
     }
     const data = new DataView(res.buffer, 0).getUint32(0, true);
-    return "0x"+data.toString(16).padStart(8,'0');
+    return `0x${data.toString(16).padStart(8,'0')}`
   }
 
   async enterCommandMode() {
@@ -274,7 +279,8 @@ export class Sahara {
       const cmd = res.cmd;
       if (cmd === cmd_t.SAHARA_DONE_RSP) {
         return true;
-      } else if (cmd === cmd_t.SAHARA_END_TRANSFER) {
+      }
+      if (cmd === cmd_t.SAHARA_END_TRANSFER) {
         if ("data" in res) {
           const pkt = res.data;
           if (pkt.image_tx_status === status_t.SAHARA_NAK_INVALID_CMD) {

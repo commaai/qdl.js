@@ -320,9 +320,8 @@ export class Firehose {
     if (val.resp) {
       logger.info(`Successfully set bootID to lun ${lun}`);
       return true;
-    } else {
-      throw `Failed to set boot lun ${lun}`;
     }
+    throw `Failed to set boot lun ${lun}`;
   }
 
   /**
@@ -340,9 +339,8 @@ export class Firehose {
         // Ignore any errors
       }
       return true;
-    } else {
-      throw "Reset failed";
     }
+    throw "Reset failed";
   }
 
   /**
