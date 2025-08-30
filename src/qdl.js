@@ -341,6 +341,12 @@ export class qdlDevice {
     }
   }
 
+  async getDeviceType() {
+    const deviceType = (await this.firehose.cmdDeviceType())
+    if (!deviceType) throw new Error("Device type not returned - not implemented?");
+    return deviceType;
+  }
+
   /**
    * @param {"a"|"b"} slot
    * @returns {Promise<boolean>}
