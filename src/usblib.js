@@ -75,13 +75,14 @@ export class usbClass {
     if (!("usb" in navigator)) {
       throw "USB - WebUSB not supported";
     }
-    const device = await navigator.usb.requestDevice({
-      filters: [{
-        vendorId: constants.VENDOR_ID,
-        productId: constants.PRODUCT_ID,
-        classCode: constants.QDL_CLASS_CODE,
-      }],
-    });
+
+    const filters = constants.VENDOR_ID.map(vendorId => ({
+      vendorId,
+      productId: constants.PRODUCT_ID,
+      classCode: constants.QDL_CLASS_CODE,
+    }));
+
+    const device = await navigator.usb.requestDevice({ filters });
     await this.#connectDevice(device);
   }
 
