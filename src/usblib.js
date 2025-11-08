@@ -76,7 +76,7 @@ export class usbClass {
       throw "USB - WebUSB not supported";
     }
 
-    const filters = constants.VENDOR_ID.map(vendorId => ({
+    const filters = constants.VENDOR_IDS.map(vendorId => ({
       vendorId,
       productId: constants.PRODUCT_ID,
       classCode: constants.QDL_CLASS_CODE,
