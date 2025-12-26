@@ -276,13 +276,14 @@ export class GPT {
       if (partSlot !== "_a" && partSlot !== "_b") continue;
       const isTargetSlot = partSlot === `_${slot}`;
       const isBootPartition = partEntry.name === `boot${partSlot}`;
-      // Active slot: bootable, successful, not unbootable
-      // Inactive slot: not active, not successful, unbootable
+      // Active slot: bootable, successful, not unbootable, 7 tries
+      // Inactive slot: not active, not successful, unbootable, 0 tries
       partEntry.attributes = updateABFlags(
         partEntry.attributes,
         isTargetSlot,                        // active
         isTargetSlot && isBootPartition,     // successful (only boot partition)
-        !isTargetSlot                        // unbootable (only inactive slot)
+        !isTargetSlot,                       // unbootable (only inactive slot)
+        isTargetSlot && isBootPartition ? 7 : 0  // tries remaining
       );
     }
   }
