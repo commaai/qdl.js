@@ -220,7 +220,7 @@ export class qdlDevice {
         const chunkSectors = Math.min(Number(range.end - sector + 1n), maxSectors);
         const result = await this.firehose.cmdErase(lun, sector, chunkSectors);
         if (!result) {
-          logger.error(`Failed to erase sectors chunk ${sectors}-${sectors + BigInt(chunkSectors - 1)}`);
+          logger.error(`Failed to erase sectors chunk ${sector}-${sector + BigInt(chunkSectors - 1)}`);
           return false;
         }
         sector = sector + BigInt(chunkSectors);
@@ -388,6 +388,16 @@ export class qdlDevice {
     await this.firehose.cmdSetBootLunId(activeBootLunId);
     logger.info(`Successfully set slot ${slot} active`);
     return true;
+  }
+
+  /**
+   * Set the bootable storage drive LUN (1 for slot A, 2 for slot B)
+   * @param {number} lun
+   * @returns {Promise<void>}
+   */
+  async setBootableLun(lun) {
+    await this.firehose.cmdSetBootLunId(lun);
+    logger.info(`Successfully set bootable LUN to ${lun}`);
   }
 
   async reset() {
