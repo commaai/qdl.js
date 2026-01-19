@@ -91,11 +91,11 @@
   <body>
     <h1>QDL.js Demo</h1>
 
-    <p>This demo will connect to a comma three device in QDL mode and read its partition information.</p>
+    <p>This demo will connect to a comma device (like the <a href="https://comma.ai/shop/comma-four">comma four</a>) in QDL mode and read its partition information.</p>
 
     <h2>Instructions:</h2>
     <ol>
-      <li>Unplug all cables from your comma 3/3X</li>
+      <li>Unplug all cables from your comma device</li>
       <li>Wait until the LED on the rear turns off completely</li>
       <li>Remove the dust cover from the lower USB-C port</li>
       <li>Connect the device to your computer</li>
@@ -110,7 +110,7 @@
     <section id="controls">
       <label for="programmer">Select a device type</label>
       <select id="programmer">
-        <option value="https://raw.githubusercontent.com/commaai/flash/master/src/QDL/programmer.bin">comma 3/3X</option>
+        <option value="https://raw.githubusercontent.com/commaai/flash/master/src/QDL/programmer.bin">comma three / 3X / four</option>
         <option value="https://raw.githubusercontent.com/bkerler/Loaders/master/oneplus/0008b0e10051459b_dd7c5f2e53176bee_fhprg_op6t.bin">OnePlus 6T</option>
       </select>
       <button onclick="connectDevice()">Connect & Read Info</button>
