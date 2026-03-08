@@ -220,7 +220,7 @@ export class qdlDevice {
         const chunkSectors = Math.min(Number(range.end - sector + 1n), maxSectors);
         const result = await this.firehose.cmdErase(lun, sector, chunkSectors);
         if (!result) {
-          logger.error(`Failed to erase sectors chunk ${sectors}-${sectors + BigInt(chunkSectors - 1)}`);
+          logger.error(`Failed to erase sectors chunk ${sector}-${sector + BigInt(chunkSectors - 1)}`);
           return false;
         }
         sector = sector + BigInt(chunkSectors);
@@ -298,7 +298,9 @@ export class qdlDevice {
     const [found, lun, partition] = await this.detectPartition(name);
     if (!found) throw new Error(`Partition ${name} not found`);
     logger.info(`Erasing ${name}...`);
-    await this.firehose.cmdErase(lun, partition.start, partition.sectors);
+    if (!await this.firehose.cmdErase(lun, partition.start, partition.sectors)) {
+      throw new Error(`Failed to erase ${name}`);
+    }
     logger.debug(`Erased ${name} ${partition.start}-${partition.end} (${partition.sectors} sectors)`);
     return true;
   }
@@ -360,24 +362,42 @@ export class qdlDevice {
       primaryGpt.setActiveSlot(slot);
 
       const primaryPartEntries = primaryGpt.buildPartEntries();
-      await this.firehose.cmdProgram(lun, primaryGpt.partEntriesStartLba, new Blob([primaryPartEntries]));
+      if (!await this.firehose.cmdProgram(lun, primaryGpt.partEntriesStartLba, new Blob([primaryPartEntries]))) {
+        throw new Error(`Failed to write primary partition entries for LUN ${lun}`);
+      }
       const primaryHeader = primaryGpt.buildHeader(primaryPartEntries);
-      await this.firehose.cmdProgram(lun, primaryGpt.currentLba, new Blob([primaryHeader]));
+      if (!await this.firehose.cmdProgram(lun, primaryGpt.currentLba, new Blob([primaryHeader]))) {
+        throw new Error(`Failed to write primary GPT header for LUN ${lun}`);
+      }
 
       // Update backup GPT
       const backupGpt = await this.getGpt(lun, primaryGpt.alternateLba);
       backupGpt.setActiveSlot(slot);
 
       const backupPartEntries = backupGpt.buildPartEntries();
-      await this.firehose.cmdProgram(lun, backupGpt.partEntriesStartLba, new Blob([backupPartEntries]));
+      if (!await this.firehose.cmdProgram(lun, backupGpt.partEntriesStartLba, new Blob([backupPartEntries]))) {
+        throw new Error(`Failed to write backup partition entries for LUN ${lun}`);
+      }
       const backupHeader = backupGpt.buildHeader(backupPartEntries);
-      await this.firehose.cmdProgram(lun, backupGpt.currentLba, new Blob([backupHeader]));
+      if (!await this.firehose.cmdProgram(lun, backupGpt.currentLba, new Blob([backupHeader]))) {
+        throw new Error(`Failed to write backup GPT header for LUN ${lun}`);
+      }
     }
 
     const activeBootLunId = (slot === "a") ? 1 : 2;
     await this.firehose.cmdSetBootLunId(activeBootLunId);
     logger.info(`Successfully set slot ${slot} active`);
     return true;
+  }
+
+  /**
+   * Set the bootable storage drive LUN (1 for slot A, 2 for slot B)
+   * @param {number} lun
+   * @returns {Promise<void>}
+   */
+  async setBootableLun(lun) {
+    await this.firehose.cmdSetBootLunId(lun);
+    logger.info(`Successfully set bootable LUN to ${lun}`);
   }
 
   async reset() {

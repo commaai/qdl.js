@@ -274,8 +274,17 @@ export class GPT {
       if (partEntry.type === TYPE_EFI_UNUSED) continue;
       const partSlot = partEntry.name.slice(-2);
       if (partSlot !== "_a" && partSlot !== "_b") continue;
-      const bootable = partEntry.name === `boot${partSlot}`;
-      partEntry.attributes = updateABFlags(partEntry.attributes, partSlot === `_${slot}`, bootable, !bootable);
+      const isTargetSlot = partSlot === `_${slot}`;
+      const isBootPartition = partEntry.name === `boot${partSlot}`;
+      // Active slot: bootable, successful, not unbootable, 7 tries
+      // Inactive slot: not active, not successful, unbootable, 0 tries
+      partEntry.attributes = updateABFlags(
+        partEntry.attributes,
+        isTargetSlot,                        // active
+        isTargetSlot && isBootPartition,     // successful (only boot partition)
+        !isTargetSlot,                       // unbootable (only inactive slot)
+        isTargetSlot && isBootPartition ? 7 : 0  // tries remaining
+      );
     }
   }
 }
@@ -307,7 +316,7 @@ function parseABFlags(attributes) {
 function updateABFlags(attributes, active, successful, unbootable, triesRemaining = 0) {
   let ret = attributes;
 
-  ret &= ~(AB_PARTITION_ATTR_SLOT_ACTIVE | AB_PARTITION_ATTR_BOOT_SUCCESSFUL | AB_PARTITION_ATTR_UNBOOTABLE | AB_PARTITION_ATTR_TRIES_MASK) << AB_FLAG_OFFSET;
+  ret &= ~((AB_PARTITION_ATTR_SLOT_ACTIVE | AB_PARTITION_ATTR_BOOT_SUCCESSFUL | AB_PARTITION_ATTR_UNBOOTABLE | AB_PARTITION_ATTR_TRIES_MASK) << AB_FLAG_OFFSET);
 
   if (active) ret |= AB_PARTITION_ATTR_SLOT_ACTIVE << AB_FLAG_OFFSET;
   if (successful) ret |= AB_PARTITION_ATTR_BOOT_SUCCESSFUL << AB_FLAG_OFFSET;
