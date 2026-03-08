@@ -102,7 +102,7 @@ if (command === "reset") {
     if (!found) {
       const activeSlot = await qdl.getActiveSlot();
       partitionName = `${partitionName}_${activeSlot}`;
-      console.info(`[qdl] Resolved to ${partitionName} (active slot: ${activeSlot})`);
+      console.info(`[qdl] Detected active slot ${activeSlot}, using ${partitionName}`);
     }
   }
   await qdl.erase(partitionName);
@@ -118,7 +118,7 @@ if (command === "reset") {
     if (!found) {
       const activeSlot = await qdl.getActiveSlot();
       partitionName = `${partitionName}_${activeSlot}`;
-      console.info(`[qdl] Resolved to ${partitionName} (active slot: ${activeSlot})`);
+      console.info(`[qdl] Detected active slot ${activeSlot}, using ${partitionName}`);
     }
   }
   const image = Bun.file(imageName);
