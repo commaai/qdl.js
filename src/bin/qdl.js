@@ -25,6 +25,8 @@ Commands:
   erase <partition>                    Erase a partition
   flash <partition> <image>            Flash an image to a partition
 
+Slot suffixes (_a/_b) are auto-detected from the active slot when omitted.
+
 Flags:
   --programmer <url>                   Use a different loader [default is comma 3/3X]
   --log-level, -l <level>              Set log level (silent, error, warn, info, debug) [default is info]
@@ -93,14 +95,32 @@ if (command === "reset") {
     console.error("Expected partition name");
     process.exit(1);
   }
-  const [partitionName] = commandArgs;
+  let [partitionName] = commandArgs;
+  // Auto-detect active slot if partition name doesn't have a slot suffix
+  if (!partitionName.endsWith("_a") && !partitionName.endsWith("_b")) {
+    const [found] = await qdl.detectPartition(partitionName);
+    if (!found) {
+      const activeSlot = await qdl.getActiveSlot();
+      partitionName = `${partitionName}_${activeSlot}`;
+      console.info(`[qdl] Detected active slot ${activeSlot}, using ${partitionName}`);
+    }
+  }
   await qdl.erase(partitionName);
 } else if (command === "flash") {
   if (commandArgs.length !== 2) {
     console.error("Expected partition name and image path");
     process.exit(1);
   }
-  const [partitionName, imageName] = commandArgs;
+  let [partitionName, imageName] = commandArgs;
+  // Auto-detect active slot if partition name doesn't have a slot suffix
+  if (!partitionName.endsWith("_a") && !partitionName.endsWith("_b")) {
+    const [found] = await qdl.detectPartition(partitionName);
+    if (!found) {
+      const activeSlot = await qdl.getActiveSlot();
+      partitionName = `${partitionName}_${activeSlot}`;
+      console.info(`[qdl] Detected active slot ${activeSlot}, using ${partitionName}`);
+    }
+  }
   const image = Bun.file(imageName);
   await qdl.flashBlob(partitionName, image, createProgress(image.size));
 } else {
