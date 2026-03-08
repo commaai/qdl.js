@@ -10,10 +10,15 @@ import { usbClass } from "./usblib.js";
 export const createQdl = async (programmerUrl = "https://raw.githubusercontent.com/commaai/flash/master/src/QDL/programmer.bin") => {
   navigator.usb = webusb;
 
-  // TODO: support local files
-  const programmer = await fetch(programmerUrl)
-    .then((response) => response.blob())
-    .then((blob) => blob.arrayBuffer());
+  let programmer;
+  if (programmerUrl.startsWith("file://") || programmerUrl.startsWith("/")) {
+    const path = programmerUrl.replace(/^file:\/\//, "");
+    programmer = await Bun.file(path).arrayBuffer();
+  } else {
+    programmer = await fetch(programmerUrl)
+      .then((response) => response.blob())
+      .then((blob) => blob.arrayBuffer());
+  }
 
   // TODO: wait for device to connect
   const qdl = new qdlDevice(programmer);

@@ -35,7 +35,7 @@ class cfg {
     this.ZLPAwareHost = 1;
     this.SkipStorageInit = 0;
     this.SkipWrite = 0;
-    this.MaxPayloadSizeToTargetInBytes = 1048576;
+    this.MaxPayloadSizeToTargetInBytes = 8 * 1048576;
     this.MaxPayloadSizeFromTargetInBytes = 4096;
     this.MaxXMLSizeInBytes = 4096;
     this.bit64 = true;
