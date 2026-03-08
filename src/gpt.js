@@ -7,13 +7,22 @@ import { guid, utf16cstring } from "./gpt-structs";
 const SIGNATURE = "EFI PART";
 const TYPE_EFI_UNUSED = "00000000-0000-0000-0000-000000000000";
 
-const ATTRIBUTE_FLAG_OFFSET = 48n;
-const AB_FLAG_OFFSET = ATTRIBUTE_FLAG_OFFSET + 6n;
+// Qualcomm ABL A/B partition attribute bits 48-55
+// https://git.codelinaro.org/clo/qcomlt/abl/-/blob/LE.UM.2.3.7/QcomModulePkg/Include/Library/PartitionTableUpdate.h#L89-102
+const PART_ATT_PRIORITY_BIT = 48n;
+const PART_ATT_ACTIVE_BIT = 50n;
+const PART_ATT_RETRY_CNT_BIT = 51n;
+const PART_ATT_SUCCESS_BIT = 54n;
+const PART_ATT_UNBOOTABLE_BIT = 55n;
 
-const AB_PARTITION_ATTR_SLOT_ACTIVE = BigInt(0x1 << 2);
-const AB_PARTITION_ATTR_BOOT_SUCCESSFUL = BigInt(0x1 << 6);
-const AB_PARTITION_ATTR_UNBOOTABLE = BigInt(0x1 << 7);
-const AB_PARTITION_ATTR_TRIES_MASK = BigInt(0xF << 8);
+const PART_ATT_PRIORITY_MASK = 0x3n << PART_ATT_PRIORITY_BIT;
+const PART_ATT_ACTIVE_VAL = 1n << PART_ATT_ACTIVE_BIT;
+const PART_ATT_RETRY_MASK = 0x7n << PART_ATT_RETRY_CNT_BIT;
+const PART_ATT_SUCCESS_VAL = 1n << PART_ATT_SUCCESS_BIT;
+const PART_ATT_UNBOOTABLE_VAL = 1n << PART_ATT_UNBOOTABLE_BIT;
+
+const MAX_PRIORITY = 3n;
+const MAX_RETRY_COUNT = 7n;
 
 const logger = createLogger("gpt");
 
@@ -255,27 +264,56 @@ export class GPT {
 
   /** @returns {"a"|"b"|null} */
   getActiveSlot() {
+    let bestSlot = null;
+    let bestPriority = -1;
     for (const partEntry of this.#partEntries) {
       if (partEntry.type === TYPE_EFI_UNUSED) continue;
+      if (!partEntry.name.startsWith("boot_")) continue;
       const slot = partEntry.name.slice(-2);
-      const slotA = slot === "_a";
-      if (!slotA && slot !== "_b") continue;
+      if (slot !== "_a" && slot !== "_b") continue;
       const flags = parseABFlags(partEntry.attributes);
-      if (flags.active) return slotA ? "a" : "b";
+      if (flags.active && flags.priority > bestPriority) {
+        bestPriority = flags.priority;
+        bestSlot = slot === "_a" ? "a" : "b";
+      }
     }
-    logger.debug("No active slot found, defaulting to A");
-    return "a";
+    return bestSlot;
   }
 
-  /** @param {"a"|"b"} slot */
+  /**
+   * Matches ABL SetActiveSlot() + MarkPtnActive() behavior.
+   * https://git.codelinaro.org/clo/qcomlt/abl/-/blob/LE.UM.2.3.7/QcomModulePkg/Library/BootLib/PartitionTableUpdate.c#L1233-1320
+   * @param {"a"|"b"} slot
+   */
   setActiveSlot(slot) {
     if (slot !== "a" && slot !== "b") throw new Error("Invalid slot");
     for (const partEntry of this.#partEntries) {
       if (partEntry.type === TYPE_EFI_UNUSED) continue;
       const partSlot = partEntry.name.slice(-2);
       if (partSlot !== "_a" && partSlot !== "_b") continue;
-      const bootable = partEntry.name === `boot${partSlot}`;
-      partEntry.attributes = updateABFlags(partEntry.attributes, partSlot === `_${slot}`, bootable, !bootable);
+      const isActive = partSlot === `_${slot}`;
+      const isBoot = partEntry.name.startsWith("boot");
+
+      if (isBoot) {
+        if (isActive) {
+          // priority=3, active=1, retry=7, successful=0, unbootable=0
+          partEntry.attributes = (partEntry.attributes
+            & ~(PART_ATT_PRIORITY_MASK | PART_ATT_ACTIVE_VAL | PART_ATT_RETRY_MASK | PART_ATT_SUCCESS_VAL | PART_ATT_UNBOOTABLE_VAL))
+            | (MAX_PRIORITY << PART_ATT_PRIORITY_BIT) | PART_ATT_ACTIVE_VAL | (MAX_RETRY_COUNT << PART_ATT_RETRY_CNT_BIT);
+        } else {
+          // priority=2, active=0 (other flags unchanged)
+          partEntry.attributes = (partEntry.attributes
+            & ~(PART_ATT_PRIORITY_MASK | PART_ATT_ACTIVE_VAL))
+            | ((MAX_PRIORITY - 1n) << PART_ATT_PRIORITY_BIT);
+        }
+      } else {
+        // Non-boot: only set/clear ACTIVE bit (MarkPtnActive behavior)
+        if (isActive) {
+          partEntry.attributes |= PART_ATT_ACTIVE_VAL;
+        } else {
+          partEntry.attributes &= ~PART_ATT_ACTIVE_VAL;
+        }
+      }
     }
   }
 }
@@ -283,38 +321,14 @@ export class GPT {
 
 /**
  * @param {bigint} attributes
- * @returns {{ active: boolean, successful: boolean, unbootable: boolean, triesRemaining: number }}
+ * @returns {{ priority: number, active: boolean, triesRemaining: number, successful: boolean, unbootable: boolean }}
  */
 function parseABFlags(attributes) {
-  const abFlags = attributes >> AB_FLAG_OFFSET;
   return {
-    active: (abFlags & AB_PARTITION_ATTR_SLOT_ACTIVE) !== 0n,
-    successful: (abFlags & AB_PARTITION_ATTR_BOOT_SUCCESSFUL) !== 0n,
-    unbootable: (abFlags & AB_PARTITION_ATTR_UNBOOTABLE) !== 0n,
-    triesRemaining: Number((abFlags & AB_PARTITION_ATTR_TRIES_MASK) >> 8n),
+    priority: Number((attributes & PART_ATT_PRIORITY_MASK) >> PART_ATT_PRIORITY_BIT),
+    active: (attributes & PART_ATT_ACTIVE_VAL) !== 0n,
+    triesRemaining: Number((attributes & PART_ATT_RETRY_MASK) >> PART_ATT_RETRY_CNT_BIT),
+    successful: (attributes & PART_ATT_SUCCESS_VAL) !== 0n,
+    unbootable: (attributes & PART_ATT_UNBOOTABLE_VAL) !== 0n,
   };
-}
-
-
-/**
- * @param {bigint} attributes
- * @param {boolean} active
- * @param {boolean} successful
- * @param {boolean} unbootable
- * @param {number} triesRemaining
- * @returns {bigint}
- */
-function updateABFlags(attributes, active, successful, unbootable, triesRemaining = 0) {
-  let ret = attributes;
-
-  ret &= ~(AB_PARTITION_ATTR_SLOT_ACTIVE | AB_PARTITION_ATTR_BOOT_SUCCESSFUL | AB_PARTITION_ATTR_UNBOOTABLE | AB_PARTITION_ATTR_TRIES_MASK) << AB_FLAG_OFFSET;
-
-  if (active) ret |= AB_PARTITION_ATTR_SLOT_ACTIVE << AB_FLAG_OFFSET;
-  if (successful) ret |= AB_PARTITION_ATTR_BOOT_SUCCESSFUL << AB_FLAG_OFFSET;
-  if (unbootable) ret |= AB_PARTITION_ATTR_UNBOOTABLE << AB_FLAG_OFFSET;
-
-  const triesValue = (BigInt(triesRemaining) & 0xFn) << 8n;
-  ret |= triesValue << AB_FLAG_OFFSET;
-
-  return ret;
 }
