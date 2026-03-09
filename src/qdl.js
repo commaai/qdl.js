@@ -107,7 +107,7 @@ export class qdlDevice {
       return backupGpt;
     }
     if (!partEntriesConsistency) {
-      logger.warn(`LUN ${lun}: Primary and backup GPT part entries are inconsistent, using primary`);
+      logger.debug(`LUN ${lun}: Primary and backup GPT part entries are inconsistent, using primary`);
       // TODO: create backup from primary
     }
     return primaryGpt;
@@ -354,10 +354,20 @@ export class qdlDevice {
   async setActiveSlot(slot) {
     if (slot !== "a" && slot !== "b") throw new Error("Invalid slot");
 
+    // Detect current slot to decide if GUID swap is needed (ABL SwitchPtnSlots)
+    let currentSlot = null;
+    for (const lun of this.firehose.luns) {
+      const gpt = await this.getGpt(lun, 1n);
+      currentSlot = gpt.getActiveSlot();
+      if (currentSlot !== null) break;
+    }
+    const shouldSwapGuids = currentSlot !== null && currentSlot !== slot;
+
     for (const lun of this.firehose.luns) {
       // Update primary GPT
       const primaryGpt = await this.getGpt(lun, 1n);
       primaryGpt.setActiveSlot(slot);
+      if (shouldSwapGuids) primaryGpt.swapSlotGuids();
 
       const primaryPartEntries = primaryGpt.buildPartEntries();
       await this.firehose.cmdProgram(lun, primaryGpt.partEntriesStartLba, new Blob([primaryPartEntries]));
@@ -367,6 +377,7 @@ export class qdlDevice {
       // Update backup GPT
       const backupGpt = await this.getGpt(lun, primaryGpt.alternateLba);
       backupGpt.setActiveSlot(slot);
+      if (shouldSwapGuids) backupGpt.swapSlotGuids();
 
       const backupPartEntries = backupGpt.buildPartEntries();
       await this.firehose.cmdProgram(lun, backupGpt.partEntriesStartLba, new Blob([backupPartEntries]));
