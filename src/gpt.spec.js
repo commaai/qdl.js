@@ -10,8 +10,29 @@ const SECTOR_SIZE = 4096;
 
 
 /**
+ * Write a GUID string to a DataView at the given offset (mixed-endian format).
+ * @param {DataView} view
+ * @param {number} offset
+ * @param {string} guid
+ */
+function writeGuid(view, offset, guid) {
+  const parts = guid.split("-");
+  view.setUint32(offset, Number.parseInt(parts[0], 16), true);
+  view.setUint16(offset + 4, Number.parseInt(parts[1], 16), true);
+  view.setUint16(offset + 6, Number.parseInt(parts[2], 16), true);
+  const clockSeq = Number.parseInt(parts[3], 16);
+  view.setUint8(offset + 8, (clockSeq >> 8) & 0xFF);
+  view.setUint8(offset + 9, clockSeq & 0xFF);
+  const nodeHex = parts[4];
+  for (let i = 0; i < 6; i++) {
+    view.setUint8(offset + 10 + i, Number.parseInt(nodeHex.substring(i * 2, i * 2 + 2), 16));
+  }
+}
+
+
+/**
  * Build minimal GPT binary data with specified partitions.
- * @param {{ name: string, attributes?: bigint }[]} partitions
+ * @param {{ name: string, type?: string, attributes?: bigint }[]} partitions
  * @returns {{ header: Uint8Array, entries: Uint8Array }}
  */
 function buildGPTData(partitions) {
@@ -26,8 +47,12 @@ function buildGPTData(partitions) {
     const off = i * entrySize;
     const p = partitions[i];
 
-    // Type GUID: non-zero = used partition
-    entriesView.setUint32(off, 0xDEADBEEF, true);
+    // Type GUID: full string or default non-zero marker
+    if (p.type) {
+      writeGuid(entriesView, off, p.type);
+    } else {
+      entriesView.setUint32(off, 0xDEADBEEF, true);
+    }
 
     // Unique GUID
     entriesView.setUint32(off + 16, i + 1, true);
@@ -91,6 +116,15 @@ function createTestGPT(partitions) {
  */
 function attrOf(gpt, name) {
   return gpt.getPartitions().find((p) => p.name === name)?.attributes;
+}
+
+/**
+ * Get the type GUID for a partition by name.
+ * @param {GPT} gpt
+ * @param {string} name
+ */
+function typeOf(gpt, name) {
+  return gpt.getPartitions().find((p) => p.name === name)?.type;
 }
 
 
@@ -308,6 +342,14 @@ describe("A/B partition flags", () => {
       expect(gpt.getActiveSlot()).toBeNull();
     });
 
+    test("equal priority tiebreak: first in partition table wins (slot A)", () => {
+      const gpt = createTestGPT([
+        { name: "boot_a", attributes: (3n << 48n) | (1n << 50n) },
+        { name: "boot_b", attributes: (3n << 48n) | (1n << 50n) },
+      ]);
+      expect(gpt.getActiveSlot()).toBe("a");
+    });
+
     test("round-trips with setActiveSlot", () => {
       const gpt = createTestGPT(LUN4_PARTITIONS);
       gpt.setActiveSlot("a");
@@ -316,6 +358,125 @@ describe("A/B partition flags", () => {
       expect(gpt.getActiveSlot()).toBe("b");
       gpt.setActiveSlot("a");
       expect(gpt.getActiveSlot()).toBe("a");
+    });
+  });
+
+
+  describe("swapSlotGuids", () => {
+    // Real partition type GUIDs from comma device firmware (gpt_main_*.img)
+    const GUID_INACTIVE = "77036cd4-03d5-42bb-8ed1-37e5a88baa34";
+    const GUID_BOOT     = "20117f86-e985-4357-b9ee-374bc1d8487d";
+    const GUID_AOP      = "d69e90a5-4cab-0071-f6df-ab977f141a7f";
+    const GUID_TZ       = "a053aa7f-40b8-4b1c-ba08-2f68ac71a4f4";
+    const GUID_ABL      = "bd6928a1-4ce0-a038-4f3a-1495e3eddffb";
+    const GUID_SYSTEM   = "97d7b011-54da-4835-b3c4-917ad6e73d74";
+    const GUID_MISC     = "82acc91f-357c-4a68-9c8f-689e1b1a23a1";
+
+    test("swaps type GUIDs between _a and _b counterparts", () => {
+      const gpt = createTestGPT([
+        { name: "boot_a", type: GUID_BOOT },
+        { name: "boot_b", type: GUID_INACTIVE },
+        { name: "aop_a", type: GUID_AOP },
+        { name: "aop_b", type: GUID_INACTIVE },
+        { name: "tz_a", type: GUID_TZ },
+        { name: "tz_b", type: GUID_INACTIVE },
+      ]);
+
+      gpt.swapSlotGuids();
+
+      expect(typeOf(gpt, "boot_a")).toBe(GUID_INACTIVE);
+      expect(typeOf(gpt, "boot_b")).toBe(GUID_BOOT);
+      expect(typeOf(gpt, "aop_a")).toBe(GUID_INACTIVE);
+      expect(typeOf(gpt, "aop_b")).toBe(GUID_AOP);
+      expect(typeOf(gpt, "tz_a")).toBe(GUID_INACTIVE);
+      expect(typeOf(gpt, "tz_b")).toBe(GUID_TZ);
+    });
+
+    test("double swap restores original GUIDs", () => {
+      const gpt = createTestGPT([
+        { name: "boot_a", type: GUID_BOOT },
+        { name: "boot_b", type: GUID_INACTIVE },
+        { name: "abl_a", type: GUID_ABL },
+        { name: "abl_b", type: GUID_INACTIVE },
+      ]);
+      gpt.swapSlotGuids();
+      gpt.swapSlotGuids();
+      expect(typeOf(gpt, "boot_a")).toBe(GUID_BOOT);
+      expect(typeOf(gpt, "boot_b")).toBe(GUID_INACTIVE);
+      expect(typeOf(gpt, "abl_a")).toBe(GUID_ABL);
+      expect(typeOf(gpt, "abl_b")).toBe(GUID_INACTIVE);
+    });
+
+    test("skips non-slotted partitions", () => {
+      const gpt = createTestGPT([
+        { name: "boot_a", type: GUID_BOOT },
+        { name: "boot_b", type: GUID_INACTIVE },
+        { name: "misc", type: GUID_MISC },
+      ]);
+      gpt.swapSlotGuids();
+      expect(typeOf(gpt, "misc")).toBe(GUID_MISC);
+    });
+
+    test("skips unmatched partitions (only _a, no _b on this LUN)", () => {
+      // e.g. LUN 0 has system_a/system_b but boot_a is on LUN 4
+      const gpt = createTestGPT([
+        { name: "system_a", type: GUID_SYSTEM },
+        { name: "system_b", type: GUID_INACTIVE },
+        { name: "boot_a", type: GUID_BOOT },
+      ]);
+      gpt.swapSlotGuids();
+      // system swapped, boot_a unchanged (no boot_b on this LUN)
+      expect(typeOf(gpt, "system_a")).toBe(GUID_INACTIVE);
+      expect(typeOf(gpt, "system_b")).toBe(GUID_SYSTEM);
+      expect(typeOf(gpt, "boot_a")).toBe(GUID_BOOT);
+    });
+
+    test("does not affect partition attributes", () => {
+      const gpt = createTestGPT([
+        { name: "boot_a", type: GUID_BOOT, attributes: 0x003f000000000000n },
+        { name: "boot_b", type: GUID_INACTIVE, attributes: 0x0002000000000000n },
+        { name: "aop_a", type: GUID_AOP, attributes: 0x1004000000000000n },
+        { name: "aop_b", type: GUID_INACTIVE, attributes: 0x1000000000000000n },
+      ]);
+      gpt.swapSlotGuids();
+      expect(attrOf(gpt, "boot_a")).toBe("0x003f000000000000");
+      expect(attrOf(gpt, "boot_b")).toBe("0x0002000000000000");
+      expect(attrOf(gpt, "aop_a")).toBe("0x1004000000000000");
+      expect(attrOf(gpt, "aop_b")).toBe("0x1000000000000000");
+    });
+
+    test("factory LUN 4: swap activates slot B GUIDs", () => {
+      // Factory state: slot A has real GUIDs, slot B has inactive placeholder
+      const gpt = createTestGPT([
+        { name: "boot_a", type: GUID_BOOT, attributes: 0x003f000000000000n },
+        { name: "boot_b", type: GUID_INACTIVE, attributes: 0x0002000000000000n },
+        { name: "aop_a", type: GUID_AOP, attributes: 0x1004000000000000n },
+        { name: "aop_b", type: GUID_INACTIVE, attributes: 0x0000000000000000n },
+        { name: "abl_a", type: GUID_ABL, attributes: 0x1004000000000000n },
+        { name: "abl_b", type: GUID_INACTIVE, attributes: 0x1000000000000000n },
+      ]);
+
+      gpt.swapSlotGuids();
+
+      // Slot B now has real GUIDs, slot A has placeholder
+      expect(typeOf(gpt, "boot_a")).toBe(GUID_INACTIVE);
+      expect(typeOf(gpt, "boot_b")).toBe(GUID_BOOT);
+      expect(typeOf(gpt, "aop_a")).toBe(GUID_INACTIVE);
+      expect(typeOf(gpt, "aop_b")).toBe(GUID_AOP);
+      expect(typeOf(gpt, "abl_a")).toBe(GUID_INACTIVE);
+      expect(typeOf(gpt, "abl_b")).toBe(GUID_ABL);
+    });
+
+    test("factory LUN 0: swap activates system_b GUID", () => {
+      const gpt = createTestGPT([
+        { name: "system_a", type: GUID_SYSTEM, attributes: 0x0004000000000000n },
+        { name: "system_b", type: GUID_INACTIVE, attributes: 0x0000000000000000n },
+      ]);
+
+      gpt.swapSlotGuids();
+
+      expect(typeOf(gpt, "system_a")).toBe(GUID_INACTIVE);
+      expect(typeOf(gpt, "system_b")).toBe(GUID_SYSTEM);
     });
   });
 

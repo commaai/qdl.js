@@ -281,6 +281,30 @@ export class GPT {
   }
 
   /**
+   * Swap partition type GUIDs between _a and _b counterparts on this LUN.
+   * Matches ABL SwitchPtnSlots() / SwapPtnGuid() behavior.
+   * https://git.codelinaro.org/clo/qcomlt/abl/-/blob/LE.UM.2.3.7/QcomModulePkg/Library/BootLib/PartitionTableUpdate.c#L452-510
+   */
+  swapSlotGuids() {
+    const pairs = new Map();
+    for (const partEntry of this.#partEntries) {
+      if (partEntry.type === TYPE_EFI_UNUSED) continue;
+      const name = partEntry.name;
+      if (!name.endsWith("_a") && !name.endsWith("_b")) continue;
+      const baseName = name.slice(0, -2);
+      if (!pairs.has(baseName)) pairs.set(baseName, {});
+      pairs.get(baseName)[name.slice(-1)] = partEntry;
+    }
+    for (const slots of pairs.values()) {
+      if (slots.a && slots.b) {
+        const temp = slots.a.type;
+        slots.a.type = slots.b.type;
+        slots.b.type = temp;
+      }
+    }
+  }
+
+  /**
    * Matches ABL SetActiveSlot() + MarkPtnActive() behavior.
    * https://git.codelinaro.org/clo/qcomlt/abl/-/blob/LE.UM.2.3.7/QcomModulePkg/Library/BootLib/PartitionTableUpdate.c#L1233-1320
    * @param {"a"|"b"} slot
