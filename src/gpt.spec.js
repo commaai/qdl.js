@@ -342,6 +342,14 @@ describe("A/B partition flags", () => {
       expect(gpt.getActiveSlot()).toBeNull();
     });
 
+    test("equal priority tiebreak: first in partition table wins (slot A)", () => {
+      const gpt = createTestGPT([
+        { name: "boot_a", attributes: (3n << 48n) | (1n << 50n) },
+        { name: "boot_b", attributes: (3n << 48n) | (1n << 50n) },
+      ]);
+      expect(gpt.getActiveSlot()).toBe("a");
+    });
+
     test("round-trips with setActiveSlot", () => {
       const gpt = createTestGPT(LUN4_PARTITIONS);
       gpt.setActiveSlot("a");
