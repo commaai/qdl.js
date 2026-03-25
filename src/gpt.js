@@ -24,6 +24,11 @@ const PART_ATT_UNBOOTABLE_VAL = 1n << PART_ATT_UNBOOTABLE_BIT;
 const MAX_PRIORITY = 3n;
 const MAX_RETRY_COUNT = 7n;
 
+// GPT images only contain the primary table. When we create the backup in asAlternate(),
+// we must reserve at least 16,384 bytes for the partition entry array per UEFI spec.
+// https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-overview
+const MIN_PARTITION_ARRAY_SIZE = 16384;
+
 const logger = createLogger("gpt");
 
 
@@ -187,7 +192,8 @@ export class GPT {
     const alternate = this.#header.$clone();
     alternate.currentLba = this.#header.alternateLba;
     alternate.alternateLba = this.#header.currentLba;
-    alternate.partEntriesStartLba = this.#header.alternateLba - BigInt(this.partEntriesSectors);
+    const partArraySize = Math.max(this.numPartEntries * this.partEntrySize, MIN_PARTITION_ARRAY_SIZE);
+    alternate.partEntriesStartLba = this.#header.alternateLba - BigInt(Math.ceil(partArraySize / this.sectorSize));
 
     const gpt = new GPT(this.sectorSize);
     gpt.#header = alternate;
