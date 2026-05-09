@@ -6,6 +6,12 @@ import { createLogger } from "./logger";
 
 const logger = createLogger("qdl");
 
+const bootLunIdForSlot = (slot) => {
+  if (slot === "a") return 1;
+  if (slot === "b") return 2;
+  throw new Error("Invalid slot");
+};
+
 
 export class qdlDevice {
   /**
@@ -374,13 +380,29 @@ export class qdlDevice {
       await this.firehose.cmdProgram(lun, backupGpt.currentLba, new Blob([backupHeader]));
     }
 
-    const activeBootLunId = (slot === "a") ? 1 : 2;
+    const activeBootLunId = bootLunIdForSlot(slot);
     await this.firehose.cmdSetBootLunId(activeBootLunId);
     logger.info(`Successfully set slot ${slot} active`);
     return true;
   }
 
+  async syncBootLunWithActiveSlot() {
+    let activeSlot;
+    try {
+      activeSlot = await this.getActiveSlot();
+    } catch (e) {
+      logger.warn(`Could not detect active slot, leaving boot LUN unchanged: ${e.message || e}`);
+      return false;
+    }
+
+    const activeBootLunId = bootLunIdForSlot(activeSlot);
+    await this.firehose.cmdSetBootLunId(activeBootLunId);
+    logger.info(`Synced boot LUN ${activeBootLunId} with active slot ${activeSlot}`);
+    return true;
+  }
+
   async reset() {
+    await this.syncBootLunWithActiveSlot();
     await this.firehose.cmdReset();
     return true;
   }
