@@ -214,7 +214,7 @@ describe("GPT", () => {
     beforeAll(async () => {
       gpt = new GPT(SECTOR_SIZE);
 
-      const manifest = await fetch("https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/all-partitions.json").then((res) => res.json());
+      const manifest = await fetch("https://raw.githubusercontent.com/commaai/openpilot/master/openpilot/common/hardware/comma/all-partitions.json").then((res) => res.json());
       const gptImage= manifest.find((image) => image.name === `gpt_main_${lun}`);
       const compressedResponse = await fetch(gptImage.url);
       gptBuffer = await readableStreamToArrayBuffer(new XzReadableStream(compressedResponse.body));
