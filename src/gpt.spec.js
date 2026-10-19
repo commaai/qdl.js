@@ -4,6 +4,7 @@ import { buf as crc32 } from "crc-32";
 import { XzReadableStream } from "xz-decompress";
 
 import { GPT } from "./gpt";
+import { qdlDevice } from "./qdl";
 
 
 const SECTOR_SIZE = 4096;
@@ -127,6 +128,111 @@ function typeOf(gpt, name) {
   return gpt.getPartitions().find((p) => p.name === name)?.type;
 }
 
+// Exercise QDL's real GPT reads and writes against sector-addressed storage.
+function createTestDevice(partitionsByLun) {
+  const disks = new Map();
+  for (const [lun, partitions] of partitionsByLun) {
+    const { header, entries } = buildGPTData(partitions);
+    const backup = header.slice();
+    const view = new DataView(backup.buffer);
+    view.setBigUint64(24, 0xFFFFn, true);
+    view.setBigUint64(32, 1n, true);
+    view.setBigUint64(72, 0xFFFBn, true);
+    view.setInt32(16, 0, true);
+    view.setInt32(16, crc32(backup.subarray(0, 92)), true);
+    disks.set(lun, new Map([[1n, header], [2n, entries], [0xFFFFn, backup], [0xFFFBn, entries.slice()]]));
+  }
+  const firehose = {
+    cfg: { SECTOR_SIZE_IN_BYTES: SECTOR_SIZE },
+    luns: [...disks.keys()],
+    bootLun: null,
+    cmdReadBuffer(lun, lba, sectors) {
+      const bytes = new Uint8Array(sectors * SECTOR_SIZE);
+      bytes.set(disks.get(lun).get(lba));
+      return bytes;
+    },
+    async cmdProgram(lun, lba, blob) {
+      disks.get(lun).set(lba, new Uint8Array(await blob.arrayBuffer()));
+      return true;
+    },
+    cmdSetBootLunId(lun) {
+      this.bootLun = lun;
+      return true;
+    },
+  };
+  const device = new qdlDevice(new ArrayBuffer(0));
+  Object.defineProperty(device, "firehose", { value: firehose });
+  return device;
+}
+
+describe("QDL slot selection", () => {
+  const GUID_BOOT = "20117f86-e985-4357-b9ee-374bc1d8487d";
+  const GUID_SYSTEM = "97d7b011-54da-4835-b3c4-917ad6e73d74";
+  const GUID_INACTIVE = "77036cd4-03d5-42bb-8ed1-37e5a88baa34";
+  const GUID_XBL = "dea0ba2c-cbdd-4805-b4f9-f428251c3e98";
+
+  function deviceWithSlots(flagSlot, guidSlot) {
+    return createTestDevice(new Map([
+      [0, [
+        { name: "system_a", type: guidSlot === "a" ? GUID_SYSTEM : GUID_INACTIVE },
+        { name: "system_b", type: guidSlot === "b" ? GUID_SYSTEM : GUID_INACTIVE },
+      ]],
+      [1, [{ name: "xbl_a", type: GUID_XBL }]],
+      [2, [{ name: "xbl_b", type: GUID_XBL }]],
+      [4, [
+        { name: "boot_a", type: guidSlot === "a" ? GUID_BOOT : GUID_INACTIVE,
+          attributes: flagSlot === "a" ? 0x003f000000000000n : 0n },
+        { name: "boot_b", type: guidSlot === "b" ? GUID_BOOT : GUID_INACTIVE,
+          attributes: flagSlot === "b" ? 0x003f000000000000n : 0n },
+      ]],
+    ]));
+  }
+
+  test.each([
+    ["b", "a", ["b"]],
+    ["b", "a", ["a"]],
+    ["a", "b", ["a"]],
+    ["a", "b", ["b"]],
+    ["none", "a", ["b"]],
+    ["a", "a", ["a", "b", "b", "a", "a"]],
+  ])("flags=%s, GUIDs=%s: selecting %j aligns both GPTs and boot LUN", async (flagSlot, guidSlot, slots) => {
+    const device = deviceWithSlots(flagSlot, guidSlot);
+    const identities = new Map();
+    for (const lun of device.firehose.luns) {
+      identities.set(lun, (await device.getGpt(lun)).getPartitions().map(({ type, attributes, ...partition }) => partition));
+    }
+    for (const slot of slots) {
+      await device.setActiveSlot(slot);
+      expect(await device.getActiveSlot()).toBe(slot);
+      expect(device.firehose.bootLun).toBe(slot === "a" ? 1 : 2);
+      const other = slot === "a" ? "b" : "a";
+      for (const lba of [1n, 0xFFFFn]) {
+        const boot = await device.getGpt(4, lba);
+        expect(boot.getActiveSlot()).toBe(slot);
+        expect(typeOf(boot, `boot_${slot}`)).toBe(GUID_BOOT);
+        expect(typeOf(boot, `boot_${other}`)).toBe(GUID_INACTIVE);
+        const system = await device.getGpt(0, lba);
+        expect(typeOf(system, `system_${slot}`)).toBe(GUID_SYSTEM);
+        expect(typeOf(system, `system_${other}`)).toBe(GUID_INACTIVE);
+        expect(typeOf(await device.getGpt(1, lba), "xbl_a")).toBe(GUID_XBL);
+        expect(typeOf(await device.getGpt(2, lba), "xbl_b")).toBe(GUID_XBL);
+
+        for (const lun of device.firehose.luns) {
+          const partitions = (await device.getGpt(lun, lba)).getPartitions();
+          expect(partitions.map(({ type, attributes, ...partition }) => partition)).toEqual(identities.get(lun));
+          const header = await device.firehose.cmdReadBuffer(lun, lba, 1);
+          const view = new DataView(header.buffer);
+          const entries = await device.firehose.cmdReadBuffer(lun, view.getBigUint64(72, true), 1);
+          expect(view.getInt32(88, true)).toBe(crc32(entries.subarray(0, view.getUint32(80, true) * 128)));
+          const checksum = view.getInt32(16, true);
+          view.setInt32(16, 0, true);
+          expect(crc32(header.subarray(0, 92))).toBe(checksum);
+        }
+      }
+    }
+  });
+});
+
 
 // Typical comma device LUN 4 partitions (all starting at zero attributes)
 const LUN4_PARTITIONS = [
@@ -149,7 +255,7 @@ describe("GPT", () => {
     beforeAll(async () => {
       gpt = new GPT(SECTOR_SIZE);
 
-      const manifest = await fetch("https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/all-partitions.json").then((res) => res.json());
+      const manifest = await fetch("https://raw.githubusercontent.com/commaai/openpilot/master/openpilot/common/hardware/comma/all-partitions.json").then((res) => res.json());
       const gptImage= manifest.find((image) => image.name === `gpt_main_${lun}`);
       const compressedResponse = await fetch(gptImage.url);
       gptBuffer = await readableStreamToArrayBuffer(new XzReadableStream(compressedResponse.body));

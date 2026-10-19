@@ -6,6 +6,9 @@ import { createLogger } from "./logger";
 
 const logger = createLogger("qdl");
 
+// Qualcomm boot partition type GUID, shared by the SDM845 A/B layout.
+const TYPE_BOOT = "20117f86-e985-4357-b9ee-374bc1d8487d";
+
 
 export class qdlDevice {
   /**
@@ -354,11 +357,14 @@ export class qdlDevice {
   async setActiveSlot(slot) {
     if (slot !== "a" && slot !== "b") throw new Error("Invalid slot");
 
-    // Detect current slot to decide if GUID swap is needed (ABL SwitchPtnSlots)
+    // Boot flags can disagree with GUIDs after a flags-only slot switch.
+    // Locate the boot type GUID to decide whether the GUIDs need swapping.
     let currentSlot = null;
     for (const lun of this.firehose.luns) {
       const gpt = await this.getGpt(lun, 1n);
-      currentSlot = gpt.getActiveSlot();
+      const boot = gpt.getPartitions().find((p) =>
+        (p.name === "boot_a" || p.name === "boot_b") && p.type === TYPE_BOOT);
+      currentSlot = boot ? boot.name.slice(-1) : null;
       if (currentSlot !== null) break;
     }
     const shouldSwapGuids = currentSlot !== null && currentSlot !== slot;
