@@ -7,6 +7,37 @@ import { guid, utf16cstring } from "./gpt-structs";
 const SIGNATURE = "EFI PART";
 const TYPE_EFI_UNUSED = "00000000-0000-0000-0000-000000000000";
 
+const TYPE_DORMANT = "77036cd4-03d5-42bb-8ed1-37e5a88baa34";
+const TYPE_BASIC = "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7";
+
+// Active/inactive types from AGNOS abctl, plus system from the comma GPT images.
+// https://github.com/commaai/agnos-builder/blob/72db4110f866c5c87e6e8311dd66c3e7f0ff06f9/userspace/root/usr/sbin/abctl
+const AB_PARTITION_TYPES = {
+  sbl1: ["dea0ba2c-cbdd-4805-b4f9-f428251c3e98", TYPE_BASIC],
+  rpm: ["098df793-d712-413d-9d4e-89d711772228", TYPE_BASIC],
+  tz: ["a053aa7f-40b8-4b1c-ba08-2f68ac71a4f4", TYPE_DORMANT],
+  aboot: ["400ffdcd-22e0-47e7-9a23-f16ed9382388", TYPE_BASIC],
+  boot: ["20117f86-e985-4357-b9ee-374bc1d8487d", TYPE_DORMANT],
+  system: ["97d7b011-54da-4835-b3c4-917ad6e73d74", TYPE_DORMANT],
+  modem: [TYPE_BASIC, TYPE_DORMANT],
+  dsp: ["7efe5010-2a1a-4a1a-b8bc-990257813512", TYPE_DORMANT],
+  devcfg: ["f65d4b16-343d-4e25-aafc-be99b6556a6d", TYPE_DORMANT],
+  cmnlib: ["73471795-ab54-43f9-a847-4f72ea5cbef5", TYPE_DORMANT],
+  cmnlib64: ["8ea64893-1267-4a1b-947c-7c362acaad2c", TYPE_DORMANT],
+  keymaster: ["a11d2a7c-d82a-4c2f-8a01-1805240e6626", TYPE_DORMANT],
+  abl: ["bd6928a1-4ce0-a038-4f3a-1495e3eddffb", "4114b077-005d-4e12-ac8c-b493bda684fb"],
+  aop: ["d69e90a5-4cab-0071-f6df-ab977f141a7f", TYPE_DORMANT],
+  bluetooth: ["6cb747f1-c2ef-4092-add0-ca39f79c7af4", TYPE_DORMANT],
+  hyp: ["e1a6a689-0c8d-4cc6-b4e8-55a4320fbd8a", TYPE_DORMANT],
+  qupfw: ["21d1219f-2ed1-4ab4-930a-41a16ae75f7f", TYPE_DORMANT],
+  storsec: ["02db45fe-ad1b-4cb6-aecc-0042c637defa", TYPE_DORMANT],
+  xbl: ["dea0ba2c-cbdd-4805-b4f9-f428251c3e98", "dea0ba2c-cbdd-4805-b4f9-f428251c3e98"],
+  xbl_config: ["5a325ae4-4276-b66d-0add-3494df27706a", "5a325ae4-4276-b66d-0add-3494df27706a"],
+  mdtp: ["3878408a-e263-4b67-b878-6340b35b11e3", TYPE_DORMANT],
+  mdtpsecapp: ["ea02d680-8712-4552-a3be-e6087829c1e6", TYPE_DORMANT],
+  ImageFv: ["17911177-c9e6-4372-933c-804b678e666f", TYPE_DORMANT],
+};
+
 // Qualcomm ABL A/B partition attribute bits 48-55
 // https://git.codelinaro.org/clo/qcomlt/abl/-/blob/LE.UM.2.3.7/QcomModulePkg/Include/Library/PartitionTableUpdate.h#L89-102
 const PART_ATT_PRIORITY_BIT = 48n;
@@ -281,7 +312,7 @@ export class GPT {
   }
 
   /**
-   * Matches ABL SetActiveSlot() + MarkPtnActive() behavior.
+   * Assigns partition types and matches ABL SetActiveSlot() + MarkPtnActive() attributes.
    * https://git.codelinaro.org/clo/qcomlt/abl/-/blob/LE.UM.2.3.7/QcomModulePkg/Library/BootLib/PartitionTableUpdate.c#L1233-1320
    * @param {"a"|"b"} slot
    */
@@ -293,6 +324,10 @@ export class GPT {
       if (partSlot !== "_a" && partSlot !== "_b") continue;
       const isActive = partSlot === `_${slot}`;
       const isBoot = partEntry.name.startsWith("boot");
+      const name = partEntry.name.slice(0, -2);
+      if (Object.hasOwn(AB_PARTITION_TYPES, name)) {
+        partEntry.type = AB_PARTITION_TYPES[name][isActive ? 0 : 1];
+      }
 
       if (isBoot) {
         if (isActive) {
