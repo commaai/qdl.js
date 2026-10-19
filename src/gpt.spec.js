@@ -4,6 +4,7 @@ import { buf as crc32 } from "crc-32";
 import { XzReadableStream } from "xz-decompress";
 
 import { GPT } from "./gpt";
+import { qdlDevice } from "./qdl";
 
 
 const SECTOR_SIZE = 4096;
@@ -94,6 +95,104 @@ function attrOf(gpt, name) {
 }
 
 
+test("setActiveSlot assigns canonical types without relying on existing GUIDs or flags", () => {
+  const dormant = "77036cd4-03d5-42bb-8ed1-37e5a88baa34";
+  const types = [
+    ["boot", "20117f86-e985-4357-b9ee-374bc1d8487d", dormant],
+    ["system", "97d7b011-54da-4835-b3c4-917ad6e73d74", dormant],
+    ["abl", "bd6928a1-4ce0-a038-4f3a-1495e3eddffb", "4114b077-005d-4e12-ac8c-b493bda684fb"],
+    ["modem", "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7", dormant],
+  ];
+  const gpt = createTestGPT([
+    ...types.flatMap(([name]) => [{ name: `${name}_a` }, { name: `${name}_b` }]),
+    { name: "vendor_a" }, { name: "custom_b" }, { name: "misc" },
+  ]);
+  const before = gpt.getPartitions();
+
+  for (const slot of ["b", "b", "a"]) {
+    gpt.setActiveSlot(slot);
+    for (const [name, active, inactive] of types) {
+      expect(gpt.locatePartition(`${name}_a`).type).toBe(slot === "a" ? active : inactive);
+      expect(gpt.locatePartition(`${name}_b`).type).toBe(slot === "b" ? active : inactive);
+    }
+    for (const original of before) {
+      const { type, attributes, ...identity } = original;
+      expect(gpt.locatePartition(original.name)).toMatchObject(identity);
+      if (["vendor_a", "custom_b", "misc"].includes(original.name)) {
+        expect(gpt.locatePartition(original.name).type).toBe(type);
+      }
+    }
+  }
+});
+
+
+test("qdl setActiveSlot updates both GPT copies and selects the boot LUN", async () => {
+  const luns = [
+    [0, ["system_a", "system_b"], "97d7b011-54da-4835-b3c4-917ad6e73d74"],
+    [1, ["xbl_a"], "dea0ba2c-cbdd-4805-b4f9-f428251c3e98"],
+    [2, ["xbl_b"], "dea0ba2c-cbdd-4805-b4f9-f428251c3e98"],
+    [4, ["boot_a", "boot_b"], "20117f86-e985-4357-b9ee-374bc1d8487d"],
+  ];
+  const storage = new Map();
+  const copies = [[1n, 2n, "a"], [0xFFFFn, 0xFFFBn, "b"]];
+  for (const [lun, names] of luns) {
+    for (const [sector, entriesSector, slot] of copies) {
+      const { header, entries } = buildGPTData(names.map((name) => ({ name })));
+      const view = new DataView(header.buffer);
+      view.setBigUint64(24, sector, true);
+      view.setBigUint64(32, sector === 1n ? 0xFFFFn : 1n, true);
+      view.setBigUint64(48, 0xFFFAn, true);
+      view.setBigUint64(72, entriesSector, true);
+      view.setInt32(16, 0, true);
+      view.setInt32(16, crc32(header.subarray(0, 92)), true);
+      const gpt = new GPT(SECTOR_SIZE);
+      gpt.parseHeader(header, sector);
+      gpt.parsePartEntries(entries);
+      // Start with primary and backup pointing at different slots.
+      gpt.setActiveSlot(slot);
+      storage.set(`${lun}:${sector}`, gpt.buildHeader());
+      storage.set(`${lun}:${entriesSector}`, gpt.buildPartEntries());
+    }
+  }
+  let bootLun;
+  const firehose = {
+    cfg: { SECTOR_SIZE_IN_BYTES: SECTOR_SIZE },
+    luns: luns.map(([lun]) => lun),
+    cmdReadBuffer(lun, sector, count) {
+      const data = new Uint8Array(count * SECTOR_SIZE);
+      data.set(storage.get(`${lun}:${sector}`));
+      return data;
+    },
+    async cmdProgram(lun, sector, blob) {
+      expect(storage.has(`${lun}:${sector}`)).toBe(true);
+      storage.set(`${lun}:${sector}`, new Uint8Array(await blob.arrayBuffer()));
+      return true;
+    },
+    cmdSetBootLunId(lun) { bootLun = lun; return true; },
+  };
+  const device = new qdlDevice(new ArrayBuffer(0));
+  Object.defineProperty(device, "firehose", { value: firehose });
+
+  for (const slot of ["b", "b", "a"]) {
+    await device.setActiveSlot(slot);
+    expect(bootLun).toBe(slot === "a" ? 1 : 2);
+    for (const [lun, names, activeType] of luns) {
+      for (const [sector, entriesSector] of copies) {
+        const gpt = new GPT(SECTOR_SIZE);
+        expect(gpt.parseHeader(storage.get(`${lun}:${sector}`), sector).mismatchCrc32).toBe(false);
+        expect(gpt.partEntriesStartLba).toBe(entriesSector);
+        expect(gpt.parsePartEntries(storage.get(`${lun}:${entriesSector}`)).mismatchCrc32).toBe(false);
+        for (const name of names) {
+          const active = name.endsWith(`_${slot}`) || name.startsWith("xbl_");
+          expect(gpt.locatePartition(name).type).toBe(active ? activeType : "77036cd4-03d5-42bb-8ed1-37e5a88baa34");
+        }
+        if (lun === 4) expect(gpt.getActiveSlot()).toBe(slot);
+      }
+    }
+  }
+});
+
+
 // Typical comma device LUN 4 partitions (all starting at zero attributes)
 const LUN4_PARTITIONS = [
   { name: "boot_a" },
@@ -115,7 +214,7 @@ describe("GPT", () => {
     beforeAll(async () => {
       gpt = new GPT(SECTOR_SIZE);
 
-      const manifest = await fetch("https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/all-partitions.json").then((res) => res.json());
+      const manifest = await fetch("https://raw.githubusercontent.com/commaai/openpilot/master/openpilot/common/hardware/comma/all-partitions.json").then((res) => res.json());
       const gptImage= manifest.find((image) => image.name === `gpt_main_${lun}`);
       const compressedResponse = await fetch(gptImage.url);
       gptBuffer = await readableStreamToArrayBuffer(new XzReadableStream(compressedResponse.body));
