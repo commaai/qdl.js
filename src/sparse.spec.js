@@ -109,4 +109,16 @@ describe("coalesced sparse writes", () => {
     }
     expect(Buffer.from(result).equals(Buffer.from(await Bun.file(expectedPath).arrayBuffer()))).toBe(true);
   });
+
+  test("accepts a final DONT_CARE header without a payload", async () => {
+    const sparse = await Sparse.from(image([
+      { type: 0xcac1, blocks: 1, data: new Uint8Array(4096).fill(1) },
+      { type: 0xcac3, blocks: 2, data: new Uint8Array() },
+    ]));
+    const writes = await Array.fromAsync(sparse.readCoalesced());
+    expect(writes.map(([offset, data, size]) => [offset, !!data, size])).toEqual([
+      [0, true, 4096], [4096, false, 8192],
+    ]);
+  });
+
 });
