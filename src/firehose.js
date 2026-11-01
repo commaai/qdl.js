@@ -32,7 +32,7 @@ class response {
 
 class cfg {
   constructor() {
-    this.ZLPAwareHost = 1;
+    this.ZLPAwareHost = 0;
     this.SkipStorageInit = 0;
     this.SkipWrite = 0;
     this.MaxPayloadSizeToTargetInBytes = 1048576;
@@ -111,7 +111,7 @@ export class Firehose {
       AlwaysValidate: 0,
       MaxDigestTableSizeInBytes: 2048,
       MaxPayloadSizeToTargetInBytes: this.cfg.MaxPayloadSizeToTargetInBytes,
-      ZLPAwareHost: this.cfg.ZLPAwareHost,
+      ZlpAwareHost: this.cfg.ZLPAwareHost,
       SkipStorageInit: this.cfg.SkipStorageInit,
       SkipWrite: this.cfg.SkipWrite,
     });
@@ -229,16 +229,20 @@ export class Firehose {
     let offset = 0;
     let bytesToWrite = total;
 
+    let nextChunk = blob.slice(0, this.cfg.MaxPayloadSizeToTargetInBytes).arrayBuffer();
     while (bytesToWrite > 0) {
       const wlen = Math.min(bytesToWrite, this.cfg.MaxPayloadSizeToTargetInBytes);
-      let wdata = new Uint8Array(await blob.slice(offset, offset + wlen).arrayBuffer());
+      let wdata = new Uint8Array(await nextChunk);
+      if (bytesToWrite > wlen) {
+        nextChunk = blob.slice(offset + wlen, offset + wlen + this.cfg.MaxPayloadSizeToTargetInBytes).arrayBuffer();
+      }
       if (wlen % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
         const fillLen = (Math.floor(wlen / this.cfg.SECTOR_SIZE_IN_BYTES) + 1) * this.cfg.SECTOR_SIZE_IN_BYTES;
         const fillArray = new Uint8Array(fillLen - wlen).fill(0x00);
         wdata = concatUint8Array([wdata, fillArray]);
       }
-      await this.cdc.write(wdata);
-      await this.cdc.write(new Uint8Array(0));
+      await Promise.all([this.cdc.write(wdata), nextChunk]);
+      if (this.cfg.ZLPAwareHost) await this.cdc.write(new Uint8Array(0));
       offset += wlen;
       bytesToWrite -= wlen;
 
@@ -293,7 +297,7 @@ export class Firehose {
         const wlen = Math.min(bytesToWrite, this.cfg.MaxPayloadSizeToTargetInBytes);
         await this.cdc.write(empty.slice(0, wlen));
         bytesToWrite -= wlen;
-        await this.cdc.write(new Uint8Array(0));
+        if (this.cfg.ZLPAwareHost) await this.cdc.write(new Uint8Array(0));
       }
 
       const res = await this.waitForData();
