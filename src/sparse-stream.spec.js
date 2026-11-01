@@ -185,6 +185,15 @@ describe("continuous sparse streams", () => {
     }
   });
 
+  test("rejects detached source storage instead of looping without progress", async () => {
+    const { blob, bytes, metadata } = await fixture();
+    const reader = selectSparseRanges(source(bytes, [bytes.length]), metadata, blob.size).getReader();
+    const first = await reader.read();
+    structuredClone(first.value, { transfer: [first.value.buffer] });
+    await expect(reader.read()).rejects.toThrow("detached during streaming");
+    reader.releaseLock();
+  });
+
   test("accepts a stream-only program part", async () => {
     const { blob, bytes, metadata } = await fixture();
     const plan = { ...metadata, parts: [{ size: metadata.dataSectors * 4096, stream: () => selectSparseRanges(source(bytes), metadata, blob.size) }] };

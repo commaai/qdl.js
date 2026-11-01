@@ -68,6 +68,7 @@ export function selectSparseRanges(source, metadata, fileSize) {
   let received = 0;
   let position = 0;
   const take = async (length) => {
+    check(bufferOffset <= buffer.length, "source buffer was detached during streaming");
     while (bufferOffset === buffer.length) {
       const next = await reader.read();
       check(!next.done, "truncated source");
@@ -78,6 +79,7 @@ export function selectSparseRanges(source, metadata, fileSize) {
       check(received <= fileSize, "source exceeds file size");
     }
     const count = Math.min(length, buffer.length - bufferOffset);
+    check(count > 0, "source made no progress");
     const result = buffer.subarray(bufferOffset, bufferOffset + count);
     bufferOffset += count;
     position += count;
