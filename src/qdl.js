@@ -284,17 +284,27 @@ export class qdlDevice {
       }
     }
     logger.debug(`Writing chunks to ${name}...`);
-    for await (const [offset, chunk] of sparse.readCoalesced()) {
-      if (!chunk) continue;
-      if (offset % gpt.sectorSize !== 0) {
-        throw "qdl - Offset not aligned to sector size";
+    const chunks = sparse.readCoalesced();
+    let next = chunks.next();
+    try {
+      for (let item = await next; !item.done; item = await next) {
+        const [offset, chunk] = item.value;
+        next = chunks.next();
+        // A read can fail while programming the previous run.
+        next.catch(() => undefined);
+        if (!chunk) continue;
+        if (offset % gpt.sectorSize !== 0) {
+          throw "qdl - Offset not aligned to sector size";
+        }
+        const sector = partition.start + BigInt(offset / gpt.sectorSize);
+        const onChunkProgress = (progress) => onProgress?.(offset + progress);
+        if (!await this.firehose.cmdProgram(lun, sector, chunk, onChunkProgress)) {
+          logger.debug("Failed to program chunk")
+          return false;
+        }
       }
-      const sector = partition.start + BigInt(offset / gpt.sectorSize);
-      const onChunkProgress = (progress) => onProgress?.(offset + progress);
-      if (!await this.firehose.cmdProgram(lun, sector, chunk, onChunkProgress)) {
-        logger.debug("Failed to program chunk")
-        return false;
-      }
+    } finally {
+      await chunks.return();
     }
     return true;
   }

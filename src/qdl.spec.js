@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import { Sparse } from "./sparse";
 import { buf as crc32 } from "crc-32";
 import { qdlDevice } from "./qdl";
 
@@ -71,5 +72,60 @@ describe("partition lookup cache", () => {
     await device.reset();
     device.storage = disk(400n);
     expect((await device.detectPartition("system_a"))[2].start).toBe(400n);
+  });
+});
+
+
+describe("sparse read ahead", () => {
+  class StreamingDevice extends qdlDevice {
+    program = () => Promise.resolve(true);
+    get firehose() {
+      return { cmdProgram: (...args) => this.program(...args) };
+    }
+    detectPartition() {
+      return Promise.resolve([true, 0, { start: 0n, sectors: 100n }, { sectorSize: 4096 }]);
+    }
+  }
+
+  test("observes a malformed next run while the previous write finishes", async () => {
+    const device = new StreamingDevice(new ArrayBuffer(1));
+    device.program = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return true;
+    };
+    const read = spyOn(Sparse.prototype, "readCoalesced").mockImplementation(async function* () {
+      yield [0, [new Blob([new Uint8Array(4096)])], 4096];
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      throw new Error("malformed next chunk");
+    });
+    try {
+      await expect(device.flashBlob("system", Bun.file("./test/fixtures/sparse.img"), undefined, false)).rejects.toThrow("malformed next chunk");
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  test("closes read ahead and handles its rejection when programming fails", async () => {
+    const device = new StreamingDevice(new ArrayBuffer(1));
+    device.program = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return false;
+    };
+    let closed = false;
+    const read = spyOn(Sparse.prototype, "readCoalesced").mockImplementation(async function* () {
+      try {
+        yield [0, [new Blob([new Uint8Array(4096)])], 4096];
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        throw new Error("failed read ahead");
+      } finally {
+        closed = true;
+      }
+    });
+    try {
+      expect(await device.flashBlob("system", Bun.file("./test/fixtures/sparse.img"), undefined, false)).toBe(false);
+      expect(closed).toBe(true);
+    } finally {
+      read.mockRestore();
+    }
   });
 });
