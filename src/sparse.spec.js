@@ -92,14 +92,20 @@ describe("coalesced sparse writes", () => {
     expect(writes.map(([offset, data, size]) => [offset / 4096, !!data, size / 4096])).toEqual([
       [0, true, 3], [3, false, 1], [4, true, 1], [5, false, 100], [105, true, 1],
     ]);
-    expect(new Uint8Array(await writes[0][1].arrayBuffer())).toEqual(new Uint8Array([...raw, ...new Uint8Array(4096), ...raw]));
+    expect(Buffer.concat(await Promise.all(writes[0][1].map(async (part) => Buffer.from(await part.arrayBuffer()))))).toEqual(Buffer.concat([raw, new Uint8Array(4096), raw]));
   });
 
   test("coalesced fixture has identical expanded bytes", async () => {
     const sparse = await Sparse.from(inputData);
     const result = new Uint8Array(sparse.header.totalBlocks * sparse.header.blockSize);
     for await (const [offset, data] of sparse.readCoalesced()) {
-      if (data) result.set(new Uint8Array(await data.arrayBuffer()), offset);
+      if (data) {
+        let position = offset;
+        for (const part of data) {
+          result.set(new Uint8Array(await part.arrayBuffer()), position);
+          position += part.size;
+        }
+      }
     }
     expect(Buffer.from(result).equals(Buffer.from(await Bun.file(expectedPath).arrayBuffer()))).toBe(true);
   });

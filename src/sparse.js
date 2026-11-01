@@ -107,17 +107,17 @@ export class Sparse {
    * Merge adjacent writes and small zero fills to avoid a command per sparse chunk.
    * DONT_CARE ranges remain untouched.
    * @param {number} [maxZeroFill=65536]
-   * @returns {AsyncIterator<[number, Blob | null, number]>}
+   * @returns {AsyncIterator<[number, Blob[] | null, number]>}
    */
   async *readCoalesced(maxZeroFill = 65536) {
     const maxSize = 64 * 1024 * 1024;
-    /** @type {ArrayBuffer[]} */
+    /** @type {Blob[]} */
     let parts = [];
     let start = 0;
     let length = 0;
     for await (const [offset, data, size] of this.read(maxZeroFill)) {
       if (length && (!data || offset !== start + length)) {
-        yield [start, new Blob(parts), length];
+        yield [start, parts, length];
         parts = [];
         length = 0;
       }
@@ -128,17 +128,17 @@ export class Sparse {
       for (let position = 0; position < size;) {
         if (!length) start = offset + position;
         const count = Math.min(size - position, maxSize - length);
-        parts.push(await data.slice(position, position + count).arrayBuffer());
+        parts.push(data.slice(position, position + count));
         position += count;
         length += count;
         if (length === maxSize) {
-          yield [start, new Blob(parts), length];
+          yield [start, parts, length];
           parts = [];
           length = 0;
         }
       }
     }
-    if (length) yield [start, new Blob(parts), length];
+    if (length) yield [start, parts, length];
   }
 }
 
