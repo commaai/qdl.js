@@ -13,6 +13,9 @@ export class qdlDevice {
    */
   #firehose = null
 
+  /** @type {Map<number, GPT>} */
+  #gptCache = new Map();
+
   /**
    * @param {ArrayBuffer} programmer
    */
@@ -41,6 +44,7 @@ export class qdlDevice {
    * @returns {Promise<void>}
    */
   async connect(cdc) {
+    this.#gptCache.clear();
     if (!cdc.connected) await cdc.connect();
     if (!cdc.connected) throw new Error("Could not connect to device");
     logger.debug("QDL device detected");
@@ -64,6 +68,7 @@ export class qdlDevice {
    * @returns {Promise<GPT>}
    */
   async getGpt(lun, sector = undefined) {
+    this.#gptCache.delete(lun);
     // TODO: get sector size from getStorageInfo
     logger.debug("reading primary GPT");
     const primaryGpt = new GPT(this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
@@ -104,12 +109,14 @@ export class qdlDevice {
       }
       // TODO: restore primary from backup
       logger.warn(`LUN ${lun}: Primary GPT header is corrupted, using backup`);
+      this.#gptCache.set(lun, backupGpt);
       return backupGpt;
     }
     if (!partEntriesConsistency) {
       logger.warn(`LUN ${lun}: Primary and backup GPT part entries are inconsistent, using primary`);
       // TODO: create backup from primary
     }
+    this.#gptCache.set(lun, primaryGpt);
     return primaryGpt;
   }
 
@@ -119,6 +126,7 @@ export class qdlDevice {
    * @returns {Promise<boolean>}
    */
   async repairGpt(lun, primaryGptBlob) {
+    this.#gptCache.delete(lun);
     logger.info(`Repairing GPT on LUN ${lun}`);
 
     if (!await this.firehose.cmdProgram(lun, 0, primaryGptBlob)) {
@@ -209,6 +217,7 @@ export class qdlDevice {
       erasableRanges.push({ start: lastEndSector + 1n, end: alternateLba });
     }
 
+    this.#gptCache.delete(lun);
     for (const range of erasableRanges) {
       const sectors = range.end - range.start + 1n;
       logger.debug(`Erasing sectors ${range.start}-${range.end} (${sectors})`);
@@ -237,7 +246,7 @@ export class qdlDevice {
    */
   async detectPartition(name) {
     for (const lun of this.firehose.luns) {
-      const gpt = await this.getGpt(lun);
+      const gpt = this.#gptCache.get(lun) ?? await this.getGpt(lun);
       const partition = gpt.locatePartition(name);
       if (!partition) continue;
       logger.debug("found partition", name, "in lun", lun, partition);
@@ -352,6 +361,7 @@ export class qdlDevice {
    * @returns {Promise<boolean>}
    */
   async setActiveSlot(slot) {
+    this.#gptCache.clear();
     if (slot !== "a" && slot !== "b") throw new Error("Invalid slot");
 
     for (const lun of this.firehose.luns) {
@@ -381,6 +391,7 @@ export class qdlDevice {
   }
 
   async reset() {
+    this.#gptCache.clear();
     await this.firehose.cmdReset();
     return true;
   }
