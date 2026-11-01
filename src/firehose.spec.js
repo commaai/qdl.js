@@ -37,3 +37,23 @@ test("configure sends the firmware's case-sensitive ZlpAwareHost setting", async
   expect(command).toContain('ZlpAwareHost="0"');
   expect(command).not.toContain('ZLPAwareHost=');
 });
+
+test("program drains queued transfers before reporting a write failure", async () => {
+  const { hose } = programTransport();
+  let submitted = 0;
+  let active = 0;
+  let peak = 0;
+  hose.cdc.write = () => {
+    const index = submitted++;
+    peak = Math.max(peak, ++active);
+    return new Promise((resolve, reject) => setTimeout(() => {
+      active--;
+      if (index === 2) reject(new Error("disconnected"));
+      else resolve();
+    }, 1));
+  };
+  await expect(hose.cmdProgram(0, 0n, new Blob([new Uint8Array(8192 * 20)]))).rejects.toThrow("disconnected");
+  expect(active).toBe(0);
+  expect(peak).toBeGreaterThan(1);
+  expect(peak).toBeLessThanOrEqual(8);
+});

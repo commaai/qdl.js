@@ -225,31 +225,37 @@ export class Firehose {
       return false;
     }
 
-    let i = 0;
-    let offset = 0;
-    let bytesToWrite = total;
+    const pending = [];
+    const depth = this.cfg.ZLPAwareHost ? 1 : 8;
+    let completed = 0;
+    let chunks = 0;
+    const completeWrite = async () => {
+      const [result, length] = pending.shift();
+      const failure = await result;
+      if (failure) throw failure.error;
+      completed += length;
+      if (chunks++ % 10 === 0) onProgress?.(completed);
+    };
 
-    let nextChunk = blob.slice(0, this.cfg.MaxPayloadSizeToTargetInBytes).arrayBuffer();
-    while (bytesToWrite > 0) {
-      const wlen = Math.min(bytesToWrite, this.cfg.MaxPayloadSizeToTargetInBytes);
-      let wdata = new Uint8Array(await nextChunk);
-      if (bytesToWrite > wlen) {
-        nextChunk = blob.slice(offset + wlen, offset + wlen + this.cfg.MaxPayloadSizeToTargetInBytes).arrayBuffer();
+    try {
+      for (let offset = 0; offset < total; offset += this.cfg.MaxPayloadSizeToTargetInBytes) {
+        const wlen = Math.min(total - offset, this.cfg.MaxPayloadSizeToTargetInBytes);
+        let wdata = new Uint8Array(await blob.slice(offset, offset + wlen).arrayBuffer());
+        if (wlen % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
+          const padded = new Uint8Array(Math.ceil(wlen / this.cfg.SECTOR_SIZE_IN_BYTES) * this.cfg.SECTOR_SIZE_IN_BYTES);
+          padded.set(wdata);
+          wdata = padded;
+        }
+        const write = this.cdc.write(wdata).then(async () => {
+          if (this.cfg.ZLPAwareHost) await this.cdc.write(new Uint8Array(0));
+        });
+        // Observe failures immediately, including while the next file read is pending.
+        pending.push([write.then(() => null, error => ({ error })), wlen]);
+        if (pending.length === depth) await completeWrite();
       }
-      if (wlen % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
-        const fillLen = (Math.floor(wlen / this.cfg.SECTOR_SIZE_IN_BYTES) + 1) * this.cfg.SECTOR_SIZE_IN_BYTES;
-        const fillArray = new Uint8Array(fillLen - wlen).fill(0x00);
-        wdata = concatUint8Array([wdata, fillArray]);
-      }
-      await Promise.all([this.cdc.write(wdata), nextChunk]);
-      if (this.cfg.ZLPAwareHost) await this.cdc.write(new Uint8Array(0));
-      offset += wlen;
-      bytesToWrite -= wlen;
-
-      if (i % 10 === 0) {
-        onProgress?.(offset);
-      }
-      i += 1;
+      while (pending.length) await completeWrite();
+    } finally {
+      await Promise.all(pending.map(([result]) => result));
     }
     onProgress?.(total);
 
