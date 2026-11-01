@@ -205,12 +205,39 @@ export class Firehose {
   /**
    * @param {number} physicalPartitionNumber
    * @param {bigint} startSector
-   * @param {Blob} blob
+   * @param {Blob | Blob[]} blob
    * @param {progressCallback|undefined} [onProgress] - Returns number of bytes written
    * @returns {Promise<boolean>}
    */
   async cmdProgram(physicalPartitionNumber, startSector, blob, onProgress = undefined) {
-    const total = blob.size;
+    const parts = Array.isArray(blob) ? blob : [blob];
+    const total = parts.reduce((size, part) => size + part.size, 0);
+    let partIndex = 0;
+    let partOffset = 0;
+    const readPart = async (length) => {
+      const data = await parts[partIndex].slice(partOffset, partOffset + length).arrayBuffer();
+      partOffset += length;
+      return new Uint8Array(data);
+    };
+    const readChunk = async (length) => {
+      while (partOffset === parts[partIndex].size) {
+        partIndex++;
+        partOffset = 0;
+      }
+      if (parts[partIndex].size - partOffset >= length) return readPart(length);
+      const data = new Uint8Array(length);
+      let offset = 0;
+      while (offset < length) {
+        while (partOffset === parts[partIndex].size) {
+          partIndex++;
+          partOffset = 0;
+        }
+        const count = Math.min(length - offset, parts[partIndex].size - partOffset);
+        data.set(await readPart(count), offset);
+        offset += count;
+      }
+      return data;
+    };
 
     const numPartitionSectors = Math.ceil(total / this.cfg.SECTOR_SIZE_IN_BYTES);
     logger.debug(`Starting program on LUN ${physicalPartitionNumber} at ${startSector} - ${BigInt(startSector) + BigInt(numPartitionSectors - 1)} (${numPartitionSectors})`);
@@ -240,7 +267,7 @@ export class Firehose {
     try {
       for (let offset = 0; offset < total; offset += this.cfg.MaxPayloadSizeToTargetInBytes) {
         const wlen = Math.min(total - offset, this.cfg.MaxPayloadSizeToTargetInBytes);
-        let wdata = new Uint8Array(await blob.slice(offset, offset + wlen).arrayBuffer());
+        let wdata = await readChunk(wlen);
         if (wlen % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
           const padded = new Uint8Array(Math.ceil(wlen / this.cfg.SECTOR_SIZE_IN_BYTES) * this.cfg.SECTOR_SIZE_IN_BYTES);
           padded.set(wdata);

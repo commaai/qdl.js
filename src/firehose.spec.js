@@ -57,3 +57,24 @@ test("program drains queued transfers before reporting a write failure", async (
   expect(peak).toBeGreaterThan(1);
   expect(peak).toBeLessThanOrEqual(8);
 });
+
+
+test("program streams segments without padding intermediate boundaries", async () => {
+  const { hose, writes } = programTransport();
+  const data = Uint8Array.from({ length: 8192 * 3 + 17 }, (_, i) => i % 251);
+  const parts = [new Blob([]), new Blob([data.subarray(0, 1)]), new Blob([data.subarray(1, 8193)]),
+    new Blob([]), new Blob([data.subarray(8193, 20000)]), new Blob([data.subarray(20000)])];
+  let sectors;
+  hose.xmlSend = command => {
+    sectors = Number(command.match(/num_partition_sectors="(\d+)"/)[1]);
+    return Promise.resolve({ resp: true });
+  };
+  expect(await hose.cmdProgram(0, 0n, parts)).toBe(true);
+  expect(sectors).toBe(7);
+  expect(writes.map(view => view.length)).toEqual([8192, 8192, 8192, 4096]);
+  const actual = new Uint8Array(7 * 4096);
+  let offset = 0;
+  for (const chunk of writes) { actual.set(chunk, offset); offset += chunk.length; }
+  expect(actual.subarray(0, data.length)).toEqual(data);
+  expect(actual.subarray(data.length).every(byte => byte === 0)).toBe(true);
+});
