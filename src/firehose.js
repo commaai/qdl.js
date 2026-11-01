@@ -224,7 +224,9 @@ export class Firehose {
         partIndex++;
         partOffset = 0;
       }
-      if (parts[partIndex].size - partOffset >= length) return readPart(length);
+      const remaining = parts[partIndex].size - partOffset;
+      if (remaining >= length) return readPart(length);
+      if (!this.cfg.ZLPAwareHost && remaining % this.cfg.SECTOR_SIZE_IN_BYTES === 0) return readPart(remaining);
       const data = new Uint8Array(length);
       let offset = 0;
       while (offset < length) {
@@ -265,9 +267,10 @@ export class Firehose {
     };
 
     try {
-      for (let offset = 0; offset < total; offset += this.cfg.MaxPayloadSizeToTargetInBytes) {
-        const wlen = Math.min(total - offset, this.cfg.MaxPayloadSizeToTargetInBytes);
-        let wdata = await readChunk(wlen);
+      for (let offset = 0; offset < total;) {
+        let wdata = await readChunk(Math.min(total - offset, this.cfg.MaxPayloadSizeToTargetInBytes));
+        const wlen = wdata.byteLength;
+        offset += wlen;
         if (wlen % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
           const padded = new Uint8Array(Math.ceil(wlen / this.cfg.SECTOR_SIZE_IN_BYTES) * this.cfg.SECTOR_SIZE_IN_BYTES);
           padded.set(wdata);

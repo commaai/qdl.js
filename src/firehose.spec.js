@@ -78,3 +78,16 @@ test("program streams segments without padding intermediate boundaries", async (
   expect(actual.subarray(0, data.length)).toEqual(data);
   expect(actual.subarray(data.length).every(byte => byte === 0)).toBe(true);
 });
+
+
+test("program sends aligned segments directly when ZLPs are disabled", async () => {
+  const { hose, writes } = programTransport();
+  const parts = [new Blob([new Uint8Array(4096).fill(7)]), new Blob([new Uint8Array(4096).fill(42)])];
+  expect(await hose.cmdProgram(0, 0n, parts)).toBe(true);
+  expect(writes.map(view => view.length)).toEqual([4096, 4096]);
+  expect(writes[0].every(byte => byte === 7)).toBe(true);
+  expect(writes[1].every(byte => byte === 42)).toBe(true);
+  const framed = programTransport(true);
+  await framed.hose.cmdProgram(0, 0n, parts);
+  expect(framed.writes.map(view => view.length)).toEqual([8192, 0]);
+});
