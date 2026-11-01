@@ -284,7 +284,7 @@ export class qdlDevice {
       }
     }
     logger.debug(`Writing chunks to ${name}...`);
-    for await (const [offset, chunk] of sparse.read()) {
+    for await (const [offset, chunk] of sparse.readCoalesced()) {
       if (!chunk) continue;
       if (offset % gpt.sectorSize !== 0) {
         throw "qdl - Offset not aligned to sector size";

@@ -53,3 +53,54 @@ describe("sparse", () => {
     await Bun.$`cmp ${outputPath} ${expectedPath}`;
   });
 });
+
+describe("coalesced sparse writes", () => {
+  function image(chunks) {
+    const header = new Uint8Array(28);
+    const hv = new DataView(header.buffer);
+    hv.setUint32(0, 0xed26ff3a, true);
+    hv.setUint16(4, 1, true);
+    hv.setUint16(8, 28, true);
+    hv.setUint16(10, 12, true);
+    hv.setUint32(16, chunks.reduce((total, c) => total + c.blocks, 0), true);
+    hv.setUint32(12, 4096, true);
+    hv.setUint32(20, chunks.length, true);
+    return new Blob([header, ...chunks.flatMap(({ type, blocks, data }) => {
+      const chunk = new Uint8Array(12);
+      const cv = new DataView(chunk.buffer);
+      cv.setUint16(0, type, true);
+      cv.setUint32(4, blocks, true);
+      cv.setUint32(8, 12 + data.length, true);
+      return [chunk, data];
+    })]);
+  }
+
+  test("fills small zero ranges exactly while preserving DONT_CARE and large holes", async () => {
+    const raw = new Uint8Array(4096).fill(7);
+    const zero = new Uint8Array(4);
+    const input = image([
+      { type: 0xcac1, blocks: 1, data: raw },
+      { type: 0xcac2, blocks: 1, data: zero },
+      { type: 0xcac1, blocks: 1, data: raw },
+      { type: 0xcac3, blocks: 1, data: new Uint8Array() },
+      { type: 0xcac1, blocks: 1, data: raw },
+      { type: 0xcac2, blocks: 100, data: zero },
+      { type: 0xcac1, blocks: 1, data: raw },
+    ]);
+    const sparse = await Sparse.from(input);
+    const writes = await Array.fromAsync(sparse.readCoalesced(4096));
+    expect(writes.map(([offset, data, size]) => [offset / 4096, !!data, size / 4096])).toEqual([
+      [0, true, 3], [3, false, 1], [4, true, 1], [5, false, 100], [105, true, 1],
+    ]);
+    expect(new Uint8Array(await writes[0][1].arrayBuffer())).toEqual(new Uint8Array([...raw, ...new Uint8Array(4096), ...raw]));
+  });
+
+  test("coalesced fixture has identical expanded bytes", async () => {
+    const sparse = await Sparse.from(inputData);
+    const result = new Uint8Array(sparse.header.totalBlocks * sparse.header.blockSize);
+    for await (const [offset, data] of sparse.readCoalesced()) {
+      if (data) result.set(new Uint8Array(await data.arrayBuffer()), offset);
+    }
+    expect(Buffer.from(result).equals(Buffer.from(await Bun.file(expectedPath).arrayBuffer()))).toBe(true);
+  });
+});

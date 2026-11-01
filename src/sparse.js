@@ -74,9 +74,10 @@ export class Sparse {
   }
 
   /**
+   * @param {number} [maxZeroFill=0]
    * @returns {AsyncIterator<[number, Blob | null, number]>}
    */
-  async *read() {
+  async *read(maxZeroFill = 0) {
     let offset = 0;
     for await (const { type, blocks, data } of this.chunks()) {
       const size = blocks * this.header.blockSize;
@@ -89,6 +90,8 @@ export class Sparse {
           const buffer = new Uint8Array(size);
           for (let i = 0; i < buffer.byteLength; i += 4) buffer.set(fill, i);
           yield [offset, new Blob([buffer]), size];
+        } else if (size <= maxZeroFill) {
+          yield [offset, new Blob([new Uint8Array(size)]), size];
         } else {
           yield [offset, null, size];
         }
@@ -98,6 +101,44 @@ export class Sparse {
         offset += size;
       }
     }
+  }
+
+  /**
+   * Merge adjacent writes and small zero fills to avoid a command per sparse chunk.
+   * DONT_CARE ranges remain untouched.
+   * @param {number} [maxZeroFill=65536]
+   * @returns {AsyncIterator<[number, Blob | null, number]>}
+   */
+  async *readCoalesced(maxZeroFill = 65536) {
+    const maxSize = 64 * 1024 * 1024;
+    /** @type {ArrayBuffer[]} */
+    let parts = [];
+    let start = 0;
+    let length = 0;
+    for await (const [offset, data, size] of this.read(maxZeroFill)) {
+      if (length && (!data || offset !== start + length)) {
+        yield [start, new Blob(parts), length];
+        parts = [];
+        length = 0;
+      }
+      if (!data) {
+        yield [offset, null, size];
+        continue;
+      }
+      for (let position = 0; position < size;) {
+        if (!length) start = offset + position;
+        const count = Math.min(size - position, maxSize - length);
+        parts.push(await data.slice(position, position + count).arrayBuffer());
+        position += count;
+        length += count;
+        if (length === maxSize) {
+          yield [start, new Blob(parts), length];
+          parts = [];
+          length = 0;
+        }
+      }
+    }
+    if (length) yield [start, new Blob(parts), length];
   }
 }
 
