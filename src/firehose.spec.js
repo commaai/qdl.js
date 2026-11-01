@@ -3,7 +3,7 @@ import { Firehose } from "./firehose";
 
 function programTransport(zlp = false) {
   const writes = [];
-  const hose = new Firehose({ write: data => { writes.push(data); return Promise.resolve(); } });
+  const hose = new Firehose({ write: data => { writes.push(data.slice()); return Promise.resolve(); } });
   hose.cfg.MaxPayloadSizeToTargetInBytes = 8192;
   hose.cfg.ZLPAwareHost = Number(zlp);
   hose.xmlSend = async () => ({ resp: true });
@@ -16,10 +16,13 @@ test("program preserves chunk order, pads the final sector, and omits disabled Z
   const source = Uint8Array.from({ length: 8192 + 4097 }, (_, i) => i % 251);
   const progress = [];
   expect(await hose.cmdProgram(0, 0n, new Blob([source]), bytes => progress.push(bytes))).toBe(true);
-  expect(writes.map(data => data.length)).toEqual([8192, 8192]);
-  expect(writes[0]).toEqual(source.subarray(0, 8192));
-  expect(writes[1].subarray(0, 4097)).toEqual(source.subarray(8192));
-  expect(writes[1].subarray(4097).every(byte => byte === 0)).toBe(true);
+  expect(writes.every(data => data.length <= 8192 && data.length % 4096 === 0)).toBe(true);
+  const actual = new Uint8Array(16384);
+  let offset = 0;
+  for (const data of writes) { actual.set(data, offset); offset += data.length; }
+  expect(offset).toBe(actual.length);
+  expect(actual.subarray(0, source.length)).toEqual(source);
+  expect(actual.subarray(source.length).every(byte => byte === 0)).toBe(true);
   expect(progress.at(-1)).toBe(source.length);
 });
 
@@ -98,7 +101,7 @@ function ack(value = "ACK", rawmode = "true") {
 
 function nativeTransport(responses = [ack(), ack("ACK", "false")]) {
   const writes = [];
-  const hose = new Firehose({ write: data => { writes.push(data); return Promise.resolve(); } });
+  const hose = new Firehose({ write: data => { writes.push(data.slice()); return Promise.resolve(); } });
   hose.programSparseMaxExtents = 4096;
   const commands = [];
   hose.xmlSend = command => { commands.push(command); return Promise.resolve({ resp: true, data: ack() }); };
@@ -187,4 +190,96 @@ test("native sparse programming reports short image reads and USB failures", asy
   let calls = 0;
   usb.hose.cdc.write = () => ++calls === 2 ? Promise.reject(new Error("USB write failed")) : Promise.resolve();
   await expect(usb.hose.cmdProgramSparse(0, 0n, usb.plan)).rejects.toThrow("USB write failed");
+});
+
+test("program handles arbitrary stream chunks and closes the reader", async () => {
+  const { hose, writes } = programTransport();
+  const data = Uint8Array.from({ length: 24593 }, (_, i) => i % 251);
+  let position = 0;
+  let cancelled = false;
+  const sizes = [1, 3, 4092, 5, 9000, 7, 11485];
+  const part = {
+    size: data.length,
+    slice: () => { throw new Error("Unexpected sliced read"); },
+    stream: () => new ReadableStream({
+      pull(controller) {
+        const count = Math.min(sizes.shift() || 1024, data.length - position);
+        controller.enqueue(data.slice(position, position + count));
+        position += count;
+        if (position === data.length) controller.close();
+      },
+      cancel() { cancelled = true; },
+    }),
+  };
+  expect(await hose.cmdProgram(0, 0n, part)).toBe(true);
+  const actual = new Uint8Array(28672);
+  let offset = 0;
+  for (const chunk of writes) { actual.set(chunk, offset); offset += chunk.length; }
+  expect(offset).toBe(actual.length);
+  expect(actual.subarray(0, data.length)).toEqual(data);
+  expect(actual.subarray(data.length).every(byte => byte === 0)).toBe(true);
+  expect(cancelled || position === data.length).toBe(true);
+});
+
+test("program cancels streaming input and drains USB on failure", async () => {
+  const { hose } = programTransport();
+  let cancelled = false;
+  let active = 0;
+  const part = {
+    size: 8192 * 100,
+    stream: () => new ReadableStream({
+      pull(controller) { controller.enqueue(new Uint8Array(8192)); },
+      cancel() { cancelled = true; },
+    }),
+  };
+  hose.cdc.write = () => {
+    active++;
+    return new Promise((_, reject) => setTimeout(() => { active--; reject(new Error("USB failed")); }, 1));
+  };
+  await expect(hose.cmdProgram(0, 0n, part)).rejects.toThrow("USB failed");
+  expect(active).toBe(0);
+  expect(cancelled).toBe(true);
+});
+
+test("program rejects truncated or oversized streams", async () => {
+  for (const size of [4096, 16384]) {
+    const { hose } = programTransport();
+    const part = {
+      size: 8192,
+      stream: () => new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(size)); controller.close(); } }),
+    };
+    await expect(hose.cmdProgram(0, 0n, part)).rejects.toThrow();
+  }
+});
+
+test("streaming reuses buffers only after their USB transfers finish", async () => {
+  const { hose } = programTransport();
+  const buffers = new Set();
+  const inFlight = new Set();
+  let part = 0;
+  const source = {
+    size: 8192 * 32,
+    stream: () => new ReadableStream({
+      pull(controller) {
+        if (part === 64) { controller.close(); return; }
+        controller.enqueue(new Uint8Array(4096).fill(Math.floor(part++ / 2)));
+      },
+    }),
+  };
+  let written = 0;
+  hose.cdc.write = data => {
+    expect(inFlight.has(data.buffer)).toBe(false);
+    inFlight.add(data.buffer);
+    buffers.add(data.buffer);
+    const expected = written++;
+    return new Promise(resolve => setTimeout(() => {
+      expect(data.every(byte => byte === expected)).toBe(true);
+      inFlight.delete(data.buffer);
+      resolve();
+    }, 1));
+  };
+  expect(await hose.cmdProgram(0, 0n, source)).toBe(true);
+  expect(written).toBe(32);
+  expect(buffers.size).toBeLessThanOrEqual(8);
+  expect(inFlight.size).toBe(0);
 });

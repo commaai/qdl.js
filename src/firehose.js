@@ -271,11 +271,60 @@ export class Firehose {
     const total = parts.reduce((size, part) => size + part.size, 0);
     let partIndex = 0;
     let partOffset = 0;
+    let reader = null;
+    let readBuffer = new Uint8Array();
+    let readOffset = 0;
+    const pool = [];
+    const borrowed = new Set();
+    const acquire = (length) => {
+      const buffer = pool.pop() || new ArrayBuffer(this.cfg.MaxPayloadSizeToTargetInBytes);
+      borrowed.add(buffer);
+      return new Uint8Array(buffer, 0, length);
+    };
+    const release = (data) => {
+      if (borrowed.delete(data.buffer)) pool.push(data.buffer);
+    };
+    const closeReader = async () => {
+      if (!reader) return;
+      const current = reader;
+      reader = null;
+      readBuffer = new Uint8Array();
+      readOffset = 0;
+      try { await current.cancel(); } finally { current.releaseLock(); }
+    };
     const readPart = async (length) => {
-      const data = await parts[partIndex].slice(partOffset, partOffset + length).arrayBuffer();
-      if (data.byteLength !== length) throw new Error("Short image read while programming");
-      partOffset += length;
-      return new Uint8Array(data);
+      const part = parts[partIndex];
+      if (!reader && partOffset === 0 && part.size >= this.cfg.MaxPayloadSizeToTargetInBytes && typeof part.stream === "function") {
+        reader = part.stream().getReader();
+      }
+      if (!reader) {
+        const data = await part.slice(partOffset, partOffset + length).arrayBuffer();
+        if (data.byteLength !== length) throw new Error("Short image read while programming");
+        partOffset += length;
+        return new Uint8Array(data);
+      }
+      let data = null;
+      let offset = 0;
+      while (offset < length) {
+        if (readOffset === readBuffer.length) {
+          const result = await reader.read();
+          if (result.done) throw new Error("Short image read while programming");
+          readBuffer = result.value;
+          readOffset = 0;
+          if (!(readBuffer instanceof Uint8Array) || readBuffer.length > part.size - partOffset) {
+            throw new Error("Invalid image stream length");
+          }
+          if (!readBuffer.length) continue;
+        }
+        const count = Math.min(length - offset, readBuffer.length - readOffset);
+        data ??= acquire(length);
+        data.set(readBuffer.subarray(readOffset, readOffset + count), offset);
+        readOffset += count;
+        partOffset += count;
+        offset += count;
+      }
+      if (partOffset === part.size) await closeReader();
+      return data;
     };
     const readChunk = async (length) => {
       while (partOffset === parts[partIndex].size) {
@@ -293,7 +342,9 @@ export class Firehose {
           partOffset = 0;
         }
         const count = Math.min(length - offset, parts[partIndex].size - partOffset);
-        data.set(await readPart(count), offset);
+        const chunk = await readPart(count);
+        data.set(chunk, offset);
+        release(chunk);
         offset += count;
       }
       return data;
@@ -319,11 +370,12 @@ export class Firehose {
         if (wlen % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
           const padded = new Uint8Array(Math.ceil(wlen / this.cfg.SECTOR_SIZE_IN_BYTES) * this.cfg.SECTOR_SIZE_IN_BYTES);
           padded.set(wdata);
+          release(wdata);
           wdata = padded;
         }
         const write = this.cdc.write(wdata).then(async () => {
           if (this.cfg.ZLPAwareHost) await this.cdc.write(new Uint8Array(0));
-        });
+        }).finally(() => release(wdata));
         // Observe failures immediately, including while the next file read is pending.
         pending.push([write.then(() => null, error => ({ error })), wlen]);
         if (pending.length === depth) await completeWrite();
@@ -331,6 +383,7 @@ export class Firehose {
       while (pending.length) await completeWrite();
     } finally {
       await Promise.all(pending.map(([result]) => result));
+      await closeReader();
     }
     onProgress?.(total);
 
