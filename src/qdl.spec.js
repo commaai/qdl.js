@@ -73,3 +73,95 @@ describe("partition lookup cache", () => {
     expect((await device.detectPartition("system_a"))[2].start).toBe(400n);
   });
 });
+
+function sparseImage() {
+  const header = new Uint8Array(28);
+  const h = new DataView(header.buffer);
+  h.setUint32(0, 0xed26ff3a, true);
+  h.setUint16(4, 1, true);
+  h.setUint16(8, 28, true);
+  h.setUint16(10, 12, true);
+  h.setUint32(12, 4096, true);
+  h.setUint32(16, 7, true);
+  h.setUint32(20, 4, true);
+  const chunks = [
+    [0xcac1, 1, new Uint8Array(4096).fill(7)],
+    [0xcac2, 2, new Uint8Array(4)],
+    [0xcac1, 1, new Uint8Array(4096).fill(42)],
+    [0xcac3, 3, new Uint8Array()],
+  ];
+  return new Blob([header, ...chunks.flatMap(([type, blocks, data]) => {
+    const chunk = new Uint8Array(12);
+    const c = new DataView(chunk.buffer);
+    c.setUint16(0, type, true);
+    c.setUint32(4, blocks, true);
+    c.setUint32(8, 12 + data.length, true);
+    return [chunk, data];
+  })]);
+}
+
+class SparseDevice extends qdlDevice {
+  events = [];
+  partitionSectors = 100n;
+  transport = {
+    programSparseMaxExtents: 4096,
+    cfg: { SECTOR_SIZE_IN_BYTES: 4096, ZLPAwareHost: 0 },
+    cmdErase: () => { this.events.push(["erase"]); return Promise.resolve(true); },
+    cmdProgram: () => { this.events.push(["legacy"]); return Promise.resolve(true); },
+    cmdProgramSparse: (_, start, plan, progress) => {
+      this.events.push(["native", start, plan]);
+      progress?.(4096);
+      progress?.(8192);
+      return Promise.resolve(true);
+    },
+  };
+  get firehose() { return this.transport; }
+  detectPartition(name) {
+    return Promise.resolve([true, 0, { start: name.endsWith("_b") ? 200n : 100n, sectors: this.partitionSectors }, { sectorSize: 4096 }]);
+  }
+}
+
+describe("native sparse routing", () => {
+  test("reuses the image plan across slots and reports progress including gaps", async () => {
+    const device = new SparseDevice(new ArrayBuffer(1));
+    const image = sparseImage();
+    const progress = [];
+    expect(await device.flashBlob("system_a", image, bytes => progress.push(bytes))).toBe(true);
+    expect(await device.flashBlob("system_b", image, undefined, false)).toBe(true);
+    expect(device.events.map(event => event[0])).toEqual(["erase", "native", "native"]);
+    const [first, second] = device.events.filter(event => event[0] === "native");
+    expect(first[1]).toBe(100n);
+    expect(second[1]).toBe(200n);
+    expect(first[2]).toBe(second[2]);
+    expect(first[2].extents).toEqual([[0n, 1n], [3n, 1n]]);
+    expect(progress).toEqual([4096, 16384, 28672]);
+  });
+
+  test("uses legacy programming without support, with ZLP framing, or above the extent limit", async () => {
+    for (const [limit, zlp] of [[0, 0], [4096, 1], [1, 0]]) {
+      const device = new SparseDevice(new ArrayBuffer(1));
+      device.transport.programSparseMaxExtents = limit;
+      device.transport.cfg.ZLPAwareHost = zlp;
+      expect(await device.flashBlob("system_a", sparseImage(), undefined, false)).toBe(true);
+      expect(device.events.every(event => event[0] === "legacy")).toBe(true);
+      expect(device.events.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("checks the destination bounds again before erasing a second slot", async () => {
+    const device = new SparseDevice(new ArrayBuffer(1));
+    const image = sparseImage();
+    await device.flashBlob("system_a", image, undefined, false);
+    device.events = [];
+    device.partitionSectors = 6n;
+    await expect(device.flashBlob("system_b", image)).rejects.toThrow("image exceeds partition");
+    expect(device.events).toHaveLength(0);
+  });
+
+  test("does not retry legacy programming after a native command failure", async () => {
+    const device = new SparseDevice(new ArrayBuffer(1));
+    device.transport.cmdProgramSparse = () => Promise.resolve(false);
+    expect(await device.flashBlob("system_a", sparseImage(), undefined, false)).toBe(false);
+    expect(device.events).toHaveLength(0);
+  });
+});

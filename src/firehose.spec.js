@@ -91,3 +91,100 @@ test("program sends aligned segments directly when ZLPs are disabled", async () 
   await framed.hose.cmdProgram(0, 0n, parts);
   expect(framed.writes.map(view => view.length)).toEqual([8192, 0]);
 });
+
+function ack(value = "ACK", rawmode = "true") {
+  return new TextEncoder().encode(`<?xml version="1.0"?><data><response value="${value}" rawmode="${rawmode}"/></data>`);
+}
+
+function nativeTransport(responses = [ack(), ack("ACK", "false")]) {
+  const writes = [];
+  const hose = new Firehose({ write: data => { writes.push(data); return Promise.resolve(); } });
+  hose.programSparseMaxExtents = 4096;
+  const commands = [];
+  hose.xmlSend = command => { commands.push(command); return Promise.resolve({ resp: true, data: ack() }); };
+  hose.waitForData = () => Promise.resolve(responses.shift());
+  const plan = { numPartitionSectors: 5, dataSectors: 2, extents: [[0n, 1n], [3n, 1n]],
+    parts: [new Blob([new Uint8Array(4096).fill(7)]), new Blob([new Uint8Array(4096).fill(42)])] };
+  return { hose, plan, writes, commands };
+}
+
+test("native sparse programming waits for table acceptance before streaming packed data", async () => {
+  const { hose, plan, writes, commands } = nativeTransport();
+  hose.waitForData = () => {
+    if (writes.length === 1) {
+      expect(writes[0].length).toBe(4096);
+      const table = new DataView(writes[0].buffer);
+      expect([0, 8, 16, 24].map(offset => table.getBigUint64(offset, true))).toEqual([0n, 1n, 3n, 1n]);
+      expect(writes[0].subarray(32).every(byte => byte === 0)).toBe(true);
+      return Promise.resolve(ack());
+    }
+    return Promise.resolve(ack("ACK", "false"));
+  };
+  expect(await hose.cmdProgramSparse(0, 100n, plan)).toBe(true);
+  expect(commands).toHaveLength(1);
+  expect(commands[0]).toContain('<program_sparse ');
+  expect(commands[0]).toContain('num_partition_sectors="5"');
+  expect(commands[0]).toContain('data_sectors="2"');
+  expect(commands[0]).toContain('extent_count="2"');
+  expect(writes.map(data => data.length)).toEqual([4096, 4096, 4096]);
+  expect(writes[1].every(byte => byte === 7)).toBe(true);
+  expect(writes[2].every(byte => byte === 42)).toBe(true);
+});
+
+test("native sparse programming stops on initial, table, and final protocol failures", async () => {
+  const initial = nativeTransport();
+  initial.hose.xmlSend = () => Promise.resolve({ resp: true, data: ack("NAK", "false") });
+  expect(await initial.hose.cmdProgramSparse(0, 0n, initial.plan)).toBe(false);
+  expect(initial.writes).toHaveLength(0);
+  const table = nativeTransport([ack("NAK", "false")]);
+  expect(await table.hose.cmdProgramSparse(0, 0n, table.plan)).toBe(false);
+  expect(table.writes).toHaveLength(1);
+  for (const response of [ack("NAK", "false"), ack("ACK", "true")]) {
+    const final = nativeTransport([ack(), response]);
+    expect(await final.hose.cmdProgramSparse(0, 0n, final.plan)).toBe(false);
+  }
+});
+
+test("native sparse programming rejects invalid plans and unsupported framing before USB", async () => {
+  for (const mutate of [
+    plan => { plan.dataSectors = 3; },
+    plan => { plan.extents[1][0] = 0n; },
+    plan => { plan.numPartitionSectors = 3; },
+  ]) {
+    const { hose, plan, writes, commands } = nativeTransport();
+    mutate(plan);
+    await expect(hose.cmdProgramSparse(0, 0n, plan)).rejects.toThrow("Sparse program:");
+    expect(writes).toHaveLength(0);
+    expect(commands).toHaveLength(0);
+  }
+  for (const option of ["unsupported", "zlp"]) {
+    const { hose, plan, writes } = nativeTransport();
+    if (option === "unsupported") hose.programSparseMaxExtents = 0;
+    else hose.cfg.ZLPAwareHost = 1;
+    await expect(hose.cmdProgramSparse(0, 0n, plan)).rejects.toThrow("requires negotiated support");
+    expect(writes).toHaveLength(0);
+  }
+});
+
+test("configure enables native sparse only for an explicit valid capability", async () => {
+  const hose = new Firehose({ write: () => Promise.resolve() });
+  for (const [attribute, expected] of [["4096", 4096], ["12", 12], ["8192", 4096], ["", 0], ["true", 0], ["0", 0], ["-1", 0], ["4e3", 0], ["4096junk", 0], ["9007199254740992", 0]]) {
+    hose.waitForData = () => Promise.resolve(new TextEncoder().encode(`<?xml version="1.0"?><data><log value="Calling handler for configure"/><log value="Storage type set to value UFS"/><response value="ACK" MemoryName="UFS" ProgramSparseMaxExtents="${attribute}"/></data>`));
+    await hose.configure();
+    expect(hose.programSparseMaxExtents).toBe(expected);
+  }
+  hose.waitForData = () => Promise.resolve(new TextEncoder().encode('<?xml version="1.0"?><data><log value="Calling handler for configure"/><log value="Storage type set to value UFS"/><response value="ACK" MemoryName="UFS" UnknownProgramSparse="4096"/></data>'));
+  await hose.configure();
+  expect(hose.programSparseMaxExtents).toBe(0);
+});
+
+test("native sparse programming reports short image reads and USB failures", async () => {
+  const short = nativeTransport();
+  short.plan.parts[0] = { size: 4096, slice: () => ({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(2048)) }) };
+  await expect(short.hose.cmdProgramSparse(0, 0n, short.plan)).rejects.toThrow("Short image read");
+  expect(short.writes).toHaveLength(1);
+  const usb = nativeTransport();
+  let calls = 0;
+  usb.hose.cdc.write = () => ++calls === 2 ? Promise.reject(new Error("USB write failed")) : Promise.resolve();
+  await expect(usb.hose.cmdProgramSparse(0, 0n, usb.plan)).rejects.toThrow("USB write failed");
+});

@@ -1,6 +1,7 @@
 import { concatUint8Array, containsBytes, compareStringToBytes, runWithTimeout } from "./utils"
 import { createLogger } from "./logger"
 import { toXml, xmlParser } from "./xml"
+import { validateSparseProgram } from "./sparse-program"
 
 const logger = createLogger("firehose")
 
@@ -56,6 +57,7 @@ export class Firehose {
     this.cfg = new cfg();
     /** @type {number[]} */
     this.luns = [];
+    this.programSparseMaxExtents = 0;
   }
 
   /**
@@ -105,6 +107,7 @@ export class Firehose {
    * @returns {Promise<boolean>}
    */
   async configure() {
+    this.programSparseMaxExtents = 0;
     const connectCmd = toXml("configure", {
       MemoryName: this.cfg.MemoryName,
       Verbose: 0,
@@ -133,6 +136,11 @@ export class Firehose {
     }
     if (!log.find((message) => message.includes("Storage type set to value UFS"))) {
       throw new Error("Failed to configure: storage type not set");
+    }
+    const sparseLimit = response.ProgramSparseMaxExtents;
+    if (/^[1-9][0-9]*$/.test(sparseLimit)) {
+      const limit = Number(sparseLimit);
+      if (Number.isSafeInteger(limit)) this.programSparseMaxExtents = Math.min(limit, 4096);
     }
     this.luns = Array.from({ length: this.cfg.maxlun }, (x, i) => i);
     return true;
@@ -212,10 +220,60 @@ export class Firehose {
   async cmdProgram(physicalPartitionNumber, startSector, blob, onProgress = undefined) {
     const parts = Array.isArray(blob) ? blob : [blob];
     const total = parts.reduce((size, part) => size + part.size, 0);
+    const numPartitionSectors = Math.ceil(total / this.cfg.SECTOR_SIZE_IN_BYTES);
+    logger.debug(`Starting program on LUN ${physicalPartitionNumber} at ${startSector} - ${BigInt(startSector) + BigInt(numPartitionSectors - 1)} (${numPartitionSectors})`);
+    const rsp = await this.xmlSend(toXml("program", {
+      SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
+      num_partition_sectors: numPartitionSectors,
+      physical_partition_number: physicalPartitionNumber,
+      start_sector: startSector,
+    }));
+    if (!rsp.resp) {
+      logger.error("Failed to program");
+      return false;
+    }
+
+    return this.#programData(parts, onProgress);
+  }
+
+  /**
+   * @param {number} physicalPartitionNumber
+   * @param {bigint} startSector
+   * @param {import("./sparse-program").SparseProgram} plan
+   * @param {progressCallback} [onProgress]
+   * @returns {Promise<boolean>}
+   */
+  async cmdProgramSparse(physicalPartitionNumber, startSector, plan, onProgress = undefined) {
+    if (!this.programSparseMaxExtents || this.cfg.ZLPAwareHost) {
+      throw new Error("Native sparse programming requires negotiated support and ZlpAwareHost=0");
+    }
+    const table = validateSparseProgram(plan, this.cfg.SECTOR_SIZE_IN_BYTES, plan.numPartitionSectors, this.programSparseMaxExtents);
+    const result = await this.xmlSend(toXml("program_sparse", {
+      SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
+      num_partition_sectors: plan.numPartitionSectors,
+      physical_partition_number: physicalPartitionNumber,
+      start_sector: startSector,
+      extent_count: plan.extents.length,
+      data_sectors: plan.dataSectors,
+    }));
+    const initial = this.xml.getResponse(result.data);
+    if (initial.value !== "ACK" || initial.rawmode !== "true") return false;
+    await this.cdc.write(table);
+    const tableData = await this.waitForData();
+    this.#printLogMessages(this.xml.getLog(tableData));
+    const accepted = this.xml.getResponse(tableData);
+    if (accepted.value !== "ACK" || accepted.rawmode !== "true") return false;
+    return this.#programData(plan.parts, onProgress, true);
+  }
+
+  async #programData(blob, onProgress, requireRawMode = false) {
+    const parts = Array.isArray(blob) ? blob : [blob];
+    const total = parts.reduce((size, part) => size + part.size, 0);
     let partIndex = 0;
     let partOffset = 0;
     const readPart = async (length) => {
       const data = await parts[partIndex].slice(partOffset, partOffset + length).arrayBuffer();
+      if (data.byteLength !== length) throw new Error("Short image read while programming");
       partOffset += length;
       return new Uint8Array(data);
     };
@@ -240,19 +298,6 @@ export class Firehose {
       }
       return data;
     };
-
-    const numPartitionSectors = Math.ceil(total / this.cfg.SECTOR_SIZE_IN_BYTES);
-    logger.debug(`Starting program on LUN ${physicalPartitionNumber} at ${startSector} - ${BigInt(startSector) + BigInt(numPartitionSectors - 1)} (${numPartitionSectors})`);
-    const rsp = await this.xmlSend(toXml("program", {
-      SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
-      num_partition_sectors: numPartitionSectors,
-      physical_partition_number: physicalPartitionNumber,
-      start_sector: startSector,
-    }));
-    if (!rsp.resp) {
-      logger.error("Failed to program");
-      return false;
-    }
 
     const pending = [];
     const depth = this.cfg.ZLPAwareHost ? 1 : 8;
@@ -297,8 +342,8 @@ export class Firehose {
       logger.error("Failed to program: no return value");
       return false;
     }
-    if (response.value !== "ACK") {
-      logger.error("Failed to program: negative response");
+    if (response.value !== "ACK" || (requireRawMode && response.rawmode !== "false")) {
+      logger.error("Failed to program: negative response or unexpected mode");
       return false;
     }
     return true;

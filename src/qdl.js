@@ -2,6 +2,7 @@ import { Firehose } from "./firehose"
 import { GPT } from "./gpt"
 import { Sahara } from "./sahara";
 import * as Sparse from "./sparse";
+import { prepareSparseProgram } from "./sparse-program";
 import { createLogger } from "./logger";
 
 const logger = createLogger("qdl");
@@ -276,12 +277,29 @@ export class qdlDevice {
       }
       return await this.firehose.cmdProgram(lun, partition.start, blob, onProgress);
     }
+    let plan = null;
+    if (this.firehose.programSparseMaxExtents && !this.firehose.cfg.ZLPAwareHost) {
+      plan = await prepareSparseProgram(blob, gpt.sectorSize, partition.sectors, this.firehose.programSparseMaxExtents);
+    }
     if (eraseBeforeFlashSparse) {
       logger.debug(`Erasing ${name}...`);
       if (!await this.firehose.cmdErase(lun, partition.start, partition.sectors)) {
         logger.error("Failed to erase partition before sparse flashing");
         return false;
       }
+    }
+    if (plan) {
+      let extent = 0;
+      let dataOffset = 0;
+      const progress = onProgress ? (written) => {
+        while (extent + 1 < plan.extents.length && written > dataOffset + Number(plan.extents[extent][1]) * gpt.sectorSize) {
+          dataOffset += Number(plan.extents[extent++][1]) * gpt.sectorSize;
+        }
+        onProgress(Number(plan.extents[extent][0]) * gpt.sectorSize + written - dataOffset);
+      } : undefined;
+      const success = await this.firehose.cmdProgramSparse(lun, partition.start, plan, progress);
+      if (success) onProgress?.(Number(plan.numPartitionSectors) * gpt.sectorSize);
+      return success;
     }
     logger.debug(`Writing chunks to ${name}...`);
     for await (const [offset, chunk] of sparse.readCoalesced()) {
