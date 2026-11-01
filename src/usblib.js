@@ -86,6 +86,14 @@ export class usbClass {
     await this.#connectDevice(device);
   }
 
+  async close() {
+    const device = this.device;
+    this.device = null;
+    this.epIn = null;
+    this.epOut = null;
+    if (device?.opened) await device.close();
+  }
+
   /**
    * @param {number} [length=0]
    * @returns {Promise<Uint8Array>}

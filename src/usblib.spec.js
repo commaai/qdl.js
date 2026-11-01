@@ -63,3 +63,12 @@ test("whole buffers avoid the native WebUSB shim's typed-array copy", async () =
   } });
   await usb.write(data);
 });
+
+test("close drops the connection and prevents further I/O even if device cleanup fails", async () => {
+  const usb = transport({ opened: true, close: () => Promise.reject(new Error("disconnected")) });
+  await expect(usb.close()).rejects.toThrow("disconnected");
+  expect(usb.device).toBeNull();
+  expect(usb.epIn).toBeNull();
+  expect(usb.epOut).toBeNull();
+  await expect(usb.write(new Uint8Array(1))).rejects.toBe("USB - Not connected");
+});

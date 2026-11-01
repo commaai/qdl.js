@@ -283,3 +283,138 @@ test("streaming reuses buffers only after their USB transfers finish", async () 
   expect(buffers.size).toBeLessThanOrEqual(8);
   expect(inFlight.size).toBe(0);
 });
+
+test("native sparse copies require an explicit capability and send the payload once", async () => {
+  const { hose, plan, writes, commands } = nativeTransport();
+  const secondary = { physicalPartitionNumber: 0, startSector: 200n, numPartitionSectors: 20n };
+  await expect(hose.cmdProgramSparse(0, 100n, plan, undefined, secondary)).rejects.toThrow("negotiated support");
+  expect(commands).toHaveLength(0);
+  hose.programSparseMaxCopies = 2;
+  expect(await hose.cmdProgramSparse(0, 100n, plan, undefined, secondary)).toBe(true);
+  expect(commands).toHaveLength(1);
+  expect(commands[0]).toContain('secondary_physical_partition_number="0"');
+  expect(commands[0]).toContain('secondary_start_sector="200"');
+  expect(commands[0]).toContain('secondary_num_partition_sectors="20"');
+  expect(writes.map(data => data.length)).toEqual([4096, 4096, 4096]);
+});
+
+test("native sparse copies reject invalid or overlapping destinations before USB", async () => {
+  for (const secondary of [
+    { physicalPartitionNumber: 0, startSector: 104n, numPartitionSectors: 20n },
+    { physicalPartitionNumber: 0, startSector: 96n, numPartitionSectors: 20n },
+    { physicalPartitionNumber: 0, startSector: 200n, numPartitionSectors: 4n },
+    { physicalPartitionNumber: 0, startSector: -1n, numPartitionSectors: 20n },
+    { physicalPartitionNumber: 6, startSector: 200n, numPartitionSectors: 20n },
+  ]) {
+    const { hose, plan, writes, commands } = nativeTransport();
+    hose.programSparseMaxCopies = 2;
+    await expect(hose.cmdProgramSparse(0, 100n, plan, undefined, secondary)).rejects.toThrow();
+    expect(commands).toHaveLength(0);
+    expect(writes).toHaveLength(0);
+  }
+});
+
+test("configure ignores absent or invalid copy capabilities and resets a previous device", async () => {
+  for (const [extents, copies, expected] of [[4096, undefined, 1], [4096, "2", 2], [4096, "99", 2], [4096, "-2", 1], [4096, "2.0", 1], [4096, "true", 1], [4096, "9007199254740992", 1], [0, "2", 1]]) {
+    const hose = new Firehose({ write: () => Promise.resolve() });
+    hose.programSparseMaxCopies = 2;
+    hose.waitForData = () => Promise.resolve(new TextEncoder().encode(`<?xml version="1.0"?><data><log value="Calling handler for configure"/><log value="Storage type set to value UFS"/><response value="ACK" MemoryName="UFS" ProgramSparseMaxExtents="${extents}" ${copies === undefined ? "" : `ProgramSparseMaxCopies="${copies}"`}/></data>`));
+    await hose.configure();
+    expect(hose.programSparseMaxCopies).toBe(expected);
+  }
+});
+
+test("one-shot sparse streams validate EOF before submitting their final payload", async () => {
+  const { hose, plan, writes } = nativeTransport();
+  let finish;
+  let readingEnd;
+  const atEnd = new Promise(resolve => { readingEnd = resolve; });
+  let reads = 0;
+  const stream = {
+    getReader: () => ({
+      read: () => {
+        if (!reads++) return Promise.resolve({ value: new Uint8Array(8192).fill(7), done: false });
+        readingEnd();
+        return new Promise(resolve => { finish = resolve; });
+      },
+      cancel: () => Promise.resolve(),
+      releaseLock: () => undefined,
+    }),
+  };
+  plan.parts = [{ size: 8192, stream: () => stream }];
+  const operation = hose.cmdProgramSparse(0, 0n, plan);
+  await atEnd;
+  expect(writes).toHaveLength(1);
+  finish({ done: true });
+  expect(await operation).toBe(true);
+  expect(writes.map(data => data.length)).toEqual([4096, 8192]);
+});
+
+test("one-shot stream errors close USB, reject excess bytes, and require a power cycle", async () => {
+  for (const tail of ["error", "excess"]) {
+    const { hose, plan, writes } = nativeTransport();
+    let closed = false;
+    hose.cdc.close = () => { closed = true; return Promise.resolve(); };
+    let reads = 0;
+    plan.parts = [{ size: 8192, stream: () => ({ getReader: () => ({
+      read: () => {
+        if (!reads++) return Promise.resolve({ value: new Uint8Array(8192), done: false });
+        return tail === "error" ? Promise.reject(new Error("hash mismatch")) : Promise.resolve({ value: new Uint8Array(1), done: false });
+      },
+      cancel: () => Promise.reject(new Error("source stopped")),
+      releaseLock: () => undefined,
+    }) }) }];
+    await expect(hose.cmdProgramSparse(0, 0n, plan)).rejects.toThrow("power-cycle");
+    expect(closed).toBe(true);
+    expect(hose.failed).toBe(true);
+    expect(writes).toHaveLength(1);
+    await expect(hose.configure()).rejects.toThrow("power-cycle");
+  }
+});
+
+test("a source error closes USB before draining otherwise blocked writes", async () => {
+  const { hose, plan } = nativeTransport();
+  hose.cfg.MaxPayloadSizeToTargetInBytes = 4096;
+  let rejectWrite;
+  let closeCount = 0;
+  let writes = 0;
+  hose.cdc.write = () => {
+    if (!writes++) return Promise.resolve();
+    return new Promise((_, reject) => { rejectWrite = reject; });
+  };
+  hose.cdc.close = () => {
+    closeCount++;
+    rejectWrite(new Error("USB closed"));
+    return Promise.resolve();
+  };
+  let reads = 0;
+  plan.parts = [{ size: 8192, stream: () => ({ getReader: () => ({
+    read: () => reads++ ? Promise.reject(new Error("download failed")) : Promise.resolve({ value: new Uint8Array(4096), done: false }),
+    cancel: () => Promise.resolve(),
+    releaseLock: () => undefined,
+  }) }) }];
+  await expect(hose.cmdProgramSparse(0, 0n, plan)).rejects.toThrow("download failed");
+  expect(closeCount).toBe(1);
+  expect(writes).toBe(2);
+});
+
+test("USB failure interrupts a stalled network read without waiting for more source bytes", async () => {
+  const { hose, plan } = nativeTransport();
+  hose.cfg.MaxPayloadSizeToTargetInBytes = 4096;
+  let writes = 0;
+  let closed = false;
+  let cancelled = false;
+  let finishRead;
+  let reads = 0;
+  hose.cdc.write = () => writes++ ? Promise.reject(new Error("USB unplugged")) : Promise.resolve();
+  hose.cdc.close = () => { closed = true; return Promise.resolve(); };
+  plan.parts = [{ size: 8192, stream: () => ({ getReader: () => ({
+    read: () => reads++ ? new Promise(resolve => { finishRead = resolve; }) : Promise.resolve({ value: new Uint8Array(4096), done: false }),
+    cancel: () => { cancelled = true; finishRead?.({ done: true }); return Promise.resolve(); },
+    releaseLock: () => undefined,
+  }) }) }];
+  await expect(hose.cmdProgramSparse(0, 0n, plan)).rejects.toThrow("USB unplugged");
+  expect(closed).toBe(true);
+  expect(cancelled).toBe(true);
+  expect(writes).toBe(2);
+});

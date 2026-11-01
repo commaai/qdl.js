@@ -58,6 +58,8 @@ export class Firehose {
     /** @type {number[]} */
     this.luns = [];
     this.programSparseMaxExtents = 0;
+    this.programSparseMaxCopies = 1;
+    this.failed = false;
   }
 
   /**
@@ -66,6 +68,7 @@ export class Firehose {
    * @returns {Promise<response>}
    */
   async xmlSend(command, wait = true) {
+    if (this.failed) throw new Error("Flash transfer interrupted; power-cycle the device before retrying");
     // FIXME: warn if command is shortened
     const dataToSend = new TextEncoder().encode(command).slice(0, this.cfg.MaxXMLSizeInBytes);
     try {
@@ -107,7 +110,9 @@ export class Firehose {
    * @returns {Promise<boolean>}
    */
   async configure() {
+    if (this.failed) throw new Error("Flash transfer interrupted; power-cycle the device before retrying");
     this.programSparseMaxExtents = 0;
+    this.programSparseMaxCopies = 1;
     const connectCmd = toXml("configure", {
       MemoryName: this.cfg.MemoryName,
       Verbose: 0,
@@ -141,6 +146,11 @@ export class Firehose {
     if (/^[1-9][0-9]*$/.test(sparseLimit)) {
       const limit = Number(sparseLimit);
       if (Number.isSafeInteger(limit)) this.programSparseMaxExtents = Math.min(limit, 4096);
+    }
+    const sparseCopies = response.ProgramSparseMaxCopies;
+    if (this.programSparseMaxExtents && /^[1-9][0-9]*$/.test(sparseCopies)) {
+      const copies = Number(sparseCopies);
+      if (Number.isSafeInteger(copies)) this.programSparseMaxCopies = Math.min(copies, 2);
     }
     this.luns = Array.from({ length: this.cfg.maxlun }, (x, i) => i);
     return true;
@@ -241,29 +251,58 @@ export class Firehose {
    * @param {bigint} startSector
    * @param {import("./sparse-program").SparseProgram} plan
    * @param {progressCallback} [onProgress]
+   * @param {{physicalPartitionNumber: number, startSector: bigint, numPartitionSectors: bigint}} [secondary]
    * @returns {Promise<boolean>}
    */
-  async cmdProgramSparse(physicalPartitionNumber, startSector, plan, onProgress = undefined) {
+  async cmdProgramSparse(physicalPartitionNumber, startSector, plan, onProgress = undefined, secondary = undefined) {
     if (!this.programSparseMaxExtents || this.cfg.ZLPAwareHost) {
       throw new Error("Native sparse programming requires negotiated support and ZlpAwareHost=0");
     }
     const table = validateSparseProgram(plan, this.cfg.SECTOR_SIZE_IN_BYTES, plan.numPartitionSectors, this.programSparseMaxExtents);
-    const result = await this.xmlSend(toXml("program_sparse", {
+    const attributes = {
       SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
       num_partition_sectors: plan.numPartitionSectors,
       physical_partition_number: physicalPartitionNumber,
       start_sector: startSector,
       extent_count: plan.extents.length,
       data_sectors: plan.dataSectors,
-    }));
+    };
+    if (secondary) {
+      if (this.programSparseMaxCopies < 2) throw new Error("Multiple sparse destinations require negotiated support");
+      const span = BigInt(plan.numPartitionSectors);
+      const validLun = lun => Number.isInteger(lun) && lun >= 0 && lun < this.cfg.maxlun;
+      const validStart = start => typeof start === "bigint" && start >= 0n && start + span <= 0xffffffffffffffffn;
+      if (!validLun(physicalPartitionNumber) || !validLun(secondary.physicalPartitionNumber) || !validStart(startSector) || !validStart(secondary.startSector)
+        || typeof secondary.numPartitionSectors !== "bigint" || secondary.numPartitionSectors < span || secondary.startSector + secondary.numPartitionSectors > 0xffffffffffffffffn) {
+        throw new Error("Invalid sparse destination");
+      }
+      if (physicalPartitionNumber === secondary.physicalPartitionNumber && startSector < secondary.startSector + span && secondary.startSector < startSector + span) {
+        throw new Error("Overlapping sparse destinations");
+      }
+      attributes.secondary_physical_partition_number = secondary.physicalPartitionNumber;
+      attributes.secondary_start_sector = secondary.startSector;
+      attributes.secondary_num_partition_sectors = secondary.numPartitionSectors;
+    }
+    const result = await this.xmlSend(toXml("program_sparse", attributes));
     const initial = this.xml.getResponse(result.data);
     if (initial.value !== "ACK" || initial.rawmode !== "true") return false;
-    await this.cdc.write(table);
-    const tableData = await this.waitForData();
-    this.#printLogMessages(this.xml.getLog(tableData));
-    const accepted = this.xml.getResponse(tableData);
-    if (accepted.value !== "ACK" || accepted.rawmode !== "true") return false;
-    return this.#programData(plan.parts, onProgress, true);
+    try {
+      await this.cdc.write(table);
+      const tableData = await this.waitForData();
+      this.#printLogMessages(this.xml.getLog(tableData));
+      const accepted = this.xml.getResponse(tableData);
+      if (accepted.value !== "ACK" || accepted.rawmode !== "true") return false;
+      return await this.#programData(plan.parts, onProgress, true);
+    } catch (error) {
+      if (this.failed) throw error;
+      throw await this.#abortProgram(error);
+    }
+  }
+
+  async #abortProgram(error) {
+    this.failed = true;
+    try { await this.cdc.close?.(); } catch { /* Preserve the transfer error. */ }
+    return new Error(`${error instanceof Error ? error.message : error}; power-cycle the device before retrying`, { cause: error });
   }
 
   async #programData(blob, onProgress, requireRawMode = false) {
@@ -274,6 +313,25 @@ export class Firehose {
     let reader = null;
     let readBuffer = new Uint8Array();
     let readOffset = 0;
+    let writeFailure = null;
+    let rejectSourceRead = null;
+    const failWrite = error => {
+      writeFailure ??= { error };
+      rejectSourceRead?.(error);
+      rejectSourceRead = null;
+    };
+    const readSource = read => {
+      if (writeFailure) return Promise.reject(writeFailure.error);
+      return new Promise((resolve, reject) => {
+        rejectSourceRead = reject;
+        const finish = (callback, value) => {
+          if (rejectSourceRead === reject) rejectSourceRead = null;
+          callback(value);
+        };
+        try { Promise.resolve(read()).then(value => finish(resolve, value), error => finish(reject, error)); }
+        catch (error) { finish(reject, error); }
+      });
+    };
     const pool = [];
     const borrowed = new Set();
     const acquire = (length) => {
@@ -294,11 +352,11 @@ export class Firehose {
     };
     const readPart = async (length) => {
       const part = parts[partIndex];
-      if (!reader && partOffset === 0 && part.size >= this.cfg.MaxPayloadSizeToTargetInBytes && typeof part.stream === "function") {
+      if (!reader && partOffset === 0 && (part.size >= this.cfg.MaxPayloadSizeToTargetInBytes || typeof part.slice !== "function") && typeof part.stream === "function") {
         reader = part.stream().getReader();
       }
       if (!reader) {
-        const data = await part.slice(partOffset, partOffset + length).arrayBuffer();
+        const data = await readSource(() => part.slice(partOffset, partOffset + length).arrayBuffer());
         if (data.byteLength !== length) throw new Error("Short image read while programming");
         partOffset += length;
         return new Uint8Array(data);
@@ -307,7 +365,7 @@ export class Firehose {
       let offset = 0;
       while (offset < length) {
         if (readOffset === readBuffer.length) {
-          const result = await reader.read();
+          const result = await readSource(() => reader.read());
           if (result.done) throw new Error("Short image read while programming");
           readBuffer = result.value;
           readOffset = 0;
@@ -323,7 +381,11 @@ export class Firehose {
         partOffset += count;
         offset += count;
       }
-      if (partOffset === part.size) await closeReader();
+      if (partOffset === part.size) {
+        // One-shot input must finish validation before its final bytes reach USB.
+        if (typeof part.slice !== "function" && !(await readSource(() => reader.read())).done) throw new Error("Image stream exceeds its declared size");
+        await closeReader();
+      }
       return data;
     };
     const readChunk = async (length) => {
@@ -377,13 +439,18 @@ export class Firehose {
           if (this.cfg.ZLPAwareHost) await this.cdc.write(new Uint8Array(0));
         }).finally(() => release(wdata));
         // Observe failures immediately, including while the next file read is pending.
-        pending.push([write.then(() => null, error => ({ error })), wlen]);
+        pending.push([write.then(() => null, error => {
+          failWrite(error);
+          return { error };
+        }), wlen]);
         if (pending.length === depth) await completeWrite();
       }
       while (pending.length) await completeWrite();
+    } catch (error) {
+      throw await this.#abortProgram(error);
     } finally {
+      try { await closeReader(); } catch { /* Transfer errors have already been reported. */ }
       await Promise.all(pending.map(([result]) => result));
-      await closeReader();
     }
     onProgress?.(total);
 

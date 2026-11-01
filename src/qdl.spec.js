@@ -165,3 +165,122 @@ describe("native sparse routing", () => {
     expect(device.events).toHaveLength(0);
   });
 });
+
+describe("explicit flash destinations", () => {
+  test("uses one native program for explicit destinations and reports aggregate progress", async () => {
+    const device = new SparseDevice(new ArrayBuffer(1));
+    device.transport.programSparseMaxCopies = 2;
+    device.transport.cmdProgramSparse = (lun, start, plan, progress, secondary) => {
+      device.events.push(["native", lun, start, secondary]);
+      progress(4096);
+      progress(8192);
+      return Promise.resolve(true);
+    };
+    const progress = [];
+    expect(await device.flashBlob(["system_a", "system_b"], sparseImage(), bytes => progress.push(bytes))).toBe(true);
+    expect(device.events).toEqual([["erase"], ["erase"], ["native", 0, 100n, { physicalPartitionNumber: 0, startSector: 200n, numPartitionSectors: 100n }]]);
+    expect(progress).toEqual([8192, 32768, 57344]);
+  });
+
+  test("does not infer a second destination for scalar names", async () => {
+    const device = new SparseDevice(new ArrayBuffer(1));
+    device.transport.programSparseMaxCopies = 2;
+    device.transport.cmdProgramSparse = (...args) => {
+      expect(args).toHaveLength(4);
+      return Promise.resolve(true);
+    };
+    expect(await device.flashBlob("system_a", sparseImage(), undefined, false)).toBe(true);
+  });
+
+  test("validates every explicit destination before the first erase or write", async () => {
+    for (const kind of ["duplicate", "overlap", "missing", "small", "empty", "invalid"]) {
+      const device = new SparseDevice(new ArrayBuffer(1));
+      device.transport.programSparseMaxCopies = 2;
+      const original = device.detectPartition.bind(device);
+      device.detectPartition = async name => {
+        const result = await original(name);
+        if (name.endsWith("_b")) {
+          if (kind === "overlap") result[2].start = 199n;
+          if (kind === "missing") return [false];
+          if (kind === "small") result[2].sectors = 6n;
+        }
+        return result;
+      };
+      const names = kind === "duplicate" ? ["system_a", "system_a"] : kind === "empty" ? [] : kind === "invalid" ? ["system_a", null] : ["system_a", "system_b"];
+      await expect(device.flashBlob(names, sparseImage())).rejects.toThrow();
+      expect(device.events).toHaveLength(0);
+    }
+  });
+
+  test("falls back sequentially on old firmware, including aggregate progress", async () => {
+    const device = new SparseDevice(new ArrayBuffer(1));
+    const progress = [];
+    expect(await device.flashBlob(["system_a", "system_b"], sparseImage(), bytes => progress.push(bytes), false)).toBe(true);
+    expect(device.events.map(event => event[0])).toEqual(["native", "native"]);
+    expect(progress.every((value, i) => i === 0 || value >= progress[i - 1])).toBe(true);
+    expect(progress.at(-1)).toBe(57344);
+  });
+
+  test("stops after failed erases or native writes without retrying", async () => {
+    const failedErase = new SparseDevice(new ArrayBuffer(1));
+    failedErase.transport.programSparseMaxCopies = 2;
+    failedErase.transport.cmdErase = () => Promise.resolve(false);
+    expect(await failedErase.flashBlob(["system_a", "system_b"], sparseImage())).toBe(false);
+    expect(failedErase.events).toHaveLength(0);
+    const failedWrite = new SparseDevice(new ArrayBuffer(1));
+    failedWrite.transport.programSparseMaxCopies = 2;
+    failedWrite.transport.cmdProgramSparse = () => Promise.resolve(false);
+    expect(await failedWrite.flashBlob(["system_a", "system_b"], sparseImage(), undefined, false)).toBe(false);
+    expect(failedWrite.events).toHaveLength(0);
+  });
+});
+
+describe("verified sparse streams", () => {
+  const metadata = { sectorSize: 4096, numPartitionSectors: 7, dataSectors: 2, extents: [[0n, 1n], [3n, 1n]] };
+  test("reports capabilities without consuming source data", () => {
+    const device = new SparseDevice(new ArrayBuffer(1));
+    device.transport.programSparseMaxCopies = 1;
+    expect(device.canFlashStream()).toBe(true);
+    expect(device.canFlashStream(2)).toBe(false);
+    expect(device.canFlashStream(1, 4097)).toBe(false);
+    device.transport.programSparseMaxCopies = 2;
+    expect(device.canFlashStream(2, 4096)).toBe(true);
+    device.transport.failed = true;
+    expect(device.canFlashStream()).toBe(false);
+  });
+
+  test("uses validated metadata for one native command across both destinations", async () => {
+    const device = new SparseDevice(new ArrayBuffer(1));
+    device.transport.programSparseMaxCopies = 2;
+    const stream = new ReadableStream();
+    let plan;
+    device.transport.cmdProgramSparse = (_, start, value, progress, secondary) => {
+      expect(start).toBe(100n);
+      expect(secondary.startSector).toBe(200n);
+      plan = value;
+      progress(8192);
+      return Promise.resolve(true);
+    };
+    const progress = [];
+    expect(await device.flashStream(["system_a", "system_b"], metadata, stream, bytes => progress.push(bytes))).toBe(true);
+    expect(plan.parts[0].stream()).toBe(stream);
+    expect(plan.parts[0].size).toBe(8192);
+    expect(plan.table.length).toBe(4096);
+    expect(device.events).toEqual([["erase"], ["erase"]]);
+    expect(progress).toEqual([32768, 57344]);
+  });
+
+  test("rejects unsupported, invalid, oversized, or locked streams before erasing", async () => {
+    for (const kind of ["unsupported", "overlap", "small", "sector", "locked"]) {
+      const device = new SparseDevice(new ArrayBuffer(1));
+      device.transport.programSparseMaxCopies = kind === "unsupported" ? 1 : 2;
+      if (kind === "small") device.partitionSectors = 6n;
+      const spec = { ...metadata, extents: kind === "overlap" ? [[0n, 1n], [0n, 1n]] : metadata.extents, sectorSize: kind === "sector" ? 512 : 4096 };
+      const stream = new ReadableStream();
+      const reader = kind === "locked" ? stream.getReader() : null;
+      await expect(device.flashStream(["system_a", "system_b"], spec, stream)).rejects.toThrow();
+      expect(device.events).toHaveLength(0);
+      reader?.releaseLock();
+    }
+  });
+});
