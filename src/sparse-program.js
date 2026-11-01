@@ -15,7 +15,8 @@ const plans = new WeakMap();
 /**
  * @typedef {object} ProgramPart
  * @property {number} size
- * @property {(start: number, end: number) => {arrayBuffer: () => Promise<ArrayBuffer>}} slice
+ * @property {(start: number, end: number) => {arrayBuffer: () => Promise<ArrayBuffer>}} [slice]
+ * @property {() => ReadableStream<Uint8Array>} [stream]
  */
 
 /**
@@ -25,6 +26,8 @@ const plans = new WeakMap();
  * @property {number} numPartitionSectors
  * @property {number} dataSectors
  * @property {Uint8Array} [table]
+ * @property {number[][]} [sourceRanges]
+ * @property {number} [sourceBytes]
  */
 
 function check(condition, message) {
@@ -68,20 +71,19 @@ class FillPart {
 
 /**
  * Validate both generated and externally supplied plans before sending USB data.
- * @param {SparseProgram} plan
+ * @param {Pick<SparseProgram, "extents" | "numPartitionSectors" | "dataSectors" | "table">} plan
  * @param {number} sectorSize
  * @param {number | bigint} [partitionSectors]
  * @param {number} [maxExtents=4096]
  * @returns {Uint8Array}
  */
-export function validateSparseProgram(plan, sectorSize, partitionSectors = plan.numPartitionSectors, maxExtents = MAX_EXTENTS) {
+export function validateSparseProgramMetadata(plan, sectorSize, partitionSectors = plan.numPartitionSectors, maxExtents = MAX_EXTENTS) {
   checkOptions(sectorSize, maxExtents);
   const logical = count(plan.numPartitionSectors, "logical sectors", true);
   const data = count(plan.dataSectors, "data sectors", true);
   check(logical <= count(partitionSectors, "partition sectors", true), "image exceeds partition");
   check(logical * BigInt(sectorSize) <= MAX_SAFE && data * BigInt(sectorSize) <= MAX_SAFE, "byte count exceeds safe integer range");
   check(Array.isArray(plan.extents) && plan.extents.length > 0 && plan.extents.length <= maxExtents, "invalid extent count");
-  check(Array.isArray(plan.parts) && plan.parts.length > 0 && plan.parts.length <= MAX_PARTS, "invalid payload part count");
 
   let end = 0n;
   let sectors = 0n;
@@ -100,17 +102,31 @@ export function validateSparseProgram(plan, sectorSize, partitionSectors = plan.
     view.setBigUint64(i * 16 + 8, length, true);
   }
   check(sectors === data, "extent sum differs from data sectors");
-  let bytes = 0n;
-  for (const part of plan.parts) {
-    check(part && Number.isSafeInteger(part.size) && part.size > 0 && typeof part.slice === "function", "invalid payload part");
-    check(part.size % sectorSize === 0, "unaligned payload part");
-    bytes += BigInt(part.size);
-  }
-  check(bytes === data * BigInt(sectorSize), "payload size differs from extent sum");
   if (plan.table !== undefined) {
     check(plan.table instanceof Uint8Array && plan.table.length === table.length, "invalid table size");
     check(plan.table.every((byte, index) => byte === table[index]), "table differs from extents or has nonzero padding");
   }
+  return table;
+}
+
+/**
+ * @param {SparseProgram} plan
+ * @param {number} sectorSize
+ * @param {number | bigint} [partitionSectors]
+ * @param {number} [maxExtents=4096]
+ * @returns {Uint8Array}
+ */
+export function validateSparseProgram(plan, sectorSize, partitionSectors = plan.numPartitionSectors, maxExtents = MAX_EXTENTS) {
+  const table = validateSparseProgramMetadata(plan, sectorSize, partitionSectors, maxExtents);
+  const data = BigInt(plan.dataSectors);
+  check(Array.isArray(plan.parts) && plan.parts.length > 0 && plan.parts.length <= MAX_PARTS, "invalid payload part count");
+  let bytes = 0n;
+  for (const part of plan.parts) {
+    check(part && Number.isSafeInteger(part.size) && part.size > 0 && (typeof part.slice === "function" || typeof part.stream === "function"), "invalid payload part");
+    check(part.size % sectorSize === 0, "unaligned payload part");
+    bytes += BigInt(part.size);
+  }
+  check(bytes === data * BigInt(sectorSize), "payload size differs from extent sum");
   return table;
 }
 
@@ -135,6 +151,7 @@ async function parsePlan(blob, sectorSize) {
   let parts = [];
   /** @type {[bigint, bigint][]} */
   let extents = [];
+  let sourceRanges = [];
   let supported = true;
   let position = HEADER_SIZE;
   let offset = 0;
@@ -159,15 +176,22 @@ async function parsePlan(blob, sectorSize) {
     const bodySize = total - CHUNK_HEADER_SIZE;
     const bodyOffset = position + CHUNK_HEADER_SIZE;
     let part = null;
+    let sourceRange;
     if (type === RAW) {
       check(size > 0 && bodySize === size, "RAW length differs from block count");
-      if (supported) part = blob.slice(bodyOffset, position + total);
+      if (supported) {
+        part = blob.slice(bodyOffset, position + total);
+        sourceRange = [bodyOffset, size];
+      }
     } else if (type === FILL) {
       check(size > 0 && bodySize === 4, "invalid FILL chunk");
       const pattern = position + total <= windowOffset + window.length
         ? window.slice(bodyOffset - windowOffset, position + total - windowOffset)
         : new Uint8Array(await blob.slice(bodyOffset, position + total).arrayBuffer());
-      if (pattern.some((byte) => byte !== 0) && supported) part = new FillPart(pattern, size);
+      if (pattern.some((byte) => byte !== 0) && supported) {
+        part = new FillPart(pattern, size);
+        sourceRange = [bodyOffset, 4, size / 4];
+      }
     } else if (type === SKIP) {
       check(size > 0 && bodySize === 0, "invalid DONT_CARE chunk");
     } else if (type === CRC32) {
@@ -182,11 +206,13 @@ async function parsePlan(blob, sectorSize) {
       if (previous && previous[0] + previous[1] === start) previous[1] += length;
       else extents.push([start, length]);
       parts.push(part);
+      sourceRanges.push(sourceRange);
       dataBytes += size;
       if (extents.length > MAX_EXTENTS || parts.length > MAX_PARTS) {
         supported = false;
         extents = [];
         parts = [];
+        sourceRanges = [];
       }
     }
     offset += size;
@@ -196,7 +222,7 @@ async function parsePlan(blob, sectorSize) {
   check(position === blob.size, "trailing bytes after final chunk");
   const numPartitionSectors = Number(logicalBytes / BigInt(sectorSize));
   if (!supported || extents.length === 0) return { numPartitionSectors, plan: null };
-  const plan = { parts, extents, numPartitionSectors, dataSectors: dataBytes / sectorSize };
+  const plan = { parts, extents, numPartitionSectors, dataSectors: dataBytes / sectorSize, sourceRanges, sourceBytes: blob.size };
   return { numPartitionSectors, plan: { ...plan, table: validateSparseProgram(plan, sectorSize) } };
 }
 

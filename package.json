@@ -21,6 +21,10 @@
     "./utils": {
       "types": "./dist/utils.d.ts",
       "import": "./dist/utils.js"
+    },
+    "./sparse-stream": {
+      "types": "./dist/sparse-stream.d.ts",
+      "import": "./dist/sparse-stream.js"
     }
   },
   "scripts": {
