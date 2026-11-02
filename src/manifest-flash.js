@@ -1,5 +1,5 @@
 import { GPT } from "./gpt.js";
-import { openVerifiedImage, resourceUrl, validateImageHashes } from "./manifest-source.js";
+import { openVerifiedImage, resourceUrl, validateFrameSizes, validateImageHashes } from "./manifest-source.js";
 import { selectSparseRanges, validateSparseStreamMetadata } from "./sparse-stream.js";
 
 const SECTOR_SIZE = 4096;
@@ -46,9 +46,18 @@ export function prepareManifest(entries, baseUrl, storage) {
       size: item.size,
       gpt: item.gpt,
       stream: null,
+      frameSizes: undefined,
     };
-    if (!["file:", "http:", "https:"].includes(image.archiveUrl.protocol)) throw new Error(`Unsupported archive protocol: ${item.name}`);
     validateImageHashes(image);
+    if (item.zstd_chunked_url !== undefined || item.zstd_chunked_size !== undefined || item.zstd_frame_sizes !== undefined) {
+      if (typeof item.zstd_chunked_url !== "string" || !item.zstd_chunked_url || !Number.isSafeInteger(item.zstd_chunked_size) || item.zstd_chunked_size <= 0) {
+        throw new Error(`Invalid independent zstd archive: ${item.name}`);
+      }
+      image.archiveUrl = resourceUrl(item.zstd_chunked_url, baseUrl);
+      image.archiveSize = item.zstd_chunked_size;
+      image.frameSizes = validateFrameSizes(item.zstd_frame_sizes, image);
+    }
+    if (!["file:", "http:", "https:"].includes(image.archiveUrl.protocol)) throw new Error(`Unsupported archive protocol: ${item.name}`);
     if (item.gpt) {
       if (!Number.isInteger(item.gpt.lun) || item.gpt.lun < 0 || item.gpt.lun > 5 || item.gpt.start_sector !== 0
         || item.gpt.num_sectors !== 6 || item.name !== `gpt_main_${item.gpt.lun}` || item.sparse || item.has_ab
@@ -116,6 +125,34 @@ export function validateManifestDestinations(plan, gptBytes, storage) {
   return destinations;
 }
 
+
+function prefetchImages(images, openImage, signal) {
+  const pending = [];
+  let index = 0;
+  const fill = () => {
+    while (pending.length < 4 && index < images.length) {
+      const image = images[index++];
+      // Store errors as values so an early rejection is observed while USB is busy.
+      pending.push(Promise.resolve().then(() => openImage(image, signal)).then(source => ({ source }), error => ({ error })));
+    }
+  };
+  fill();
+  return {
+    async next() {
+      fill();
+      const result = await pending.shift();
+      if (result.error) throw result.error;
+      return result.source;
+    },
+    async close() {
+      await Promise.all(pending.map(async promise => {
+        const { source } = await promise;
+        if (source && !source.locked) await source.cancel().catch(() => undefined);
+      }));
+    },
+  };
+}
+
 /** Full factory flash. Only activate slot A and reset after every image succeeds. */
 export async function flashManifest(device, entries, baseUrl, { signal, report = () => undefined, openImage = openVerifiedImage } = {}) {
   const started = performance.now();
@@ -127,48 +164,57 @@ export async function flashManifest(device, entries, baseUrl, { signal, report =
     report({ phase: name, seconds: (performance.now() - begin) / 1000 });
     return result;
   }
-  const storage = await phase("storage", () => device.getStorageInfo());
-  const plan = prepareManifest(entries, baseUrl, storage);
-  for (const image of plan.images) {
-    if (!device.canFlashStream(image.names.length, image.stream.extents.length)) throw new Error(`Programmer lacks native sparse support for ${image.name}`);
-  }
-  const gptBytes = new Map();
-  await phase("verify_gpts", async () => {
-    for (const image of plan.gpts) {
-      const source = await openImage(image, signal);
-      const bytes = new Uint8Array(image.fileSize);
-      let offset = 0;
-      for await (const chunk of source) {
-        bytes.set(chunk, offset);
-        offset += chunk.length;
-      }
-      if (offset !== bytes.length) throw new Error(`Truncated GPT: ${image.name}`);
-      gptBytes.set(image.gpt.lun, bytes);
+  const controller = new AbortController();
+  signal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+  let sources;
+  try {
+    const storage = await phase("storage", () => device.getStorageInfo());
+    const plan = prepareManifest(entries, baseUrl, storage);
+    for (const image of plan.images) {
+      if (!device.canFlashStream(image.names.length, image.stream.extents.length)) throw new Error(`Programmer lacks native sparse support for ${image.name}`);
     }
-    validateManifestDestinations(plan, gptBytes, storage);
-  });
-  const [found, lun, persist] = await device.detectPartition("persist");
-  if (!found || lun !== 0 || persist.start !== 8n || persist.sectors !== 8192n) throw new Error("Unexpected persist location on device");
-  await phase("repair_gpts", async () => {
-    for (const image of plan.gpts) {
-      if (!await device.repairGpt(image.gpt.lun, new Blob([gptBytes.get(image.gpt.lun)]))) throw new Error(`GPT repair failed on LUN ${image.gpt.lun}`);
-    }
-  });
-  for (let lun = 0; lun < 6; lun++) {
-    await phase(`erase_${lun}`, () => device.eraseLun(lun, lun === 0 ? ["mbr", "gpt", "persist"] : ["mbr", "gpt"]));
-  }
-  for (const image of plan.images) {
-    await phase(`flash_${image.name}`, async () => {
-      const source = await openImage(image, signal);
-      const payload = selectSparseRanges(source, image.stream, image.fileSize);
-      try {
-        if (!await device.flashStream(image.names, image.stream, payload, undefined, false)) throw new Error(`Flashing ${image.name} failed`);
-      } finally {
-        if (!payload.locked) await payload.cancel().catch(() => undefined);
+    const gptBytes = new Map();
+    await phase("verify_gpts", async () => {
+      await Promise.all(plan.gpts.map(async image => {
+        const source = await openImage(image, signal);
+        const bytes = new Uint8Array(image.fileSize);
+        let offset = 0;
+        for await (const chunk of source) {
+          bytes.set(chunk, offset);
+          offset += chunk.length;
+        }
+        if (offset !== bytes.length) throw new Error(`Truncated GPT: ${image.name}`);
+        gptBytes.set(image.gpt.lun, bytes);
+      }));
+      validateManifestDestinations(plan, gptBytes, storage);
+    });
+    const [found, lun, persist] = await device.detectPartition("persist");
+    if (!found || lun !== 0 || persist.start !== 8n || persist.sectors !== 8192n) throw new Error("Unexpected persist location on device");
+    sources = prefetchImages(plan.images, openImage, signal);
+    await phase("repair_gpts", async () => {
+      for (const image of plan.gpts) {
+        if (!await device.repairGpt(image.gpt.lun, new Blob([gptBytes.get(image.gpt.lun)]))) throw new Error(`GPT repair failed on LUN ${image.gpt.lun}`);
       }
     });
+    for (let lun = 0; lun < 6; lun++) {
+      await phase(`erase_${lun}`, () => device.eraseLun(lun, lun === 0 ? ["mbr", "gpt", "persist"] : ["mbr", "gpt"]));
+    }
+    for (const image of plan.images) {
+      await phase(`flash_${image.name}`, async () => {
+        const source = await sources.next();
+        const payload = selectSparseRanges(source, image.stream, image.fileSize);
+        try {
+          if (!await device.flashStream(image.names, image.stream, payload, undefined, false)) throw new Error(`Flashing ${image.name} failed`);
+        } finally {
+          if (!payload.locked) await payload.cancel().catch(() => undefined);
+        }
+      });
+    }
+    await phase("activate_a", () => device.setActiveSlot("a"));
+    await phase("reset", () => device.reset());
+    report({ phase: "complete", seconds: (performance.now() - started) / 1000, userdata: plan.userdata });
+  } finally {
+    controller.abort();
+    await sources?.close();
   }
-  await phase("activate_a", () => device.setActiveSlot("a"));
-  await phase("reset", () => device.reset());
-  report({ phase: "complete", seconds: (performance.now() - started) / 1000, userdata: plan.userdata });
 }

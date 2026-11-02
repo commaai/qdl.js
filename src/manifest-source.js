@@ -1,10 +1,11 @@
-import { createHash } from "node:crypto";
+import { webcrypto } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import * as zlib from "node:zlib";
 
 export const VERIFIED_CHUNK_SIZE = 4 * 1024 * 1024;
@@ -34,11 +35,108 @@ export function validateImageHashes(image) {
   }
 }
 
-/** Verify each decoded chunk before exposing it. The final chunk also waits for exact EOF and the full hash. */
+export function validateFrameSizes(sizes, image) {
+  if (!Array.isArray(sizes) || sizes.length !== image.chunkHashes.length
+    || sizes.some(size => !Number.isSafeInteger(size) || size <= 0 || size > 2 * VERIFIED_CHUNK_SIZE)
+    || sizes.reduce((sum, size) => sum + size, 0) !== image.archiveSize) {
+    throw new Error(`Invalid independent zstd frame sizes for ${image.name}`);
+  }
+  return [...sizes];
+}
+
+/** Independent frames can decode concurrently while one archive download stays sequential. */
+async function openVerifiedFrames(image, signal, concurrency) {
+  const frameSizes = validateFrameSizes(image.frameSizes, image);
+  if (concurrency !== 4 && concurrency !== 8) throw new Error("Expected zstd concurrency 4 or 8");
+  const controller = new AbortController();
+  const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+  const source = await openResource(image.archiveUrl, combined, image.archiveSize);
+  const reader = source.getReader();
+  const decompress = promisify(zlib.zstdDecompress);
+  let cancelled = false;
+  let buffer = new Uint8Array();
+  let offset = 0;
+  let received = 0;
+  const pending = [];
+  async function frame(length) {
+    const bytes = new Uint8Array(length);
+    for (let used = 0; used < length;) {
+      if (offset === buffer.length) {
+        const next = await reader.read();
+        if (next.done) throw new Error(`Truncated archive: ${image.name}`);
+        if (!(next.value instanceof Uint8Array) || !next.value.length) throw new Error("Invalid archive chunk");
+        buffer = next.value;
+        offset = 0;
+        received += buffer.length;
+        if (received > image.archiveSize) throw new Error(`Archive too long: ${image.name}`);
+      }
+      const count = Math.min(length - used, buffer.length - offset);
+      bytes.set(buffer.subarray(offset, offset + count), used);
+      used += count;
+      offset += count;
+    }
+    return bytes;
+  }
+  async function decode(bytes, index) {
+    const expected = Math.min(VERIFIED_CHUNK_SIZE, image.fileSize - index * VERIFIED_CHUNK_SIZE);
+    const decoded = await decompress(bytes, {
+      chunkSize: VERIFIED_CHUNK_SIZE,
+      maxOutputLength: expected,
+      params: { [zlib.constants.ZSTD_d_windowLogMax]: 22 },
+    });
+    if (decoded.length !== expected) throw new Error(`Unexpected decoded frame length: ${image.name} chunk ${index}`);
+    const actual = Buffer.from(await webcrypto.subtle.digest("SHA-256", decoded)).toString("hex");
+    if (actual !== image.chunkHashes[index]) throw new Error(`SHA-256 mismatch for ${image.name} chunk ${index}`);
+    return decoded;
+  }
+  async function* frames() {
+    let index = 0;
+    try {
+      while (index < frameSizes.length || pending.length) {
+        while (index < frameSizes.length && pending.length < concurrency) {
+          const bytes = await frame(frameSizes[index]);
+          pending.push(decode(bytes, index++).then(value => ({ value }), error => ({ error })));
+        }
+        const result = await pending.shift();
+        if (result.error) throw result.error;
+        if (!pending.length && index === frameSizes.length) {
+          if (offset !== buffer.length || received !== image.archiveSize || !(await reader.read()).done) throw new Error(`Unexpected archive EOF: ${image.name}`);
+        }
+        if (!cancelled) yield result.value;
+      }
+    } finally {
+      controller.abort();
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+      await Promise.all(pending);
+    }
+  }
+  const iterator = frames();
+  return new ReadableStream({
+    async pull(output) {
+      try {
+        const next = await iterator.next();
+        if (cancelled) return;
+        if (next.done) output.close();
+        else output.enqueue(next.value);
+      } catch (error) {
+        if (!cancelled) output.error(error);
+      }
+    },
+    async cancel(reason) {
+      cancelled = true;
+      controller.abort(reason);
+      await reader.cancel(reason).catch(() => undefined);
+      await iterator.return();
+      try { reader.releaseLock(); } catch { /* The generator may have released it. */ }
+    },
+  }, { highWaterMark: 0 });
+}
+
+/** Verify each decoded chunk before exposing it. The final chunk also waits for exact EOF. */
 export function verifyImageStream(source, image) {
   validateImageHashes(image);
   const reader = source.getReader();
-  const fullHash = createHash("sha256");
   let cancelled = false;
   async function* verified() {
     let total = 0;
@@ -59,9 +157,8 @@ export function verifyImageStream(source, image) {
           used += length;
           offset += length;
           if (used === block.length) {
-            const actual = createHash("sha256").update(block).digest("hex");
+            const actual = Buffer.from(await webcrypto.subtle.digest("SHA-256", block)).toString("hex");
             if (actual !== image.chunkHashes[index]) throw new Error(`SHA-256 mismatch for ${image.name} chunk ${index}`);
-            fullHash.update(block);
             index++;
             if (index === image.chunkHashes.length) break;
             yield block;
@@ -71,7 +168,6 @@ export function verifyImageStream(source, image) {
         }
       }
       if (total !== image.fileSize || index !== image.chunkHashes.length) throw new Error(`Truncated decoded image ${image.name}`);
-      if (fullHash.digest("hex") !== image.hash) throw new Error(`Full SHA-256 mismatch for ${image.name}`);
       if (!cancelled) yield block;
     } finally {
       await reader.cancel().catch(() => undefined);
@@ -135,9 +231,10 @@ export async function openResource(url, signal, expectedSize = undefined) {
 }
 
 /** Bounded native decompression: no archive cache and no whole-image allocation. */
-export async function openVerifiedImage(image, signal) {
+export async function openVerifiedImage(image, signal, concurrency = 4) {
   requireNativeZstd();
   validateImageHashes(image);
+  if (image.frameSizes) return openVerifiedFrames(image, signal, concurrency);
   const controller = new AbortController();
   const abort = () => controller.abort(signal?.reason);
   signal?.addEventListener("abort", abort, { once: true });

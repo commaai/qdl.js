@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { parseArgs } from "node:util";
 import { webusb } from "usb";
 import { flashManifest } from "../manifest-flash.js";
-import { localOrRemoteUrl, readResource, requireNativeZstd } from "../manifest-source.js";
+import { localOrRemoteUrl, openVerifiedImage, readResource, requireNativeZstd } from "../manifest-source.js";
 import { qdlDevice } from "../qdl.js";
 import { usbClass } from "../usblib.js";
 
@@ -11,6 +11,7 @@ const { values } = parseArgs({ options: {
   manifest: { type: "string" },
   programmer: { type: "string" },
   "programmer-sha256": { type: "string" },
+  "decode-concurrency": { type: "string", default: "4" },
   help: { type: "boolean", short: "h" },
 } });
 if (values.help || !values.manifest || !values.programmer) {
@@ -30,6 +31,8 @@ process.once("SIGINT", interrupted);
 process.once("SIGTERM", interrupted);
 try {
   requireNativeZstd();
+  const concurrency = Number(values["decode-concurrency"]);
+  if (concurrency !== 4 && concurrency !== 8) throw new Error("--decode-concurrency must be 4 or 8");
   const manifestUrl = localOrRemoteUrl(values.manifest);
   const entries = JSON.parse((await readResource(manifestUrl, 16 * 1024 * 1024, controller.signal)).toString("utf8"));
   const programmer = await readResource(localOrRemoteUrl(values.programmer), 32 * 1024 * 1024, controller.signal);
@@ -42,7 +45,11 @@ try {
   const start = performance.now();
   await device.connect(usb);
   console.info(JSON.stringify({ phase: "connect", seconds: (performance.now() - start) / 1000 }));
-  await flashManifest(device, entries, manifestUrl, { signal: controller.signal, report: event => console.info(JSON.stringify(event)) });
+  await flashManifest(device, entries, manifestUrl, {
+    signal: controller.signal,
+    report: event => console.info(JSON.stringify(event)),
+    openImage: (image, signal) => openVerifiedImage(image, signal, concurrency),
+  });
 } catch (error) {
   controller.abort(error);
   console.error(error);

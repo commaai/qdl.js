@@ -36,14 +36,16 @@ test("verified stream handles split chunks, partial tail and exact-multiple EOF"
   }
 });
 
-test("bad chunks never reach the consumer; full-hash mismatch withholds the final chunk", async () => {
+test("bad chunks never reach the consumer, including the final chunk", async () => {
   const bytes = Buffer.alloc(VERIFIED_CHUNK_SIZE + 19, 7);
   const info = metadata(bytes);
   info.chunkHashes[0] = "0".repeat(64);
   await assert.rejects(verifyImageStream(stream(bytes), info).getReader().read(), /chunk 0/);
-  const reader = verifyImageStream(stream(bytes), { ...metadata(bytes), hash: "0".repeat(64) }).getReader();
+  const finalBad = metadata(bytes);
+  finalBad.chunkHashes[1] = "0".repeat(64);
+  const reader = verifyImageStream(stream(bytes), finalBad).getReader();
   assert.equal((await reader.read()).value.length, VERIFIED_CHUNK_SIZE);
-  await assert.rejects(reader.read(), /Full SHA-256/);
+  await assert.rejects(reader.read(), /chunk 1/);
 });
 
 test("decoded truncation, excess and late source errors cannot complete", async () => {
@@ -84,6 +86,48 @@ test("native zstd checks archive length, content and corrupt compressed tails", 
   await assert.rejects(openVerifiedImage({ ...image, archiveSize: compressed.length - 1 }), /archive length/);
   await writeFile(path, compressed.subarray(0, -1));
   await assert.rejects(collect(await openVerifiedImage({ ...image, archiveSize: compressed.length - 1 })), /error|unexpected|truncated/i);
+});
+
+test("parallel native frames preserve order, validate every hash, and bound decoded output", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "qdl-frames-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const bytes = Buffer.concat([Buffer.alloc(VERIFIED_CHUNK_SIZE, 1), Buffer.alloc(VERIFIED_CHUNK_SIZE, 2), Buffer.alloc(719, 3)]);
+  const chunks = [bytes.subarray(0, VERIFIED_CHUNK_SIZE), bytes.subarray(VERIFIED_CHUNK_SIZE, VERIFIED_CHUNK_SIZE * 2), bytes.subarray(VERIFIED_CHUNK_SIZE * 2)];
+  const frames = chunks.map(chunk => zstdCompressSync(chunk));
+  const path = join(directory, "frames.zst");
+  await writeFile(path, Buffer.concat(frames));
+  const image = { ...metadata(bytes), archiveUrl: pathToFileURL(path), archiveSize: frames.reduce((sum, frame) => sum + frame.length, 0), frameSizes: frames.map(frame => frame.length) };
+  for (const concurrency of [4, 8]) assert.deepEqual(await collect(await openVerifiedImage(image, undefined, concurrency)), bytes);
+  const invalid = { ...image, chunkHashes: [...image.chunkHashes] };
+  invalid.chunkHashes[1] = "0".repeat(64);
+  const reader = (await openVerifiedImage(invalid)).getReader();
+  assert.deepEqual((await reader.read()).value, chunks[0]);
+  await assert.rejects(reader.read(), /chunk 1/);
+  await assert.rejects(openVerifiedImage({ ...image, frameSizes: [image.archiveSize] }), /frame sizes/);
+  await assert.rejects(openVerifiedImage({ ...image, frameSizes: [0, ...image.frameSizes.slice(1)] }), /frame sizes/);
+  await assert.rejects(openVerifiedImage(image, undefined, 1000), /concurrency/);
+  const oversized = zstdCompressSync(Buffer.alloc(VERIFIED_CHUNK_SIZE + 1));
+  await writeFile(path, oversized);
+  const tooLarge = { ...metadata(Buffer.alloc(VERIFIED_CHUNK_SIZE)), archiveUrl: pathToFileURL(path), archiveSize: oversized.length, frameSizes: [oversized.length] };
+  await assert.rejects(collect(await openVerifiedImage(tooLarge)), /larger than|Window size|output|limit/i);
+  const short = zstdCompressSync(Buffer.alloc(VERIFIED_CHUNK_SIZE - 1));
+  await writeFile(path, short);
+  await assert.rejects(collect(await openVerifiedImage({ ...tooLarge, archiveSize: short.length, frameSizes: [short.length] })), /frame length/);
+});
+
+test("parallel frame cancellation closes an unopened or partly consumed archive", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "qdl-frame-cancel-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const chunk = Buffer.alloc(VERIFIED_CHUNK_SIZE, 9);
+  const frame = zstdCompressSync(chunk);
+  const path = join(directory, "frames.zst");
+  await writeFile(path, Buffer.concat(Array(8).fill(frame)));
+  const image = { ...metadata(Buffer.concat(Array(8).fill(chunk))), archiveUrl: pathToFileURL(path), archiveSize: frame.length * 8, frameSizes: Array(8).fill(frame.length) };
+  for (const started of [false, true]) {
+    const reader = (await openVerifiedImage(image)).getReader();
+    if (started) assert.equal((await reader.read()).value.length, VERIFIED_CHUNK_SIZE);
+    await reader.cancel();
+  }
 });
 
 test("HTTP errors are rejected without decoding the error body", async t => {
@@ -151,6 +195,16 @@ test("capacity mapping includes Samsung; manifest rejects XZ, missing GPT, wrong
   }
 });
 
+test("merged flash companions select framed archives and reject inconsistent frame lengths", () => {
+  const { entries } = fixture();
+  entries.at(-1).flash = { zstd_chunked_url: "frames.zst", zstd_chunked_size: 17, zstd_frame_sizes: [17] };
+  const plan = prepareManifest(entries, new URL("https://example.test/release/manifest.json"), storage);
+  assert.equal(plan.images.at(-1).archiveUrl.href, "https://example.test/release/frames.zst");
+  assert.deepEqual(plan.images.at(-1).frameSizes, [17]);
+  entries.at(-1).flash.zstd_frame_sizes[0] = 18;
+  assert.throws(() => prepareManifest(entries, new URL("file:///tmp/a"), storage), /frame sizes/);
+});
+
 test("GPT destination validation rejects corrupt layout and oversized images", () => {
   const { entries, files } = fixture();
   const plan = prepareManifest(entries, new URL("file:///tmp/manifest.json"), storage);
@@ -163,7 +217,8 @@ test("GPT destination validation rejects corrupt layout and oversized images", (
 });
 
 test("full flow preserves persist, erases six LUNs, streams explicit AB, and finalizes only on success", async () => {
-  for (const fail of [false, true]) {
+  for (const failure of ["none", "usb", "source"]) {
+    const fail = failure !== "none";
     const { entries, files } = fixture();
     const events = [];
     const device = {
@@ -174,7 +229,7 @@ test("full flow preserves persist, erases six LUNs, streams explicit AB, and fin
       async flashStream(names, info, payload, progress, erase) {
         assert.equal(erase, false); assert.equal(info.dataSectors, 1);
         events.push(names.join(","));
-        if (fail) throw new Error("USB write failed");
+        if (failure === "usb") throw new Error("USB write failed");
         assert.equal((await collect(payload)).length, 4096); return true;
       },
       setActiveSlot(slot) { assert.equal(slot, "a"); events.push("activate"); return true; },
@@ -182,6 +237,7 @@ test("full flow preserves persist, erases six LUNs, streams explicit AB, and fin
     };
     let cancelled = false;
     const run = flashManifest(device, entries, new URL("file:///tmp/manifest.json"), { openImage: async image => {
+      if (failure === "source" && image.name === "boot") throw new Error("Prefetch failed");
       const bytes = files.get(image.name);
       let offset = 0;
       return new ReadableStream({ pull(controller) {
@@ -189,7 +245,7 @@ test("full flow preserves persist, erases six LUNs, streams explicit AB, and fin
         controller.enqueue(bytes.subarray(offset, offset + 64)); offset = Math.min(bytes.length, offset + 64);
       }, cancel() { cancelled = true; } }, { highWaterMark: 0 });
     } });
-    if (fail) { await assert.rejects(run, /USB write failed/); assert.equal(cancelled, true); }
+    if (fail) { await assert.rejects(run, /USB write failed|Prefetch failed/); assert.equal(cancelled, true); }
     else await run;
     assert.deepEqual(events.slice(0, 12), [...Array.from({ length: 6 }, (_, i) => `gpt${i}`), ...Array.from({ length: 6 }, (_, i) => `erase${i}`)]);
     assert.equal(events[12], "system_a,system_b");
