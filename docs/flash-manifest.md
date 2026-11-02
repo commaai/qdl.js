@@ -19,6 +19,8 @@ Archives stream through native zstd without an intermediate file or cache. Each 
 
 Optional `zstd_chunked_url`, `zstd_chunked_size`, and `zstd_frame_sizes` select a concatenated archive of independent zstd frames. Each frame corresponds to one decoded chunk and its existing hash. The CLI queues up to eight frames on Node's default four worker threads, preserving output order and limiting each frame's output and decoder window to 4 MiB. This archive may be larger than the solid archive, but avoids serial decompression on slower CPUs. Without these fields, the CLI uses the solid archive. Six small GPT downloads run concurrently; up to four partition sources open ahead of the current write.
 
+An optional `flash.lz4` companion lets a capable programmer decode LZ4 on the device. The companion has its own source hash, lengths, chunk hashes and zstd archive fields, plus a target `stream` index with `compressed_bytes` and `first_frame_bytes`. The CLI validates its target extents against the raw sparse companion and verifies each encoded wire chunk before USB. If the programmer lacks LZ4 support, it uses the raw sparse companion. The LZ4 path retains the same bounded streaming and failure cleanup.
+
 Pass `--decode-concurrency 4` to reduce queued frames. To compare more worker threads, set `UV_THREADPOOL_SIZE=8` before starting Node. Four workers with eight queued frames were fastest on the rack stations; more threads can contend with USB processing.
 
 The command writes one JSON timing event per phase. If a download, hash, USB transfer, or signal interrupts the flash, the command closes USB and does not proceed to activation or reset. Power-cycle back into QDL before retrying.

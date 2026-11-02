@@ -350,3 +350,60 @@ test("a failed early frame cancels a stalled later HTTP read during prefill", { 
     await assert.rejects(Promise.race([reader.read(), new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error("Timed out waiting for hash failure")), 2000); })]), /SHA-256 mismatch.*chunk 0/);
   } finally { clearTimeout(timer); await reader.cancel().catch(() => undefined); }
 });
+
+function addLz4Companion(entries) {
+  const bytes = Buffer.alloc(4096, 7);
+  const info = metadata(bytes);
+  const companion = { zstd_url: "lz4.zst", archive_size: 123, file_size: bytes.length,
+    hash: info.hash, chunk_size: info.chunkSize, chunk_hashes: info.chunkHashes,
+    zstd_chunked_url: "lz4-frames.zst", zstd_chunked_size: 129, zstd_frame_sizes: [129],
+    stream: { sector_size: 4096, num_partition_sectors: 1, data_sectors: 1, extents: [[0, 1]], compressed_bytes: 4096, first_frame_bytes: 4096 } };
+  entries.find(image => image.name === "system").flash = { lz4: companion };
+  return { bytes, companion };
+}
+
+test("LZ4 companion selection preserves raw fallback and validates source and target layout before writes", () => {
+  const { entries } = fixture();
+  const { companion } = addLz4Companion(entries);
+  const url = new URL("file:///tmp/manifest.json");
+  assert.equal(prepareManifest(entries, url, storage).images[0].transport, "sparse");
+  const selected = prepareManifest(entries, url, storage, "b", () => true).images[0];
+  assert.equal(selected.transport, "lz4");
+  assert.equal(selected.names[0], "system_b");
+  assert.equal(selected.archiveUrl.href, "file:///tmp/lz4-frames.zst");
+  assert.equal(selected.fileSize, 4096);
+  assert.equal(selected.stream.compressedBytes, 4096);
+  for (const change of [value => { value.file_size = 8192; }, value => { value.stream.extents = [[1, 1]]; },
+    value => { value.stream.first_frame_bytes = 1; }, value => { value.chunk_hashes = []; },
+    value => { value.zstd_frame_sizes = [130]; }, value => { value.zstd_chunked_url = "data:,bad"; }]) {
+    const changed = structuredClone(companion); change(changed);
+    entries.find(image => image.name === "system").flash.lz4 = changed;
+    assert.throws(() => prepareManifest(entries, url, storage, "a", () => true));
+  }
+});
+
+test("full manifest sends verified LZ4 wire directly and stops on stream failure", async () => {
+  for (const fail of [false, true]) {
+    const { entries, files } = fixture();
+    const { bytes } = addLz4Companion(entries);
+    let lz4Writes = 0, finalized = false;
+    const device = {
+      getStorageInfo() { return storage; }, canFlashStream() { return true; }, canFlashLz4Stream() { return true; },
+      getGpt() { return parsedGpt(files.get("gpt_main_3")); }, repairGpt() { return true; }, eraseLun() { return true; },
+      detectPartition() { return [true, 0, { start: 8n, sectors: 8192n }]; },
+      async flashLz4Stream(name, info, payload, progress, erase) {
+        lz4Writes++; assert.equal(name, "system_a"); assert.equal(erase, false); assert.equal(info.compressedBytes, bytes.length);
+        assert.deepEqual(await collect(payload), bytes); return true;
+      },
+      async flashStream(name, info, payload) { assert.notEqual(name, "system_a"); await collect(payload); return true; },
+      setActiveSlot() { finalized = true; return true; }, reset() { return true; },
+    };
+    const run = flashManifest(device, entries, new URL("file:///tmp/a"), { openImage: async image => {
+      if (image.transport !== "lz4") return stream(files.get(image.name));
+      if (fail) return new ReadableStream({ pull(controller) { controller.error(new Error("LZ4 source failed")); } });
+      return stream(bytes);
+    } });
+    if (fail) await assert.rejects(run, /LZ4 source failed/); else await run;
+    assert.equal(lz4Writes, 1); assert.equal(finalized, !fail);
+  }
+});

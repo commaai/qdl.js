@@ -1,5 +1,6 @@
 import { CalibrationLayoutError, canPreserveDdr, ddrPartitionFromGpt, readDdrPartition } from "./calibration.js";
 import { GPT } from "./gpt.js";
+import { validateLz4Metadata } from "./lz4-stream.js";
 import { openVerifiedImage, resourceUrl, validateFrameSizes, validateImageHashes } from "./manifest-source.js";
 import { selectSparseRanges, validateSparseStreamMetadata } from "./sparse-stream.js";
 
@@ -18,7 +19,7 @@ export function userdataForStorage(storage) {
 }
 
 /** Accept the merged all-partitions manifest, with optional per-image flash companions. */
-export function prepareManifest(entries, baseUrl, storage, slot = "a") {
+export function prepareManifest(entries, baseUrl, storage, slot = "a", supportsLz4 = () => false) {
   if (slot !== "a" && slot !== "b") throw new Error("Expected slot a or b");
   const userdata = userdataForStorage(storage);
   if (!Array.isArray(entries) || !entries.length || entries.length > 256) throw new Error("Expected a full manifest array");
@@ -50,6 +51,7 @@ export function prepareManifest(entries, baseUrl, storage, slot = "a") {
       gpt: item.gpt,
       stream: null,
       frameSizes: undefined,
+      transport: "sparse",
     };
     validateImageHashes(image);
     if (item.zstd_chunked_url !== undefined || item.zstd_chunked_size !== undefined || item.zstd_frame_sizes !== undefined) {
@@ -76,6 +78,35 @@ export function prepareManifest(entries, baseUrl, storage, slot = "a") {
         sourceRanges: index.source_ranges,
       }, image.fileSize);
       if (image.stream.numPartitionSectors * SECTOR_SIZE !== item.size) throw new Error(`Expanded size mismatch: ${item.name}`);
+      if (item.lz4 !== undefined && supportsLz4(1)) {
+        const compressed = item.lz4;
+        if (!compressed || typeof compressed.zstd_url !== "string" || !compressed.zstd_url
+          || !Number.isSafeInteger(compressed.archive_size) || compressed.archive_size <= 0 || !compressed.stream) {
+          throw new Error(`Invalid LZ4 source metadata: ${item.name}`);
+        }
+        const index = compressed.stream;
+        const metadata = validateLz4Metadata({ sectorSize: index.sector_size,
+          numPartitionSectors: index.num_partition_sectors, dataSectors: index.data_sectors,
+          extents: index.extents, compressedBytes: index.compressed_bytes, firstFrameBytes: index.first_frame_bytes });
+        if (metadata.compressedBytes !== compressed.file_size || metadata.numPartitionSectors !== image.stream.numPartitionSectors
+          || metadata.dataSectors !== image.stream.dataSectors || metadata.extents.length !== image.stream.extents.length
+          || metadata.extents.some((extent, i) => extent[0] !== image.stream.extents[i][0] || extent[1] !== image.stream.extents[i][1])) {
+          throw new Error(`LZ4 companion differs from sparse image layout: ${item.name}`);
+        }
+        const candidate = { ...image, archiveUrl: resourceUrl(compressed.zstd_url, baseUrl), archiveSize: compressed.archive_size,
+          fileSize: compressed.file_size, hash: compressed.hash, chunkSize: compressed.chunk_size, chunkHashes: compressed.chunk_hashes,
+          stream: metadata, frameSizes: undefined, transport: "lz4" };
+        validateImageHashes(candidate);
+        if (compressed.zstd_chunked_url !== undefined || compressed.zstd_chunked_size !== undefined || compressed.zstd_frame_sizes !== undefined) {
+          if (typeof compressed.zstd_chunked_url !== "string" || !compressed.zstd_chunked_url
+            || !Number.isSafeInteger(compressed.zstd_chunked_size) || compressed.zstd_chunked_size <= 0) throw new Error(`Invalid LZ4 frame archive: ${item.name}`);
+          candidate.archiveUrl = resourceUrl(compressed.zstd_chunked_url, baseUrl);
+          candidate.archiveSize = compressed.zstd_chunked_size;
+          candidate.frameSizes = validateFrameSizes(compressed.zstd_frame_sizes, candidate);
+        }
+        if (!["file:", "http:", "https:"].includes(candidate.archiveUrl.protocol)) throw new Error(`Unsupported LZ4 archive protocol: ${item.name}`);
+        if (supportsLz4(metadata.extents.length)) Object.assign(image, candidate);
+      }
     }
     images.push(image);
   }
@@ -172,9 +203,9 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
   let sources;
   try {
     const storage = await phase("storage", () => device.getStorageInfo());
-    const plan = prepareManifest(entries, baseUrl, storage, slot);
+    const plan = prepareManifest(entries, baseUrl, storage, slot, count => device.canFlashLz4Stream?.(count) ?? false);
     for (const image of plan.images) {
-      if (!device.canFlashStream(image.stream.extents.length)) throw new Error(`Programmer lacks native sparse support for ${image.name}`);
+      if (image.transport !== "lz4" && !device.canFlashStream(image.stream.extents.length)) throw new Error(`Programmer lacks native sparse support for ${image.name}`);
     }
     const gptBytes = new Map();
     await phase("verify_gpts", async () => {
@@ -220,9 +251,10 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
     for (const image of plan.images) {
       await phase(`flash_${image.name}`, async () => {
         const source = await sources.next();
-        const payload = selectSparseRanges(source, image.stream, image.fileSize);
+        const payload = image.transport === "lz4" ? source : selectSparseRanges(source, image.stream, image.fileSize);
         try {
-          if (!await device.flashStream(image.names[0], image.stream, payload, undefined, false)) throw new Error(`Flashing ${image.name} failed`);
+          const flash = image.transport === "lz4" ? device.flashLz4Stream.bind(device) : device.flashStream.bind(device);
+          if (!await flash(image.names[0], image.stream, payload, undefined, false)) throw new Error(`Flashing ${image.name} failed`);
         } finally {
           if (!payload.locked) await payload.cancel().catch(() => undefined);
         }
