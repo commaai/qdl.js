@@ -11,7 +11,7 @@ const SECTOR_SIZE = 4096;
 
 /**
  * Build minimal GPT binary data with specified partitions.
- * @param {{ name: string, attributes?: bigint }[]} partitions
+ * @param {{ name: string, attributes?: bigint, type?: string }[]} partitions
  * @returns {{ header: Uint8Array, entries: Uint8Array }}
  */
 function buildGPTData(partitions) {
@@ -28,6 +28,13 @@ function buildGPTData(partitions) {
 
     // Type GUID: non-zero = used partition
     entriesView.setUint32(off, 0xDEADBEEF, true);
+    if (p.type) {
+      const [low, mid, high, clock, node] = p.type.split("-");
+      entriesView.setUint32(off, Number.parseInt(low, 16), true);
+      entriesView.setUint16(off + 4, Number.parseInt(mid, 16), true);
+      entriesView.setUint16(off + 6, Number.parseInt(high, 16), true);
+      entries.set(Uint8Array.from((clock + node).match(/../g), byte => Number.parseInt(byte, 16)), off + 8);
+    }
 
     // Unique GUID
     entriesView.setUint32(off + 16, i + 1, true);
@@ -73,7 +80,7 @@ function buildGPTData(partitions) {
 
 /**
  * Create a GPT instance from a partition list.
- * @param {{ name: string, attributes?: bigint }[]} partitions
+ * @param {{ name: string, attributes?: bigint, type?: string }[]} partitions
  */
 function createTestGPT(partitions) {
   const { header, entries } = buildGPTData(partitions);
@@ -155,6 +162,39 @@ describe("GPT", () => {
 
 describe("A/B partition flags", () => {
   describe("setActiveSlot", () => {
+    test("moves firmware type GUIDs to the selected slot without changing partition identity", () => {
+      const inactive = "77036cd4-03d5-42bb-8ed1-37e5a88baa34";
+      const real = "a053aa7f-40b8-4b1c-ba08-2f68ac71a4f4";
+      const gpt = createTestGPT([{ name: "tz_a", type: real, attributes: 1n << 50n },
+        { name: "tz_b", type: inactive }, { name: "xbl_b", type: real }]);
+      const identity = () => gpt.getPartitions().map(({ name, uuid, start, end, sectors }) => ({ name, uuid, start, end, sectors }));
+      const originalIdentity = identity();
+      gpt.setActiveSlot("b");
+      expect(gpt.locatePartition("tz_b").type).toBe(real);
+      expect(gpt.locatePartition("tz_a").type).toBe(inactive);
+      expect(gpt.locatePartition("xbl_b").type).toBe(real);
+      expect(identity()).toEqual(originalIdentity);
+      const selected = gpt.buildPartEntries();
+      gpt.setActiveSlot("b");
+      expect(gpt.buildPartEntries()).toEqual(selected);
+      gpt.setActiveSlot("a");
+      expect(gpt.locatePartition("tz_a").type).toBe(real);
+      expect(gpt.locatePartition("tz_b").type).toBe(inactive);
+      expect(identity()).toEqual(originalIdentity);
+    });
+
+    test("repairs already-B flags with type GUIDs left on A, including backup GPT", () => {
+      const real = "f65d4b16-343d-4e25-aafc-be99b6556a6d";
+      const gpt = createTestGPT([{ name: "devcfg_a", type: real },
+        { name: "devcfg_b", type: "77036cd4-03d5-42bb-8ed1-37e5a88baa34", attributes: 1n << 50n }]);
+      const backup = gpt.asAlternate();
+      for (const copy of [gpt, backup]) {
+        copy.setActiveSlot("b");
+        expect(copy.locatePartition("devcfg_b").type).toBe(real);
+      }
+      expect(backup.buildPartEntries()).toEqual(gpt.buildPartEntries());
+    });
+
     test("active boot: priority=3, active=1, retry=7, successful=0, unbootable=0", () => {
       const gpt = createTestGPT(LUN4_PARTITIONS);
       gpt.setActiveSlot("a");

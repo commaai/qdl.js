@@ -7,6 +7,7 @@ import { guid, utf16cstring } from "./gpt-structs.js";
 const crc32 = CRC32.buf;
 const SIGNATURE = "EFI PART";
 const TYPE_EFI_UNUSED = "00000000-0000-0000-0000-000000000000";
+const TYPE_QCOM_SLOT_INACTIVE = "77036cd4-03d5-42bb-8ed1-37e5a88baa34";
 
 // Qualcomm ABL A/B partition attribute bits 48-55
 // https://git.codelinaro.org/clo/qcomlt/abl/-/blob/LE.UM.2.3.7/QcomModulePkg/Include/Library/PartitionTableUpdate.h#L89-102
@@ -282,12 +283,23 @@ export class GPT {
   }
 
   /**
-   * Matches ABL SetActiveSlot() + MarkPtnActive() behavior.
+   * Updates Qualcomm A/B flags and the inactive type GUID used by XBL.
    * https://git.codelinaro.org/clo/qcomlt/abl/-/blob/LE.UM.2.3.7/QcomModulePkg/Library/BootLib/PartitionTableUpdate.c#L1233-1320
    * @param {"a"|"b"} slot
    */
   setActiveSlot(slot) {
     if (slot !== "a" && slot !== "b") throw new Error("Invalid slot");
+    // XBL locates firmware by type GUID, independently of the ACTIVE flag.
+    // Reconcile the inactive placeholder even if an older tool already changed
+    // the flags; swapping only on an attribute transition would miss that repair.
+    for (const selected of this.#partEntries) {
+      if (!selected.name.endsWith(`_${slot}`) || selected.type !== TYPE_QCOM_SLOT_INACTIVE) continue;
+      const otherName = `${selected.name.slice(0, -1)}${slot === "a" ? "b" : "a"}`;
+      const other = this.#partEntries.find(entry => entry.name === otherName);
+      if (!other || other.type === TYPE_EFI_UNUSED || other.type === TYPE_QCOM_SLOT_INACTIVE) continue;
+      selected.type = other.type;
+      other.type = TYPE_QCOM_SLOT_INACTIVE;
+    }
     for (const partEntry of this.#partEntries) {
       if (partEntry.type === TYPE_EFI_UNUSED) continue;
       const partSlot = partEntry.name.slice(-2);
