@@ -20,7 +20,12 @@ if (values.help || !values.manifest || !values.programmer) {
 
 const controller = new AbortController();
 const usb = new usbClass();
-const interrupted = () => { controller.abort(new Error("Interrupted")); void usb.close().catch(() => undefined); };
+const interrupted = () => {
+  process.exitCode = 130;
+  controller.abort(new Error("Interrupted"));
+  void usb.close().catch(() => undefined);
+  setTimeout(() => process.exit(130), 2000).unref();
+};
 process.once("SIGINT", interrupted);
 process.once("SIGTERM", interrupted);
 try {
@@ -37,14 +42,18 @@ try {
   const start = performance.now();
   await device.connect(usb);
   console.info(JSON.stringify({ phase: "connect", seconds: (performance.now() - start) / 1000 }));
-  if (Number(await device.getDeviceType()) !== 34) throw new Error("This full-manifest CLI supports comma four only");
   await flashManifest(device, entries, manifestUrl, { signal: controller.signal, report: event => console.info(JSON.stringify(event)) });
 } catch (error) {
   controller.abort(error);
   console.error(error);
   process.exitCode = 1;
 } finally {
+  // A timed-out libusb read can keep close pending. Process exit releases its USB handle.
+  const deadline = setTimeout(() => process.exit(process.exitCode ?? 0), 2000);
+  deadline.unref();
   await usb.close().catch(() => undefined);
   process.removeListener("SIGINT", interrupted);
   process.removeListener("SIGTERM", interrupted);
 }
+await new Promise(resolve => process.stdout.write("", resolve));
+process.exit(process.exitCode ?? 0);
