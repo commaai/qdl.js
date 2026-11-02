@@ -331,7 +331,8 @@ test("corrupt old GPT recovers persist after repair, while transport errors and 
 });
 
 
-test("a failed early frame cancels a stalled later HTTP read during prefill", async t => {
+// Bun tests preload Happy DOM, whose AbortSignal is not compatible with native fetch.
+test("a failed early frame cancels a stalled later HTTP read during prefill", { skip: Boolean(process.versions.bun) }, async t => {
   const chunk = Buffer.alloc(VERIFIED_CHUNK_SIZE, 7);
   const frame = zstdCompressSync(chunk);
   const server = createServer((request, response) => {
