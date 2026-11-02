@@ -4,10 +4,23 @@ import { Sahara } from "./sahara.js";
 import * as Sparse from "./sparse.js";
 import { prepareSparseProgram, validateSparseProgram } from "./sparse-program.js";
 import { selectSparseRanges } from "./sparse-stream.js";
+import { validateLz4Metadata } from "./lz4-stream.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("qdl");
 const streamingPlans = new WeakMap();
+
+function sparseProgress(plan, sectorSize, onProgress) {
+  if (!onProgress) return undefined;
+  let extent = 0;
+  let dataOffset = 0;
+  return written => {
+    while (extent + 1 < plan.extents.length && written > dataOffset + Number(plan.extents[extent][1]) * sectorSize) {
+      dataOffset += Number(plan.extents[extent++][1]) * sectorSize;
+    }
+    onProgress(Number(plan.extents[extent][0]) * sectorSize + written - dataOffset);
+  };
+}
 
 function boundedBlobStream(blob) {
   const reader = blob.stream().getReader();
@@ -403,14 +416,7 @@ export class qdlDevice {
       }
     }
     if (plan) {
-      let extent = 0;
-      let dataOffset = 0;
-      const progress = onProgress ? (written) => {
-        while (extent + 1 < plan.extents.length && written > dataOffset + Number(plan.extents[extent][1]) * gpt.sectorSize) {
-          dataOffset += Number(plan.extents[extent++][1]) * gpt.sectorSize;
-        }
-        onProgress(Number(plan.extents[extent][0]) * gpt.sectorSize + written - dataOffset);
-      } : undefined;
+      const progress = sparseProgress(plan, gpt.sectorSize, onProgress);
       const success = await this.firehose.cmdProgramSparse(lun, partition.start, plan, progress);
       if (success) onProgress?.(Number(plan.numPartitionSectors) * gpt.sectorSize);
       return success;
@@ -442,6 +448,12 @@ export class qdlDevice {
     }
   }
 
+  /** Whether this programmer accepts bounded, authenticated LZ4 wire frames. */
+  canFlashLz4Stream(extentCount = 1) {
+    try { return this.firehose.programSparseLz4 === true && this.canFlashStream(extentCount); }
+    catch { return false; }
+  }
+
   /**
    * Write an already verified packed sparse payload. Callers must verify bytes before enqueueing them.
    * An interrupted stream closes USB; power-cycle the device before retrying.
@@ -468,16 +480,34 @@ export class qdlDevice {
     if (gpt.sectorSize !== metadata.sectorSize || this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== metadata.sectorSize) throw new Error("Image stream sector size differs from destination");
     if (BigInt(plan.numPartitionSectors) > partition.sectors) throw new Error("Image exceeds destination partition");
     if (erase && !await this.firehose.cmdErase(lun, partition.start, partition.sectors)) return false;
-    let extent = 0;
-    let dataOffset = 0;
-    const progress = onProgress ? written => {
-      while (extent + 1 < plan.extents.length && written > dataOffset + Number(plan.extents[extent][1]) * gpt.sectorSize) {
-        dataOffset += Number(plan.extents[extent++][1]) * gpt.sectorSize;
-      }
-      onProgress(Number(plan.extents[extent][0]) * gpt.sectorSize + written - dataOffset);
-    } : undefined;
+    const progress = sparseProgress(plan, gpt.sectorSize, onProgress);
     const success = await this.firehose.cmdProgramSparse(lun, partition.start, plan, progress);
     if (success) onProgress?.(Number(plan.numPartitionSectors) * gpt.sectorSize);
+    return success;
+  }
+
+  /**
+   * Write authenticated LZ4 wire frames directly to a negotiated programmer.
+   * Verify encoded chunks before enqueueing them; an interrupted transfer requires a power cycle.
+   * @param {string} name
+   * @param {import("./lz4-stream.js").Lz4Metadata} metadata
+   * @param {ReadableStream<Uint8Array>} stream
+   * @param {progressCallback} [onProgress] Logical bytes written, including sparse gaps.
+   * @param {boolean} [erase=true]
+   * @returns {Promise<boolean>}
+   */
+  async flashLz4Stream(name, metadata, stream, onProgress = undefined, erase = true) {
+    if (typeof name !== "string" || !name) throw new Error("Expected a partition name");
+    if (!this.canFlashLz4Stream(metadata?.extents?.length)) throw new Error("LZ4 sparse streaming is not supported");
+    if (!stream || typeof stream.getReader !== "function" || stream.locked) throw new Error("Expected an unlocked verified LZ4 stream");
+    const plan = validateLz4Metadata(metadata, metadata.numPartitionSectors, this.firehose.programSparseMaxExtents);
+    const [found, lun, partition, gpt] = await this.detectPartition(name);
+    if (!found) throw new Error(`Can't find partition ${name}`);
+    if (gpt.sectorSize !== plan.sectorSize || this.firehose.cfg.SECTOR_SIZE_IN_BYTES !== plan.sectorSize) throw new Error("Image stream sector size differs from destination");
+    if (BigInt(plan.numPartitionSectors) > partition.sectors) throw new Error("Image exceeds destination partition");
+    if (erase && !await this.firehose.cmdErase(lun, partition.start, partition.sectors)) return false;
+    const success = await this.firehose.cmdProgramSparseLz4(lun, partition.start, plan, stream, sparseProgress(plan, gpt.sectorSize, onProgress));
+    if (success) onProgress?.(plan.numPartitionSectors * gpt.sectorSize);
     return success;
   }
 

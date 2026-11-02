@@ -513,6 +513,63 @@ describe("verified sparse streams", () => {
   });
 });
 
+describe("verified LZ4 streams", () => {
+  const metadata = { sectorSize: 4096, numPartitionSectors: 7, dataSectors: 2,
+    extents: [[0n, 1n], [3n, 1n]], compressedBytes: 16384, firstFrameBytes: 8192 };
+
+  test("checks capability without consuming data and reports logical decoded progress", async () => {
+    const device = new SparseDevice(new ArrayBuffer(1));
+    expect(device.canFlashLz4Stream()).toBe(false);
+    device.transport.programSparseLz4 = true;
+    expect(device.canFlashLz4Stream(2)).toBe(true);
+    expect(device.canFlashLz4Stream(4097)).toBe(false);
+    const source = new ReadableStream();
+    const progress = [];
+    device.transport.cmdProgramSparseLz4 = (lun, start, plan, stream, callback) => {
+      expect(lun).toBe(0);
+      expect(start).toBe(100n);
+      expect(plan.table.length).toBe(4096);
+      expect(plan.compressedBytes).toBe(metadata.compressedBytes);
+      expect(stream).toBe(source);
+      callback(4096);
+      callback(8192);
+      return Promise.resolve(true);
+    };
+    expect(await device.flashLz4Stream("system_a", metadata, source, value => progress.push(value))).toBe(true);
+    expect(device.events).toEqual([["erase"]]);
+    expect(progress).toEqual([4096, 16384, 28672]);
+    device.transport.failed = true;
+    expect(device.canFlashLz4Stream()).toBe(false);
+  });
+
+  test("rejects unsupported, malformed, locked or oversized streams before erasing", async () => {
+    for (const kind of ["unsupported", "name", "frame", "sector", "small", "locked", "missing"]) {
+      const device = new SparseDevice(new ArrayBuffer(1));
+      device.transport.programSparseLz4 = kind !== "unsupported";
+      if (kind === "small") device.partitionSectors = 6n;
+      if (kind === "missing") device.detectPartition = () => Promise.resolve([false]);
+      const plan = { ...metadata, firstFrameBytes: kind === "frame" ? 0 : metadata.firstFrameBytes,
+        sectorSize: kind === "sector" ? 512 : metadata.sectorSize };
+      const source = new ReadableStream();
+      const reader = kind === "locked" ? source.getReader() : null;
+      await expect(device.flashLz4Stream(kind === "name" ? ["system_a"] : "system_a", plan, source)).rejects.toThrow();
+      expect(device.events).toHaveLength(0);
+      reader?.releaseLock();
+    }
+  });
+
+  test("stops after erase or native LZ4 failure without raw fallback", async () => {
+    const device = new SparseDevice(new ArrayBuffer(1));
+    device.transport.programSparseLz4 = true;
+    device.transport.cmdErase = () => Promise.resolve(false);
+    device.transport.cmdProgramSparseLz4 = () => { throw new Error("Unexpected LZ4 write"); };
+    expect(await device.flashLz4Stream("system_a", metadata, new ReadableStream())).toBe(false);
+    device.transport.cmdProgramSparseLz4 = () => Promise.resolve(false);
+    expect(await device.flashLz4Stream("system_a", metadata, new ReadableStream(), undefined, false)).toBe(false);
+    expect(device.events).toHaveLength(0);
+  });
+});
+
 describe("slot activation writes", () => {
   function activationDevice(initial) {
     const events = [];

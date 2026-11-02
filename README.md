@@ -43,6 +43,8 @@ For a full factory flash, use the [native Node.js manifest CLI](docs/flash-manif
 
 For downloads verified in chunks, `device.canFlashStream(extentCount)` checks native support. `device.flashStream(name, metadata, stream, onProgress, erase)` accepts a packed sparse payload and metadata containing `sectorSize`, `numPartitionSectors`, `dataSectors`, and `extents`. Verify each source chunk before enqueueing it; `selectSparseRanges` from `@commaai/qdl/sparse-stream` selects the packed payload from a verified sparse file stream. Source errors close USB and require a device power cycle before retrying.
 
+Programmers advertising LZ4 support also accept `device.flashLz4Stream(name, metadata, stream, onProgress, erase)`. Check `device.canFlashLz4Stream(extentCount)` before choosing a compressed companion. Its metadata adds `compressedBytes` and `firstFrameBytes`; its stream contains authenticated LZ4 wire frames, in chunks no larger than 4 MiB. `validateLz4Metadata` from `@commaai/qdl/lz4-stream` validates the index before flashing. Both streaming APIs report progress in logical image bytes and validate the complete source before submitting the final payload.
+
 ## Logging
 
 qdl.js includes a configurable logging system that allows you to control the verbosity of log messages. The following log levels are available, in order of increasing verbosity:

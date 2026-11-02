@@ -2,6 +2,7 @@ import { concatUint8Array, containsBytes, compareStringToBytes, runWithTimeout }
 import { createLogger } from "./logger.js"
 import { toXml, xmlParser } from "./xml.js"
 import { validateSparseProgram } from "./sparse-program.js"
+import { validateLz4Metadata, validateLz4Stream } from "./lz4-stream.js"
 
 const logger = createLogger("firehose")
 
@@ -58,6 +59,7 @@ export class Firehose {
     /** @type {number[]} */
     this.luns = [];
     this.programSparseMaxExtents = 0;
+    this.programSparseLz4 = false;
     this.ufsUnmapLimits = false;
     this.failed = false;
   }
@@ -113,6 +115,7 @@ export class Firehose {
   async configure() {
     if (this.failed) throw new Error("Flash transfer interrupted; power-cycle the device before retrying");
     this.programSparseMaxExtents = 0;
+    this.programSparseLz4 = false;
     this.ufsUnmapLimits = false;
     const connectCmd = toXml("configure", {
       MemoryName: this.cfg.MemoryName,
@@ -149,6 +152,7 @@ export class Firehose {
       if (Number.isSafeInteger(limit)) this.programSparseMaxExtents = Math.min(limit, 4096);
     }
     this.ufsUnmapLimits = response.UfsUnmapLimits === "1";
+    this.programSparseLz4 = response.ProgramSparseLz4 === "1" && this.programSparseMaxExtents > 0;
     this.luns = Array.from({ length: this.cfg.maxlun }, (x, i) => i);
     return true;
   }
@@ -286,6 +290,60 @@ export class Firehose {
       const accepted = this.xml.getResponse(tableData);
       if (accepted.value !== "ACK" || accepted.rawmode !== "true") return false;
       return await this.#programData(plan.parts, onProgress, true);
+    } catch (error) {
+      if (this.failed) throw error;
+      throw await this.#abortProgram(error);
+    }
+  }
+
+  /**
+   * @param {number} physicalPartitionNumber
+   * @param {bigint} startSector
+   * @param {import("./lz4-stream.js").Lz4Metadata} metadata
+   * @param {ReadableStream<Uint8Array>} source Verified encoded wire bytes.
+   * @param {progressCallback} [onProgress] Decoded data bytes sent, excluding sparse gaps.
+   * @returns {Promise<boolean>}
+   */
+  async cmdProgramSparseLz4(physicalPartitionNumber, startSector, metadata, source, onProgress = undefined) {
+    if (!this.programSparseLz4 || !this.programSparseMaxExtents || this.cfg.ZLPAwareHost) {
+      throw new Error("LZ4 sparse programming requires negotiated support and ZlpAwareHost=0");
+    }
+    const plan = validateLz4Metadata(metadata, metadata.numPartitionSectors, this.programSparseMaxExtents);
+    if (plan.sectorSize !== this.cfg.SECTOR_SIZE_IN_BYTES || !Number.isInteger(physicalPartitionNumber)
+      || physicalPartitionNumber < 0 || physicalPartitionNumber >= this.cfg.maxlun
+      || typeof startSector !== "bigint" || startSector < 0n || startSector + BigInt(plan.numPartitionSectors) > 0xffffffffffffffffn) {
+      throw new Error("Invalid LZ4 sparse destination");
+    }
+    if (!source || typeof source.getReader !== "function" || source.locked) throw new Error("Expected an unlocked verified LZ4 stream");
+    const result = await this.xmlSend(toXml("program_sparse_lz4", {
+      SECTOR_SIZE_IN_BYTES: plan.sectorSize,
+      num_partition_sectors: plan.numPartitionSectors,
+      physical_partition_number: physicalPartitionNumber,
+      start_sector: startSector,
+      extent_count: plan.extents.length,
+      data_sectors: plan.dataSectors,
+      compressed_bytes: plan.compressedBytes,
+      first_frame_bytes: plan.firstFrameBytes,
+    }));
+    const initial = this.xml.getResponse(result.data);
+    if (initial.value !== "ACK" || initial.rawmode !== "true") return false;
+    try {
+      await this.cdc.write(plan.table);
+      const tableData = await this.waitForData();
+      this.#printLogMessages(this.xml.getLog(tableData));
+      const accepted = this.xml.getResponse(tableData);
+      if (accepted.value !== "ACK" || accepted.rawmode !== "true") return false;
+      const frames = [];
+      let decoded = 0;
+      const progress = written => {
+        let completed = 0;
+        while (completed < frames.length && frames[completed].wireBytes <= written) decoded = frames[completed++].dataBytes;
+        if (completed) frames.splice(0, completed);
+        onProgress?.(decoded);
+      };
+      // Only a bounded USB window can run ahead of these completion markers.
+      const parts = [{ size: plan.compressedBytes, stream: () => validateLz4Stream(source, plan, frame => frames.push(frame)) }];
+      return await this.#programData(parts, progress, true);
     } catch (error) {
       if (this.failed) throw error;
       throw await this.#abortProgram(error);

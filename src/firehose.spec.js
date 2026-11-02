@@ -111,6 +111,121 @@ function nativeTransport(responses = [ack(), ack("ACK", "false")]) {
   return { hose, plan, writes, commands };
 }
 
+function lz4Fixture() {
+  const wire = new Uint8Array(16384);
+  for (let i = 0; i < 2; i++) {
+    const header = new DataView(wire.buffer, i * 8192, 16);
+    header.setUint32(0, i === 0 ? 8192 : 0, true);
+    header.setUint32(4, 4096, true);
+    header.setUint32(8, 4096, true);
+    header.setUint32(12, 1, true);
+    wire.fill(i === 0 ? 7 : 42, i * 8192 + 16, i * 8192 + 4112);
+  }
+  return { wire, metadata: { sectorSize: 4096, numPartitionSectors: 5, dataSectors: 2,
+    extents: [[0n, 1n], [3n, 1n]], compressedBytes: wire.length, firstFrameBytes: 8192 } };
+}
+
+function wireSource(wire) {
+  return new ReadableStream({ start(controller) { controller.enqueue(wire); controller.close(); } });
+}
+
+test("LZ4 programming negotiates table and wire bytes, reporting decoded completions", async () => {
+  const { hose, writes, commands } = nativeTransport();
+  hose.programSparseLz4 = true;
+  const { wire, metadata } = lz4Fixture();
+  const progress = [];
+  expect(await hose.cmdProgramSparseLz4(0, 100n, metadata, wireSource(wire), bytes => progress.push(bytes))).toBe(true);
+  expect(commands[0]).toContain("<program_sparse_lz4 ");
+  expect(commands[0]).toContain('compressed_bytes="16384"');
+  expect(commands[0]).toContain('first_frame_bytes="8192"');
+  expect(commands[0]).toContain('data_sectors="2"');
+  expect(writes.map(data => data.length)).toEqual([4096, wire.length]);
+  expect(writes[1]).toEqual(wire);
+  expect(progress.at(-1)).toBe(8192);
+  expect(progress.every(bytes => bytes <= 8192)).toBe(true);
+});
+
+test("LZ4 rejects unsupported or invalid requests before sending USB commands", async () => {
+  for (const kind of ["unsupported", "wire", "first", "lun", "start", "locked"]) {
+    const { hose, writes, commands } = nativeTransport();
+    hose.programSparseLz4 = kind !== "unsupported";
+    const { wire, metadata } = lz4Fixture();
+    if (kind === "wire") metadata.compressedBytes++;
+    if (kind === "first") metadata.firstFrameBytes = 0;
+    const source = wireSource(wire);
+    const reader = kind === "locked" ? source.getReader() : null;
+    await expect(hose.cmdProgramSparseLz4(kind === "lun" ? 6 : 0, kind === "start" ? -1n : 100n, metadata, source)).rejects.toThrow();
+    expect(writes).toHaveLength(0);
+    expect(commands).toHaveLength(0);
+    reader?.releaseLock();
+  }
+});
+
+test("LZ4 waits for table acceptance and never completes malformed final frames", async () => {
+  const rejected = nativeTransport([ack("NAK", "false")]);
+  rejected.hose.programSparseLz4 = true;
+  const fixture = lz4Fixture();
+  const untouched = wireSource(fixture.wire);
+  expect(await rejected.hose.cmdProgramSparseLz4(0, 0n, fixture.metadata, untouched)).toBe(false);
+  expect(rejected.writes).toHaveLength(1);
+  expect(untouched.locked).toBe(false);
+
+  const malformed = nativeTransport();
+  malformed.hose.programSparseLz4 = true;
+  malformed.hose.cfg.MaxPayloadSizeToTargetInBytes = 8192;
+  let closed = false;
+  malformed.hose.cdc.close = () => { closed = true; return Promise.resolve(); };
+  new DataView(fixture.wire.buffer).setUint32(8192 + 12, 2, true);
+  await expect(malformed.hose.cmdProgramSparseLz4(0, 0n, fixture.metadata, wireSource(fixture.wire))).rejects.toThrow("power-cycle");
+  expect(malformed.writes.map(data => data.length)).toEqual([4096, 8192]);
+  expect(closed).toBe(true);
+  expect(malformed.hose.failed).toBe(true);
+});
+
+test("LZ4 omits the final wire frame after a late authenticated source error", async () => {
+  const { hose, writes } = nativeTransport();
+  hose.programSparseLz4 = true;
+  hose.cfg.MaxPayloadSizeToTargetInBytes = 8192;
+  hose.cdc.close = () => Promise.resolve();
+  const { wire, metadata } = lz4Fixture();
+  let sent = false;
+  const source = new ReadableStream({ pull(controller) {
+    if (!sent) { sent = true; controller.enqueue(wire); }
+    else controller.error(new Error("late chunk authentication failure"));
+  } }, { highWaterMark: 0 });
+  await expect(hose.cmdProgramSparseLz4(0, 0n, metadata, source)).rejects.toThrow("late chunk authentication failure");
+  expect(writes.map(data => data.length)).toEqual([4096, 8192]);
+  expect(hose.failed).toBe(true);
+});
+
+test("LZ4 validation errors abort USB even when source cancellation never settles", async () => {
+  const { hose, writes } = nativeTransport();
+  hose.programSparseLz4 = true;
+  let closed = 0;
+  let cancelled = 0;
+  hose.cdc.close = () => { closed++; return Promise.resolve(); };
+  const { wire, metadata } = lz4Fixture();
+  new DataView(wire.buffer).setUint32(12, 2, true);
+  const source = new ReadableStream({
+    start(controller) { controller.enqueue(wire); },
+    cancel() { cancelled++; return new Promise(() => undefined); },
+  }, { highWaterMark: 0 });
+  let timeout;
+  try {
+    await expect(Promise.race([
+      hose.cmdProgramSparseLz4(0, 0n, metadata, source),
+      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("Cancellation stalled")), 500); }),
+    ])).rejects.toThrow("invalid frame flags; power-cycle");
+  } finally {
+    clearTimeout(timeout);
+  }
+  expect(writes.map(data => data.length)).toEqual([4096]);
+  expect(hose.failed).toBe(true);
+  expect(closed).toBe(1);
+  expect(cancelled).toBe(1);
+  expect(source.locked).toBe(false);
+});
+
 test("native sparse programming waits for table acceptance before streaming packed data", async () => {
   const { hose, plan, writes, commands } = nativeTransport();
   hose.waitForData = () => {
@@ -179,6 +294,16 @@ test("configure enables native sparse only for an explicit valid capability", as
   hose.waitForData = () => Promise.resolve(new TextEncoder().encode('<?xml version="1.0"?><data><log value="Calling handler for configure"/><log value="Storage type set to value UFS"/><response value="ACK" MemoryName="UFS" UnknownProgramSparse="4096"/></data>'));
   await hose.configure();
   expect(hose.programSparseMaxExtents).toBe(0);
+});
+
+test("configure requires the exact LZ4 v1 capability and a native extent limit", async () => {
+  const hose = new Firehose({ write: () => Promise.resolve() });
+  for (const [extents, value, expected] of [[4096, "1", true], [4096, "0", false], [4096, "2", false],
+    [4096, "true", false], [4096, "01", false], [4096, undefined, false], [0, "1", false]]) {
+    hose.waitForData = () => Promise.resolve(new TextEncoder().encode(`<?xml version="1.0"?><data><log value="Calling handler for configure"/><log value="Storage type set to value UFS"/><response value="ACK" MemoryName="UFS" ProgramSparseMaxExtents="${extents}" ${value === undefined ? "" : `ProgramSparseLz4="${value}"`}/></data>`));
+    await hose.configure();
+    expect(hose.programSparseLz4).toBe(expected);
+  }
 });
 
 test("native sparse programming reports short image reads and USB failures", async () => {

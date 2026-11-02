@@ -29,6 +29,10 @@
     "./calibration": {
       "types": "./dist/calibration.d.ts",
       "import": "./dist/calibration.js"
+    },
+    "./lz4-stream": {
+      "types": "./dist/lz4-stream.d.ts",
+      "import": "./dist/lz4-stream.js"
     }
   },
   "scripts": {
