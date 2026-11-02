@@ -17,7 +17,8 @@ export function userdataForStorage(storage) {
 }
 
 /** Accept the merged all-partitions manifest, with optional per-image flash companions. */
-export function prepareManifest(entries, baseUrl, storage) {
+export function prepareManifest(entries, baseUrl, storage, slot = "a") {
+  if (slot !== "a" && slot !== "b") throw new Error("Expected slot a or b");
   const userdata = userdataForStorage(storage);
   if (!Array.isArray(entries) || !entries.length || entries.length > 256) throw new Error("Expected a full manifest array");
   const seen = new Set();
@@ -36,7 +37,7 @@ export function prepareManifest(entries, baseUrl, storage) {
     const name = item.name.startsWith("userdata_") ? "userdata" : item.name;
     const image = {
       name: item.name,
-      names: item.has_ab ? [`${name}_a`, `${name}_b`] : [name],
+      names: [item.has_ab ? `${name}_${slot}` : name],
       archiveUrl: resourceUrl(item.zstd_url, baseUrl),
       archiveSize: item.archive_size,
       fileSize: item.file_size,
@@ -153,8 +154,8 @@ function prefetchImages(images, openImage, signal) {
   };
 }
 
-/** Full factory flash. Only activate slot A and reset after every image succeeds. */
-export async function flashManifest(device, entries, baseUrl, { signal, report = () => undefined, openImage = openVerifiedImage } = {}) {
+/** Full factory flash. Only activate the selected slot and reset after every image succeeds. */
+export async function flashManifest(device, entries, baseUrl, { slot = "a", signal, report = () => undefined, openImage = openVerifiedImage } = {}) {
   const started = performance.now();
   async function phase(name, operation) {
     signal?.throwIfAborted();
@@ -169,7 +170,7 @@ export async function flashManifest(device, entries, baseUrl, { signal, report =
   let sources;
   try {
     const storage = await phase("storage", () => device.getStorageInfo());
-    const plan = prepareManifest(entries, baseUrl, storage);
+    const plan = prepareManifest(entries, baseUrl, storage, slot);
     for (const image of plan.images) {
       if (!device.canFlashStream(image.names.length, image.stream.extents.length)) throw new Error(`Programmer lacks native sparse support for ${image.name}`);
     }
@@ -210,9 +211,9 @@ export async function flashManifest(device, entries, baseUrl, { signal, report =
         }
       });
     }
-    await phase("activate_a", () => device.setActiveSlot("a"));
+    await phase(`activate_${slot}`, () => device.setActiveSlot(slot));
     await phase("reset", () => device.reset());
-    report({ phase: "complete", seconds: (performance.now() - started) / 1000, userdata: plan.userdata });
+    report({ phase: "complete", seconds: (performance.now() - started) / 1000, userdata: plan.userdata, slot });
   } finally {
     controller.abort();
     await sources?.close();

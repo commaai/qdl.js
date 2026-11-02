@@ -184,6 +184,7 @@ test("capacity mapping includes Samsung; manifest rejects XZ, missing GPT, wrong
   assert.equal(userdataForStorage({ ...storage, prod_name: "KLUDG4U1EA-B0C1", manufacturer_id: 462, total_blocks: 29765632 }), "userdata_90");
   assert.throws(() => userdataForStorage({ ...storage, total_blocks: 29765631 }), /Unsupported/);
   const { entries } = fixture();
+  assert.throws(() => prepareManifest(entries, new URL("file:///tmp/a"), storage, "both"), /slot/);
   for (const change of [
     list => { list.at(-1).zstd_url = undefined; },
     list => list.splice(0, 1),
@@ -216,8 +217,8 @@ test("GPT destination validation rejects corrupt layout and oversized images", (
   assert.throws(() => validateManifestDestinations(plan, gpts, storage), /GPT header/);
 });
 
-test("full flow preserves persist, erases six LUNs, streams explicit AB, and finalizes only on success", async () => {
-  for (const failure of ["none", "usb", "source"]) {
+test("full flow preserves persist, erases six LUNs, writes one slot, and finalizes only on success", async () => {
+  for (const [slot, failure] of [[undefined, "none"], [undefined, "usb"], [undefined, "source"], ["b", "none"]]) {
     const fail = failure !== "none";
     const { entries, files } = fixture();
     const events = [];
@@ -232,11 +233,11 @@ test("full flow preserves persist, erases six LUNs, streams explicit AB, and fin
         if (failure === "usb") throw new Error("USB write failed");
         assert.equal((await collect(payload)).length, 4096); return true;
       },
-      setActiveSlot(slot) { assert.equal(slot, "a"); events.push("activate"); return true; },
+      setActiveSlot(value) { assert.equal(value, slot ?? "a"); events.push("activate"); return true; },
       reset() { events.push("reset"); },
     };
     let cancelled = false;
-    const run = flashManifest(device, entries, new URL("file:///tmp/manifest.json"), { openImage: async image => {
+    const run = flashManifest(device, entries, new URL("file:///tmp/manifest.json"), { slot, openImage: async image => {
       if (failure === "source" && image.name === "boot") throw new Error("Prefetch failed");
       const bytes = files.get(image.name);
       let offset = 0;
@@ -248,7 +249,7 @@ test("full flow preserves persist, erases six LUNs, streams explicit AB, and fin
     if (fail) { await assert.rejects(run, /USB write failed|Prefetch failed/); assert.equal(cancelled, true); }
     else await run;
     assert.deepEqual(events.slice(0, 12), [...Array.from({ length: 6 }, (_, i) => `gpt${i}`), ...Array.from({ length: 6 }, (_, i) => `erase${i}`)]);
-    assert.equal(events[12], "system_a,system_b");
+    assert.equal(events[12], `system_${slot ?? "a"}`);
     assert.equal(events.includes("reset"), !fail);
     assert.equal(events.includes("activate"), !fail);
   }

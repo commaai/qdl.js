@@ -11,11 +11,12 @@ const { values } = parseArgs({ options: {
   manifest: { type: "string" },
   programmer: { type: "string" },
   "programmer-sha256": { type: "string" },
-  "decode-concurrency": { type: "string", default: "4" },
+  "decode-concurrency": { type: "string", default: "8" },
+  slot: { type: "string", default: "a" },
   help: { type: "boolean", short: "h" },
 } });
 if (values.help || !values.manifest || !values.programmer) {
-  console.info("Usage: qdl-flash-manifest --manifest URL_OR_PATH --programmer URL_OR_PATH [--programmer-sha256 HEX]\n\nFull comma four factory flash: preserves persist, replaces both slots, and resets to slot A.\nRequires native zstd Node.js 22.23.2+ and a native sparse-copy programmer. XZ-only manifests are rejected.");
+  console.info("Usage: qdl-flash-manifest --manifest URL_OR_PATH --programmer URL_OR_PATH [--slot a|b] [--programmer-sha256 HEX]\n\nFull comma four factory flash: preserves persist, writes the selected slot (default A), and resets.\nRequires native zstd Node.js 22.23.2+ and a native sparse programmer. XZ-only manifests are rejected.");
   process.exit(values.help ? 0 : 1);
 }
 
@@ -31,6 +32,7 @@ process.once("SIGINT", interrupted);
 process.once("SIGTERM", interrupted);
 try {
   requireNativeZstd();
+  if (values.slot !== "a" && values.slot !== "b") throw new Error("--slot must be a or b");
   const concurrency = Number(values["decode-concurrency"]);
   if (concurrency !== 4 && concurrency !== 8) throw new Error("--decode-concurrency must be 4 or 8");
   const manifestUrl = localOrRemoteUrl(values.manifest);
@@ -46,6 +48,7 @@ try {
   await device.connect(usb);
   console.info(JSON.stringify({ phase: "connect", seconds: (performance.now() - start) / 1000 }));
   await flashManifest(device, entries, manifestUrl, {
+    slot: values.slot,
     signal: controller.signal,
     report: event => console.info(JSON.stringify(event)),
     openImage: (image, signal) => openVerifiedImage(image, signal, concurrency),

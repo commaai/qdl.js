@@ -231,7 +231,7 @@ export async function openResource(url, signal, expectedSize = undefined) {
 }
 
 /** Bounded native decompression: no archive cache and no whole-image allocation. */
-export async function openVerifiedImage(image, signal, concurrency = 4) {
+export async function openVerifiedImage(image, signal, concurrency = 8) {
   requireNativeZstd();
   validateImageHashes(image);
   if (image.frameSizes) return openVerifiedFrames(image, signal, concurrency);
