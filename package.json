@@ -25,6 +25,10 @@
     "./sparse-stream": {
       "types": "./dist/sparse-stream.d.ts",
       "import": "./dist/sparse-stream.js"
+    },
+    "./calibration": {
+      "types": "./dist/calibration.d.ts",
+      "import": "./dist/calibration.js"
     }
   },
   "scripts": {

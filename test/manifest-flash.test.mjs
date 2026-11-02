@@ -9,6 +9,8 @@ import { pathToFileURL } from "node:url";
 import { zstdCompressSync } from "node:zlib";
 import CRC32 from "crc-32";
 const { buf: crc32 } = CRC32;
+import { GPT } from "../src/gpt.js";
+import { CalibrationLayoutError, canPreserveDdr, ddrPartitionFromGpt, readDdrPartition } from "../src/calibration.js";
 import { flashManifest, prepareManifest, userdataForStorage, validateManifestDestinations } from "../src/manifest-flash.js";
 import { openResource, openVerifiedImage, VERIFIED_CHUNK_SIZE, verifyImageStream } from "../src/manifest-source.js";
 
@@ -171,6 +173,11 @@ function fixture() {
         entry.write(name, 56, "utf16le");
       });
     }
+    if (lun === 3) {
+      const entry = bytes.subarray(8192, 8320);
+      Buffer.from("9cc1a0206a28fa429ce7f64c3226a794", "hex").copy(entry);
+      entry.writeBigUInt64LE(64n, 32); entry.writeBigUInt64LE(319n, 40); entry.write("ddr", 56, "utf16le");
+    }
     header.writeInt32LE(crc32(bytes.subarray(8192)), 88);
     header.writeInt32LE(crc32(header.subarray(0, 92)), 16);
     entries.unshift(image(`gpt_main_${lun}`, bytes, { gpt: { lun, start_sector: 0, num_sectors: 6 } }));
@@ -224,9 +231,10 @@ test("full flow preserves persist, erases six LUNs, writes one slot, and finaliz
     const events = [];
     const device = {
       getStorageInfo() { return storage; }, canFlashStream() { return true; },
-      detectPartition() { return [true, 0, { start: 8n, sectors: 8192n }]; },
+      getGpt() { return parsedGpt(files.get("gpt_main_3")); },
+      detectPartition() { assert.equal(events.length, 6); return [true, 0, { start: 8n, sectors: 8192n }]; },
       repairGpt(lun) { events.push(`gpt${lun}`); return true; },
-      eraseLun(lun, preserve) { assert.deepEqual(preserve, lun === 0 ? ["mbr", "gpt", "persist"] : ["mbr", "gpt"]); events.push(`erase${lun}`); return true; },
+      eraseLun(lun, preserve) { assert.deepEqual(preserve, lun === 0 ? ["mbr", "gpt", "persist"] : lun === 3 ? ["mbr", "gpt", "ddr"] : ["mbr", "gpt"]); events.push(`erase${lun}`); return true; },
       async flashStream(name, info, payload, progress, erase) {
         assert.equal(erase, false); assert.equal(info.dataSectors, 1);
         assert.equal(typeof name, "string");
@@ -263,4 +271,60 @@ test("unsupported programmer or bad GPT fails before any device mutation", async
   device.canFlashStream = () => true;
   files.get("gpt_main_0")[4096] = 0;
   await assert.rejects(flashManifest(device, entries, new URL("file:///tmp/a"), { openImage: async image => stream(files.get(image.name)) }), /GPT header/);
+});
+
+function parsedGpt(input) {
+  const bytes = new Uint8Array(input);
+  const gpt = new GPT(4096);
+  gpt.parseHeader(bytes.subarray(4096, 8192), 1n);
+  gpt.parsePartEntries(bytes.subarray(8192));
+  return gpt;
+}
+
+test("DDR preservation accepts expanded calibration and rejects changed or overlapping geometry", () => {
+  const { files } = fixture();
+  const bytes = files.get("gpt_main_3");
+  const desired = readDdrPartition(bytes);
+  assert.equal(desired.type, "20a0c19c-286a-42fa-9ce7-f64c3226a794");
+  assert.equal(canPreserveDdr(desired, desired), true);
+  const expanded = { ...desired, sectors: desired.lastUsableLba - 63n, end: desired.lastUsableLba };
+  assert.equal(canPreserveDdr(expanded, desired), true);
+  for (const change of [{ lun: 0 }, { start: 65n }, { sectors: 255n }, { type: "wrong" }, { name: "DDR" }, { sectorSize: 512 }, { lastUsableLba: 318n }]) {
+    assert.equal(canPreserveDdr({ ...desired, ...change }, desired), false);
+  }
+  assert.equal(canPreserveDdr(desired, expanded), false);
+  assert.equal(canPreserveDdr(null, desired), false);
+  const gpt = parsedGpt(bytes);
+  gpt.getPartitions = () => [desired, { ...desired, name: "other" }];
+  assert.throws(() => ddrPartitionFromGpt(gpt), CalibrationLayoutError);
+  const bad = bytes.slice(); bad[4096 + 16] ^= 1;
+  assert.throws(() => readDdrPartition(bad), CalibrationLayoutError);
+  assert.throws(() => readDdrPartition(bytes.subarray(0, -1)), CalibrationLayoutError);
+});
+
+test("corrupt old GPT recovers persist after repair, while transport errors and changed repaired geometry stop erase", async () => {
+  for (const scenario of ["corrupt", "usb", "persist", "ddr"]) {
+    const { entries, files } = fixture();
+    let repairs = 0, erases = 0, reads = 0;
+    const device = {
+      getStorageInfo() { return storage; }, canFlashStream() { return true; },
+      getGpt() {
+        reads++;
+        if (scenario === "usb") throw new Error("USB read failed");
+        if (scenario === "corrupt" && !repairs) throw Object.assign(new Error("Bad GPT"), { code: "GPT_CORRUPT" });
+        const gpt = parsedGpt(files.get("gpt_main_3"));
+        if (scenario === "ddr" && reads === 2) gpt.getPartitions = () => [];
+        return gpt;
+      },
+      repairGpt() { repairs++; return true; },
+      detectPartition() { assert.equal(repairs, 6); return [true, 0, { start: scenario === "persist" ? 9n : 8n, sectors: 8192n }]; },
+      eraseLun(lun, preserve) { if (lun === 3) assert.equal(preserve.includes("ddr"), false); erases++; return true; },
+      async flashStream(name, info, payload) { await collect(payload); return true; },
+      setActiveSlot() { return true; }, reset() { return true; },
+    };
+    const run = flashManifest(device, entries, new URL("file:///tmp/a"), { openImage: async image => stream(files.get(image.name)) });
+    if (scenario === "corrupt") { await run; assert.equal(erases, 6); }
+    else { await assert.rejects(run, /USB read failed|persist location|DDR location/); assert.equal(erases, 0); }
+    assert.equal(repairs, scenario === "usb" ? 0 : 6);
+  }
 });

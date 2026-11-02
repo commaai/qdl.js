@@ -1,3 +1,4 @@
+import { CalibrationLayoutError, canPreserveDdr, ddrPartitionFromGpt, readDdrPartition } from "./calibration.js";
 import { GPT } from "./gpt.js";
 import { openVerifiedImage, resourceUrl, validateFrameSizes, validateImageHashes } from "./manifest-source.js";
 import { selectSparseRanges, validateSparseStreamMetadata } from "./sparse-stream.js";
@@ -189,23 +190,38 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
       }));
       validateManifestDestinations(plan, gptBytes, storage);
     });
-    const [found, lun, persist] = await device.detectPartition("persist");
-    if (!found || lun !== 0 || persist.start !== 8n || persist.sectors !== 8192n) throw new Error("Unexpected persist location on device");
+    const desiredDdr = readDdrPartition(gptBytes.get(3));
+    let existingDdr = null;
+    try {
+      existingDdr = ddrPartitionFromGpt(await device.getGpt(3));
+    } catch (error) {
+      // A blank or corrupt GPT can be recovered from the supplied images. Transport failures cannot.
+      if (error.code !== "GPT_CORRUPT" && !(error instanceof CalibrationLayoutError)) throw error;
+    }
+    const preserveDdr = canPreserveDdr(existingDdr, desiredDdr);
     sources = prefetchImages(plan.images, openImage, signal);
     await phase("repair_gpts", async () => {
       for (const image of plan.gpts) {
         if (!await device.repairGpt(image.gpt.lun, new Blob([gptBytes.get(image.gpt.lun)]))) throw new Error(`GPT repair failed on LUN ${image.gpt.lun}`);
       }
     });
+    const [found, lun, persist] = await device.detectPartition("persist");
+    if (!found || lun !== 0 || persist.start !== 8n || persist.sectors !== 8192n) throw new Error("Unexpected persist location after GPT repair");
+    if (preserveDdr && !canPreserveDdr(ddrPartitionFromGpt(await device.getGpt(3)), desiredDdr)) {
+      throw new Error("Unexpected DDR location after GPT repair");
+    }
     for (let lun = 0; lun < 6; lun++) {
-      await phase(`erase_${lun}`, () => device.eraseLun(lun, lun === 0 ? ["mbr", "gpt", "persist"] : ["mbr", "gpt"]));
+      const preserve = ["mbr", "gpt"];
+      if (lun === 0) preserve.push("persist");
+      if (lun === 3 && preserveDdr) preserve.push("ddr");
+      await phase(`erase_${lun}`, () => device.eraseLun(lun, preserve));
     }
     for (const image of plan.images) {
       await phase(`flash_${image.name}`, async () => {
         const source = await sources.next();
         const payload = selectSparseRanges(source, image.stream, image.fileSize);
         try {
-        if (!await device.flashStream(image.names[0], image.stream, payload, undefined, false)) throw new Error(`Flashing ${image.name} failed`);
+          if (!await device.flashStream(image.names[0], image.stream, payload, undefined, false)) throw new Error(`Flashing ${image.name} failed`);
         } finally {
           if (!payload.locked) await payload.cancel().catch(() => undefined);
         }
