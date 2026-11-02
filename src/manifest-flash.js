@@ -286,9 +286,8 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
       }
     });
     await phase("start_prefetch", () => {
-      // Samsung system writes are storage-bound; warming only userdata avoids competing with firmware writes.
       if (prefetchBytes) sources.warm(plan.images.filter(image => image.transport === "lz4"
-        && (image.name === plan.userdata || (image.name === "system" && storage.manufacturer_id !== 462))), prefetchBytes);
+        && (image.name === "system" || image.name === plan.userdata)), prefetchBytes);
     });
     for (let lun = 0; lun < 6; lun++) {
       const preserve = ["mbr", "gpt"];
