@@ -668,3 +668,43 @@ test("boot LUN activation requires an explicit ACK, including responses without 
     else await expect(hose.cmdSetBootLunId(2)).rejects.toBe("Failed to set boot lun 2");
   }
 });
+
+test("XML command status honors negative responses regardless of raw mode", async () => {
+  let closed = false;
+  const hose = new Firehose({ write: () => Promise.resolve(), close: () => { closed = true; return Promise.resolve(); } });
+  for (const rawmode of ['', ' rawmode="false"', ' rawmode="true"']) {
+    for (const value of ["NAK", "false", "invalid", "ACK", "true"]) {
+      const bytes = new TextEncoder().encode(`<?xml version="1.0"?><data><response value="${value}"${rawmode}/></data>`);
+      hose.waitForData = () => Promise.resolve(bytes);
+      const result = await hose.xmlSend("<nop/>");
+      expect(result.resp).toBe(value === "ACK" || value === "true");
+      expect(result.data).toBe(bytes);
+    }
+  }
+  // A rejected command is a complete response, not a lost transport.
+  expect(hose.failed).toBe(false);
+  expect(closed).toBe(false);
+});
+
+test("legacy program, GPT repair, and reset stop at a NAK without sending payload or draining", async () => {
+  for (const rawmode of ['', ' rawmode="false"', ' rawmode="true"']) {
+    let writes = 0;
+    let reads = 0;
+    const hose = new Firehose({ write: () => { writes++; return Promise.resolve(); } });
+    hose.waitForData = () => {
+      reads++;
+      return Promise.resolve(new TextEncoder().encode(`<?xml version="1.0"?><data><response value="NAK"${rawmode}/></data>`));
+    };
+    expect(await hose.cmdProgram(0, 0n, new Blob([new Uint8Array(4096)]))).toBe(false);
+    await expect(hose.cmdFixGpt(0, 1)).rejects.toBe("Firehose - Failed to fix gpt");
+    await expect(hose.cmdReset()).rejects.toBe("Reset failed");
+    expect(writes).toBe(3);
+    expect(reads).toBe(3);
+  }
+});
+
+test("XML parsing errors propagate instead of returning command success", async () => {
+  const hose = new Firehose({ write: () => Promise.resolve() });
+  hose.waitForData = () => Promise.resolve(new TextEncoder().encode('<?xml version="1.0"?><invalid/>'));
+  await expect(hose.xmlSend("<nop/>")).rejects.toThrow();
+});

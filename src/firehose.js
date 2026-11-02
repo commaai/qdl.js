@@ -118,7 +118,7 @@ export class Firehose {
         return new response(status, rData);
       }
     }
-    return new response(true, rData);
+    return new response(status, rData);
   }
 
   /**
