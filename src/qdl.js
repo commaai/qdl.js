@@ -91,6 +91,9 @@ export class qdlDevice {
   /** @type {Map<number, GPT>} */
   #gptCache = new Map();
 
+  /** GPTs whose matching, validated copies fit the generated protected spans. */
+  #gptPairsValidated = new WeakSet();
+
   /**
    * @param {ArrayBuffer} programmer
    * @param {import("./firehose.js").TransferOptions} [transferOptions]
@@ -243,6 +246,10 @@ export class qdlDevice {
       logger.warn(`LUN ${lun}: Primary and backup GPT part entries are inconsistent, using primary`);
       // TODO: create backup from primary
     }
+    if (partEntriesConsistency && primaryGpt.firstUsableLba === backupGpt.firstUsableLba &&
+        primaryGpt.lastUsableLba === backupGpt.lastUsableLba) {
+      this.#gptPairsValidated.add(primaryGpt);
+    }
     this.#gptCache.set(lun, primaryGpt);
     return primaryGpt;
   }
@@ -366,6 +373,8 @@ export class qdlDevice {
       erasableRanges.push({ start: lastEndSector + 1n, end: backupHeaderLba });
     }
 
+    const preserveGptCache = preservePartitions.includes("gpt") && this.#gptPairsValidated.has(primaryGpt);
+    // Drop the cache during mutation; only restore it after all erase responses succeed.
     this.#gptCache.delete(lun);
     for (const range of erasableRanges) {
       const sectors = range.end - range.start + 1n;
@@ -386,6 +395,7 @@ export class qdlDevice {
       }
     }
 
+    if (preserveGptCache && !this.firehose.failed) this.#gptCache.set(lun, primaryGpt);
     logger.info(`Successfully erased LUN ${lun} while preserving specified partitions`);
     return true;
   }
@@ -395,6 +405,10 @@ export class qdlDevice {
    * @returns {Promise<[false] | [true, number, { start: bigint; end: bigint; sectors: bigint }, GPT]>}
    */
   async detectPartition(name) {
+    if (this.firehose.failed) {
+      this.#gptCache.clear();
+      throw new Error("Flash transfer interrupted; power-cycle the device before retrying");
+    }
     for (const lun of this.firehose.luns) {
       const gpt = this.#gptCache.get(lun) ?? await this.getGpt(lun);
       const partition = gpt.locatePartition(name);

@@ -149,6 +149,25 @@ class TestDevice extends qdlDevice {
 }
 
 describe("partition lookup cache", () => {
+  function eraseTransport(device, erase = () => true) {
+    const erased = [];
+    const hose = { ...device.firehose, ufsUnmapLimits: true, failed: false,
+      cmdErase: async (lun, start, count) => {
+        erased.push([start, count]);
+        if (!await erase(lun, start, count)) return false;
+        for (const [sector, bytes] of [[1n, device.storage.header], [10000n, device.storage.backup],
+          [device.storage.primaryEntriesStart, device.storage.entries], [device.storage.backupEntriesStart, device.storage.backupEntries]]) {
+          const from = Math.max(0, Number(start - sector) * 4096);
+          const to = Math.min(bytes.length, Number(start + BigInt(count) - sector) * 4096);
+          if (to > from) bytes.fill(0, from, to);
+        }
+        return true;
+      } };
+    hose.cfg.FastErase = true;
+    Object.defineProperty(device, "firehose", { value: hose });
+    return { hose, erased };
+  }
+
   test("reuses validated GPTs and explicit reads refresh them", async () => {
     const device = new TestDevice(new ArrayBuffer(1));
     expect((await device.detectPartition("system_a"))[2].start).toBe(100n);
@@ -176,6 +195,81 @@ describe("partition lookup cache", () => {
     await device.reset();
     device.storage = disk(400n);
     expect((await device.detectPartition("system_a"))[2].start).toBe(400n);
+  });
+
+  test("GPT-preserving erases retain validated metadata without reading it again", async () => {
+    for (const layout of [{}, { primaryEntriesStart: 8n, backupEntriesStart: 9970n }, { count: 160 }]) {
+      const device = new TestDevice(new ArrayBuffer(1));
+      device.storage = disk(100n, layout);
+      const copies = [device.storage.header, device.storage.entries, device.storage.backup, device.storage.backupEntries];
+      const before = copies.map(bytes => bytes.slice());
+      const { erased } = eraseTransport(device);
+      expect(await device.eraseLun(0, ["mbr", "gpt"])).toBe(true);
+      expect(erased.length).toBeGreaterThan(0);
+      expect(copies).toEqual(before);
+      const reads = device.reads;
+      expect((await device.detectPartition("system_a"))[2].start).toBe(100n);
+      expect(await device.detectPartition("missing")).toEqual([false]);
+      expect(device.reads).toBe(reads);
+    }
+  });
+
+  test("erasing GPT sectors invalidates partition locations", async () => {
+    const device = new TestDevice(new ArrayBuffer(1));
+    await device.detectPartition("system_a");
+    eraseTransport(device);
+    expect(await device.eraseLun(0, ["mbr"])).toBe(true);
+    expect(device.storage.header.every(byte => byte === 0)).toBe(true);
+    expect(device.storage.backup.every(byte => byte === 0)).toBe(true);
+    await expect(device.detectPartition("system_a")).rejects.toHaveProperty("code", "GPT_CORRUPT");
+  });
+
+  test("failed erases do not restore the partition cache", async () => {
+    for (const reject of [false, true]) {
+      const device = new TestDevice(new ArrayBuffer(1));
+      eraseTransport(device, () => { if (reject) throw new Error("erase interrupted"); return false; });
+      const result = device.eraseLun(0, ["gpt"]);
+      if (reject) await expect(result).rejects.toThrow("erase interrupted");
+      else expect(await result).toBe(false);
+      const reads = device.reads;
+      device.storage = disk(200n);
+      expect((await device.detectPartition("system_a"))[2].start).toBe(200n);
+      expect(device.reads).toBeGreaterThan(reads);
+    }
+  });
+
+  test("recovered or mismatched GPT pairs are not retained after erase", async () => {
+    for (const change of [
+      storage => { storage.header[0] ^= 1; },
+      storage => { storage.backup[0] ^= 1; },
+      storage => updateHeader(storage.backup, view => view.setBigUint64(48, 9900n, true)),
+      storage => {
+        storage.backupEntries[0] ^= 1;
+        updateHeader(storage.backup, view => view.setInt32(88, crc32(storage.backupEntries), true));
+      },
+    ]) {
+      const device = new TestDevice(new ArrayBuffer(1));
+      change(device.storage);
+      eraseTransport(device);
+      expect(await device.eraseLun(0, ["gpt"])).toBe(true);
+      const reads = device.reads;
+      expect((await device.detectPartition("system_a"))[2].start).toBe(100n);
+      expect(device.reads).toBeGreaterThan(reads);
+    }
+  });
+
+  test("poisoned transports reject cached lookups and discard their metadata", async () => {
+    const device = new TestDevice(new ArrayBuffer(1));
+    const { hose } = eraseTransport(device);
+    expect(await device.eraseLun(0, ["gpt"])).toBe(true);
+    const reads = device.reads;
+    hose.failed = true;
+    await expect(device.detectPartition("system_a")).rejects.toThrow("power-cycle");
+    expect(device.reads).toBe(reads);
+    hose.failed = false;
+    device.storage = disk(200n);
+    expect((await device.detectPartition("system_a"))[2].start).toBe(200n);
+    expect(device.reads).toBeGreaterThan(reads);
   });
 });
 
