@@ -153,7 +153,7 @@ function fixture() {
     return { name, hash: info.hash, file_size: info.fileSize, chunk_size: info.chunkSize, chunk_hashes: info.chunkHashes,
       zstd_url: `${name}.zst`, archive_size: 100, size: bytes.length, sparse: false, has_ab: false, ...extra };
   }
-  const names = ["system", "boot", "xbl", "xbl_config", "abl", "userdata_90"];
+  const names = ["system", "boot", "xbl", "xbl_config", "abl", "modem", "userdata_90"];
   const entries = names.map(name => image(name, sparse, { size: 4096, sparse: true, has_ab: name !== "userdata_90",
     stream: { sector_size: 4096, num_partition_sectors: 1, data_sectors: 1, extents: [[0, 1]], source_ranges: [[40, 4096]] } }));
   const partitionNames = entries.flatMap(item => item.has_ab ? [`${item.name}_a`, `${item.name}_b`] : ["userdata"]);
@@ -261,6 +261,7 @@ test("full flow preserves persist, erases six LUNs, writes one slot, and finaliz
     assert.equal(events[12], `system_${slot ?? "a"}`);
     assert.equal(events.includes("reset"), !fail);
     assert.equal(events.includes("activate"), !fail);
+    if (!fail) { assert.equal(events.filter(name => name === "modem_a").length, 1); assert.equal(events.includes("modem_b"), false); }
   }
 });
 

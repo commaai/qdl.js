@@ -38,7 +38,8 @@ export function prepareManifest(entries, baseUrl, storage, slot = "a") {
     const name = item.name.startsWith("userdata_") ? "userdata" : item.name;
     const image = {
       name: item.name,
-      names: [item.has_ab ? `${name}_${slot}` : name],
+      // AGNOS mounts modem_a explicitly, including when its root filesystem is slot B.
+      names: [item.has_ab ? `${name}_${name === "modem" ? "a" : slot}` : name],
       archiveUrl: resourceUrl(item.zstd_url, baseUrl),
       archiveSize: item.archive_size,
       fileSize: item.file_size,
