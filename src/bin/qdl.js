@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import arg from "arg";
 
-import { createProgress, createQdl } from "../cli";
+import { createProgress, createQdl } from "../cli.js";
 
 const args = arg({
   "--help": Boolean,

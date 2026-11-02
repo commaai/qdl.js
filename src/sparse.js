@@ -1,4 +1,4 @@
-import { createLogger } from "./logger";
+import { createLogger } from "./logger.js";
 
 const FILE_MAGIC = 0xed26ff3a;
 export const FILE_HEADER_SIZE = 28;
@@ -51,12 +51,17 @@ export class Sparse {
    */
   async* chunks() {
     let blobOffset = FILE_HEADER_SIZE;
+    let windowOffset = 0;
+    let window = new Uint8Array();
     for (let i = 0; i < this.header.totalChunks; i++) {
-      if (blobOffset + CHUNK_HEADER_SIZE >= this.blob.size) {
+      if (blobOffset + CHUNK_HEADER_SIZE > this.blob.size) {
         throw "Sparse - Chunk header out of bounds";
       }
-      const chunk = await this.blob.slice(blobOffset, blobOffset + CHUNK_HEADER_SIZE).arrayBuffer();
-      const view = new DataView(chunk);
+      if (blobOffset + CHUNK_HEADER_SIZE > windowOffset + window.byteLength) {
+        windowOffset = blobOffset;
+        window = new Uint8Array(await this.blob.slice(blobOffset, blobOffset + 4096).arrayBuffer());
+      }
+      const view = new DataView(window.buffer, blobOffset - windowOffset, CHUNK_HEADER_SIZE);
       const totalBytes = view.getUint32(8, true);
       if (blobOffset + totalBytes > this.blob.size) {
         throw "Sparse - Chunk data out of bounds";
@@ -64,7 +69,9 @@ export class Sparse {
       yield {
         type: view.getUint16(0, true),
         blocks: view.getUint32(4, true),
-        data: this.blob.slice(blobOffset + CHUNK_HEADER_SIZE, blobOffset + totalBytes),
+        data: blobOffset + totalBytes <= windowOffset + window.byteLength
+          ? new Blob([window.subarray(blobOffset + CHUNK_HEADER_SIZE - windowOffset, blobOffset + totalBytes - windowOffset)])
+          : this.blob.slice(blobOffset + CHUNK_HEADER_SIZE, blobOffset + totalBytes),
       };
       blobOffset += totalBytes;
     }
@@ -74,9 +81,10 @@ export class Sparse {
   }
 
   /**
+   * @param {number} [maxZeroFill=0]
    * @returns {AsyncIterator<[number, Blob | null, number]>}
    */
-  async *read() {
+  async *read(maxZeroFill = 0) {
     let offset = 0;
     for await (const { type, blocks, data } of this.chunks()) {
       const size = blocks * this.header.blockSize;
@@ -89,6 +97,8 @@ export class Sparse {
           const buffer = new Uint8Array(size);
           for (let i = 0; i < buffer.byteLength; i += 4) buffer.set(fill, i);
           yield [offset, new Blob([buffer]), size];
+        } else if (size <= maxZeroFill) {
+          yield [offset, new Blob([new Uint8Array(size)]), size];
         } else {
           yield [offset, null, size];
         }
@@ -98,6 +108,44 @@ export class Sparse {
         offset += size;
       }
     }
+  }
+
+  /**
+   * Merge adjacent writes and small zero fills to avoid a command per sparse chunk.
+   * DONT_CARE ranges remain untouched.
+   * @param {number} [maxZeroFill=65536]
+   * @returns {AsyncIterator<[number, Blob[] | null, number]>}
+   */
+  async *readCoalesced(maxZeroFill = 65536) {
+    const maxSize = 64 * 1024 * 1024;
+    /** @type {Blob[]} */
+    let parts = [];
+    let start = 0;
+    let length = 0;
+    for await (const [offset, data, size] of this.read(maxZeroFill)) {
+      if (length && (!data || offset !== start + length)) {
+        yield [start, parts, length];
+        parts = [];
+        length = 0;
+      }
+      if (!data) {
+        yield [offset, null, size];
+        continue;
+      }
+      for (let position = 0; position < size;) {
+        if (!length) start = offset + position;
+        const count = Math.min(size - position, maxSize - length);
+        parts.push(data.slice(position, position + count));
+        position += count;
+        length += count;
+        if (length === maxSize) {
+          yield [start, parts, length];
+          parts = [];
+          length = 0;
+        }
+      }
+    }
+    if (length) yield [start, parts, length];
   }
 }
 

@@ -1,0 +1,587 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test as nativeTest } from "node:test";
+// The CLI requires Node; Bun tests preload Happy DOM with incompatible AbortSignal objects.
+const test = process.versions.bun ? nativeTest.skip : nativeTest;
+import { pathToFileURL } from "node:url";
+import { zstdCompressSync } from "node:zlib";
+import CRC32 from "crc-32";
+const { buf: crc32 } = CRC32;
+import { GPT } from "../src/gpt.js";
+import { CalibrationLayoutError, canPreserveDdr, ddrPartitionFromGpt, readDdrPartition } from "../src/calibration.js";
+import { flashManifest, prepareManifest, userdataForStorage, validateManifestDestinations } from "../src/manifest-flash.js";
+import { bufferVerifiedSource, openResource, openVerifiedImage, VERIFIED_CHUNK_SIZE, verifyImageStream } from "../src/manifest-source.js";
+
+const hash = data => createHash("sha256").update(data).digest("hex");
+const metadata = bytes => ({ name: "fixture", hash: hash(bytes), fileSize: bytes.length, chunkSize: VERIFIED_CHUNK_SIZE,
+  chunkHashes: Array.from({ length: Math.ceil(bytes.length / VERIFIED_CHUNK_SIZE) }, (_, i) => hash(bytes.subarray(i * VERIFIED_CHUNK_SIZE, (i + 1) * VERIFIED_CHUNK_SIZE))) });
+const stream = (bytes, size = 17003) => {
+  let offset = 0;
+  return new ReadableStream({ pull(controller) {
+    if (offset === bytes.length) return controller.close();
+    controller.enqueue(bytes.subarray(offset, offset + size));
+    offset = Math.min(bytes.length, offset + size);
+  } }, { highWaterMark: 0 });
+};
+const collect = async source => {
+  const parts = [];
+  for await (const part of source) parts.push(part);
+  return Buffer.concat(parts);
+};
+
+test("verified stream handles split chunks, partial tail and exact-multiple EOF", async () => {
+  for (const length of [VERIFIED_CHUNK_SIZE, VERIFIED_CHUNK_SIZE * 2 + 71]) {
+    const bytes = Buffer.alloc(length, 42);
+    assert.deepEqual(await collect(verifyImageStream(stream(bytes), metadata(bytes))), bytes);
+  }
+});
+
+test("bad chunks never reach the consumer, including the final chunk", async () => {
+  const bytes = Buffer.alloc(VERIFIED_CHUNK_SIZE + 19, 7);
+  const info = metadata(bytes);
+  info.chunkHashes[0] = "0".repeat(64);
+  await assert.rejects(verifyImageStream(stream(bytes), info).getReader().read(), /chunk 0/);
+  const finalBad = metadata(bytes);
+  finalBad.chunkHashes[1] = "0".repeat(64);
+  const reader = verifyImageStream(stream(bytes), finalBad).getReader();
+  assert.equal((await reader.read()).value.length, VERIFIED_CHUNK_SIZE);
+  await assert.rejects(reader.read(), /chunk 1/);
+});
+
+test("decoded truncation, excess and late source errors cannot complete", async () => {
+  const bytes = Buffer.alloc(VERIFIED_CHUNK_SIZE + 19, 4);
+  for (const invalid of [bytes.subarray(0, -1), Buffer.concat([bytes, Buffer.from([1])])]) {
+    await assert.rejects(collect(verifyImageStream(stream(invalid), metadata(bytes))), /length|Truncated/);
+  }
+  let once = false;
+  const broken = new ReadableStream({ pull(controller) {
+    if (!once) { once = true; controller.enqueue(bytes); }
+    else controller.error(new Error("late read error"));
+  } });
+  await assert.rejects(collect(verifyImageStream(broken, metadata(bytes))), /late read error/);
+});
+
+test("cancel before and during verification cancels the producer", async () => {
+  for (const start of [false, true]) {
+    let cancelled = false;
+    const source = new ReadableStream({ pull() { /* Wait until cancelled. */ }, cancel() { cancelled = true; } }, { highWaterMark: 0 });
+    const reader = verifyImageStream(source, metadata(Buffer.alloc(8))).getReader();
+    const pending = start ? reader.read() : undefined;
+    await reader.cancel();
+    await pending;
+    assert.equal(cancelled, true);
+    assert.equal(source.locked, false);
+  }
+});
+
+test("native zstd checks archive length, content and corrupt compressed tails", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "qdl-zstd-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const bytes = Buffer.alloc(VERIFIED_CHUNK_SIZE + 319, 6);
+  const compressed = zstdCompressSync(bytes);
+  const path = join(directory, "image.zst");
+  await writeFile(path, compressed);
+  const image = { ...metadata(bytes), archiveUrl: pathToFileURL(path), archiveSize: compressed.length };
+  assert.deepEqual(await collect(await openVerifiedImage(image)), bytes);
+  await assert.rejects(openVerifiedImage({ ...image, archiveSize: compressed.length - 1 }), /archive length/);
+  await writeFile(path, compressed.subarray(0, -1));
+  await assert.rejects(collect(await openVerifiedImage({ ...image, archiveSize: compressed.length - 1 })), /error|unexpected|truncated/i);
+});
+
+test("parallel native frames preserve order, validate every hash, and bound decoded output", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "qdl-frames-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const bytes = Buffer.concat([Buffer.alloc(VERIFIED_CHUNK_SIZE, 1), Buffer.alloc(VERIFIED_CHUNK_SIZE, 2), Buffer.alloc(719, 3)]);
+  const chunks = [bytes.subarray(0, VERIFIED_CHUNK_SIZE), bytes.subarray(VERIFIED_CHUNK_SIZE, VERIFIED_CHUNK_SIZE * 2), bytes.subarray(VERIFIED_CHUNK_SIZE * 2)];
+  const frames = chunks.map(chunk => zstdCompressSync(chunk));
+  const path = join(directory, "frames.zst");
+  await writeFile(path, Buffer.concat(frames));
+  const image = { ...metadata(bytes), archiveUrl: pathToFileURL(path), archiveSize: frames.reduce((sum, frame) => sum + frame.length, 0), frameSizes: frames.map(frame => frame.length) };
+  for (const concurrency of [4, 8]) assert.deepEqual(await collect(await openVerifiedImage(image, undefined, concurrency)), bytes);
+  const invalid = { ...image, chunkHashes: [...image.chunkHashes] };
+  invalid.chunkHashes[1] = "0".repeat(64);
+  const reader = (await openVerifiedImage(invalid)).getReader();
+  assert.deepEqual((await reader.read()).value, chunks[0]);
+  await assert.rejects(reader.read(), /chunk 1/);
+  await assert.rejects(openVerifiedImage({ ...image, frameSizes: [image.archiveSize] }), /frame sizes/);
+  await assert.rejects(openVerifiedImage({ ...image, frameSizes: [0, ...image.frameSizes.slice(1)] }), /frame sizes/);
+  await assert.rejects(openVerifiedImage(image, undefined, 1000), /concurrency/);
+  const oversized = zstdCompressSync(Buffer.alloc(VERIFIED_CHUNK_SIZE + 1));
+  await writeFile(path, oversized);
+  const tooLarge = { ...metadata(Buffer.alloc(VERIFIED_CHUNK_SIZE)), archiveUrl: pathToFileURL(path), archiveSize: oversized.length, frameSizes: [oversized.length] };
+  await assert.rejects(collect(await openVerifiedImage(tooLarge)), /larger than|Window size|output|limit/i);
+  const short = zstdCompressSync(Buffer.alloc(VERIFIED_CHUNK_SIZE - 1));
+  await writeFile(path, short);
+  await assert.rejects(collect(await openVerifiedImage({ ...tooLarge, archiveSize: short.length, frameSizes: [short.length] })), /frame length/);
+});
+
+test("parallel frame cancellation closes an unopened or partly consumed archive", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "qdl-frame-cancel-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const chunk = Buffer.alloc(VERIFIED_CHUNK_SIZE, 9);
+  const frame = zstdCompressSync(chunk);
+  const path = join(directory, "frames.zst");
+  await writeFile(path, Buffer.concat(Array(8).fill(frame)));
+  const image = { ...metadata(Buffer.concat(Array(8).fill(chunk))), archiveUrl: pathToFileURL(path), archiveSize: frame.length * 8, frameSizes: Array(8).fill(frame.length) };
+  for (const started of [false, true]) {
+    const reader = (await openVerifiedImage(image)).getReader();
+    if (started) assert.equal((await reader.read()).value.length, VERIFIED_CHUNK_SIZE);
+    await reader.cancel();
+  }
+});
+
+test("HTTP errors are rejected without decoding the error body", async t => {
+  const server = createServer((request, response) => { response.writeHead(503); response.end("unavailable"); });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  await assert.rejects(openResource(new URL(`http://127.0.0.1:${server.address().port}/image`)), /HTTP 503/);
+});
+
+const storage = { block_size: 4096, page_size: 4096, num_physical: 6, mem_type: "UFS", prod_name: "SDINDDH4-128G 1", manufacturer_id: 325, total_blocks: 29775872 };
+function fixture(firmwareLun4 = false) {
+  const sparse = Buffer.alloc(4136, 5);
+  sparse.writeUInt32LE(0xed26ff3a, 0); sparse.writeUInt16LE(1, 4); sparse.writeUInt16LE(0, 6);
+  sparse.writeUInt16LE(28, 8); sparse.writeUInt16LE(12, 10); sparse.writeUInt32LE(4096, 12);
+  sparse.writeUInt32LE(1, 16); sparse.writeUInt32LE(1, 20); sparse.writeUInt32LE(0, 24);
+  sparse.writeUInt16LE(0xcac1, 28); sparse.writeUInt16LE(0, 30); sparse.writeUInt32LE(1, 32); sparse.writeUInt32LE(4108, 36);
+  const files = new Map();
+  function image(name, bytes, extra = {}) {
+    files.set(name, bytes);
+    const info = metadata(bytes);
+    return { name, hash: info.hash, file_size: info.fileSize, chunk_size: info.chunkSize, chunk_hashes: info.chunkHashes,
+      zstd_url: `${name}.zst`, archive_size: 100, size: bytes.length, sparse: false, has_ab: false, ...extra };
+  }
+  const names = ["system", "boot", "xbl", "xbl_config", "abl", "modem", "userdata_90"];
+  const entries = names.map(name => image(name, sparse, { size: 4096, sparse: true, has_ab: name !== "userdata_90",
+    stream: { sector_size: 4096, num_partition_sectors: 1, data_sectors: 1, extents: [[0, 1]], source_ranges: [[40, 4096]] } }));
+  const partitionNames = entries.flatMap(item => item.has_ab ? [`${item.name}_a`, `${item.name}_b`] : ["userdata"]);
+  for (let lun = 0; lun < 6; lun++) {
+    const bytes = Buffer.alloc(24576);
+    const header = bytes.subarray(4096, 8192);
+    header.write("EFI PART"); header.writeUInt32LE(0x10000, 8); header.writeUInt32LE(92, 12);
+    header.writeBigUInt64LE(1n, 24); header.writeBigUInt64LE(BigInt(storage.total_blocks - 1), 32);
+    header.writeBigUInt64LE(6n, 40); header.writeBigUInt64LE(BigInt(storage.total_blocks - 6), 48);
+    header.writeBigUInt64LE(2n, 72); header.writeUInt32LE(128, 80); header.writeUInt32LE(128, 84);
+    if (lun === 0) {
+      ["persist", ...partitionNames.filter(name => !firmwareLun4 || !/^(boot|abl|modem)_/.test(name))].forEach((name, i) => {
+        const entry = bytes.subarray(8192 + i * 128, 8192 + (i + 1) * 128);
+        entry.fill(1, 0, 32);
+        entry.writeBigUInt64LE(i === 0 ? 8n : BigInt(8200 + i * 10), 32);
+        entry.writeBigUInt64LE(i === 0 ? 8199n : BigInt(8200 + i * 10 + 9), 40);
+        entry.write(name, 56, "utf16le");
+      });
+    }
+    if (lun === 4 && firmwareLun4) {
+      ["modem_a", "modem_b", "abl_a", "abl_b", "boot_a", "boot_b"].forEach((name, i) => {
+        const entry = bytes.subarray(8192 + i * 128, 8192 + (i + 1) * 128);
+        entry.fill(1, 0, 32); entry.writeBigUInt64LE(BigInt(6 + i * 10), 32);
+        entry.writeBigUInt64LE(BigInt(15 + i * 10), 40); entry.write(name, 56, "utf16le");
+      });
+    }
+    if (lun === 3) {
+      const entry = bytes.subarray(8192, 8320);
+      Buffer.from("9cc1a0206a28fa429ce7f64c3226a794", "hex").copy(entry);
+      entry.writeBigUInt64LE(64n, 32); entry.writeBigUInt64LE(319n, 40); entry.write("ddr", 56, "utf16le");
+    }
+    header.writeInt32LE(crc32(bytes.subarray(8192)), 88);
+    header.writeInt32LE(crc32(header.subarray(0, 92)), 16);
+    entries.unshift(image(`gpt_main_${lun}`, bytes, { gpt: { lun, start_sector: 0, num_sectors: 6 } }));
+  }
+  return { entries, files };
+}
+
+test("capacity mapping includes Samsung; manifest rejects XZ, missing GPT, wrong index and duplicate names", () => {
+  assert.equal(userdataForStorage(storage), "userdata_90");
+  assert.equal(userdataForStorage({ ...storage, total_blocks: 29605888 }), "userdata_89");
+  assert.equal(userdataForStorage({ ...storage, prod_name: "KLUDG4U1EA-B0C1", manufacturer_id: 462, total_blocks: 29765632 }), "userdata_90");
+  assert.throws(() => userdataForStorage({ ...storage, total_blocks: 29765631 }), /Unsupported/);
+  const { entries } = fixture();
+  assert.throws(() => prepareManifest(entries, new URL("file:///tmp/a"), storage, "both"), /slot/);
+  for (const change of [
+    list => { list.at(-1).zstd_url = undefined; },
+    list => list.splice(0, 1),
+    list => { list.at(-1).stream.source_ranges[0][1] = 8192; },
+    list => list.push(list.at(-1)),
+  ]) {
+    const invalid = structuredClone(entries); change(invalid);
+    assert.throws(() => prepareManifest(invalid, new URL("file:///tmp/manifest.json"), storage));
+  }
+});
+
+test("merged flash companions select framed archives and reject inconsistent frame lengths", () => {
+  const { entries } = fixture();
+  entries.at(-1).flash = { zstd_chunked_url: "frames.zst", zstd_chunked_size: 17, zstd_frame_sizes: [17] };
+  const plan = prepareManifest(entries, new URL("https://example.test/release/manifest.json"), storage);
+  assert.equal(plan.images.at(-1).archiveUrl.href, "https://example.test/release/frames.zst");
+  assert.deepEqual(plan.images.at(-1).frameSizes, [17]);
+  entries.at(-1).flash.zstd_frame_sizes[0] = 18;
+  assert.throws(() => prepareManifest(entries, new URL("file:///tmp/a"), storage), /frame sizes/);
+});
+
+test("GPT destination validation rejects corrupt layout and oversized images", () => {
+  const { entries, files } = fixture();
+  const plan = prepareManifest(entries, new URL("file:///tmp/manifest.json"), storage);
+  const gpts = new Map(plan.gpts.map(image => [image.gpt.lun, files.get(image.name)]));
+  assert.equal(validateManifestDestinations(plan, gpts, storage).get("persist").start, 8n);
+  plan.images[0].stream.numPartitionSectors = 11;
+  assert.throws(() => validateManifestDestinations(plan, gpts, storage), /exceeds/);
+  gpts.get(0)[16 + 4096] ^= 1;
+  assert.throws(() => validateManifestDestinations(plan, gpts, storage), /GPT header/);
+});
+
+test("full flow preserves persist, erases six LUNs, writes one slot, and finalizes only on success", async () => {
+  for (const [slot, failure] of [[undefined, "none"], [undefined, "usb"], [undefined, "source"], ["b", "none"]]) {
+    const fail = failure !== "none";
+    const { entries, files } = fixture();
+    const events = [], reports = [];
+    const device = {
+      getStorageInfo() { return storage; }, canFlashStream() { return true; },
+      getGpt() { return parsedGpt(files.get("gpt_main_3")); },
+      detectPartition() { assert.equal(events.length, 6); return [true, 0, { start: 8n, sectors: 8192n }]; },
+      repairGpt(lun) { events.push(`gpt${lun}`); return true; },
+      eraseLun(lun, preserve) { assert.deepEqual(preserve, lun === 0 ? ["mbr", "gpt", "persist"] : lun === 3 ? ["mbr", "gpt", "ddr"] : ["mbr", "gpt"]); events.push(`erase${lun}`); return true; },
+      async flashStream(name, info, payload, progress, erase) {
+        assert.equal(erase, false); assert.equal(info.dataSectors, 1);
+        assert.equal(typeof name, "string");
+        events.push(name);
+        if (failure === "usb") throw new Error("USB write failed");
+        assert.equal((await collect(payload)).length, 4096); return true;
+      },
+      setActiveSlot(value) { assert.equal(value, slot ?? "a"); events.push("activate"); return true; },
+      reset() { events.push("reset"); },
+    };
+    let cancelled = false;
+    const run = flashManifest(device, entries, new URL("file:///tmp/manifest.json"), { slot, report: event => reports.push(event), openImage: async image => {
+      if (failure === "source" && image.name === "boot") throw new Error("Prefetch failed");
+      const bytes = files.get(image.name);
+      let offset = 0;
+      return new ReadableStream({ pull(controller) {
+        if (offset === bytes.length) return controller.close();
+        controller.enqueue(bytes.subarray(offset, offset + 64)); offset = Math.min(bytes.length, offset + 64);
+      }, cancel() { cancelled = true; } }, { highWaterMark: 0 });
+    } });
+    if (fail) { await assert.rejects(run, /USB write failed|Prefetch failed/); assert.equal(cancelled, true); }
+    else await run;
+    assert.deepEqual(events.slice(0, 12), [...Array.from({ length: 6 }, (_, i) => `gpt${i}`), ...Array.from({ length: 6 }, (_, i) => `erase${i}`)]);
+    assert.equal(events[12], `system_${slot ?? "a"}`);
+    assert.equal(events.includes("reset"), !fail);
+    assert.equal(events.includes("activate"), !fail);
+    if (!fail) { assert.equal(events.filter(name => name === "modem_a").length, 1); assert.equal(events.includes("modem_b"), false); }
+    if (!fail) {
+      for (const name of ["prepare_manifest", "check_existing_calibration", "check_repaired_calibration", "source_cleanup", "host_overhead"]) assert.ok(reports.some(event => event.phase === name));
+      assert.equal(reports.at(-1).phase, "complete");
+      assert.ok(reports.findIndex(event => event.phase === "source_cleanup") > reports.findIndex(event => event.phase === "reset"));
+      const stages = reports.filter(event => event.phase !== "complete").reduce((sum, event) => sum + event.seconds, 0);
+      assert.ok(Math.abs(stages - reports.at(-1).seconds) < 1e-8);
+    } else assert.equal(reports.some(event => event.phase === "complete"), false);
+  }
+});
+
+test("full flow batches physical firmware order after erase and preserves source identity, fallback and failure handling", async () => {
+  for (const [slot, mode] of [["a", "batch"], ["b", "batch"], ["a", "fallback"], ["a", "source"], ["a", "nak"]]) {
+    const { entries, files } = fixture(true);
+    for (const [i, item] of entries.filter(item => !item.gpt).entries()) {
+      const bytes = Buffer.from(files.get(item.name)); bytes.fill(i + 1, 40); files.set(item.name, bytes);
+      item.hash = hash(bytes); item.chunk_hashes = [item.hash];
+    }
+    const events = [], phases = [];
+    const physical = ["modem", "abl", "boot"];
+    const device = {
+      getStorageInfo: () => storage, canFlashStream: count => mode !== "fallback" || count < 3,
+      getGpt: lun => parsedGpt(files.get(`gpt_main_${lun}`)),
+      repairGpt(lun) { events.push(`gpt${lun}`); return true; },
+      detectPartition(name) {
+        if (name === "persist") return [true, 0, { start: 8n, sectors: 8192n }];
+        const gpt = parsedGpt(files.get("gpt_main_4"));
+        return [true, 4, gpt.locatePartition(name), gpt];
+      },
+      eraseLun(lun) { events.push(`erase${lun}`); return true; },
+      async flashStream(name, info, payload) {
+        events.push(name);
+        const key = name === "userdata" ? "userdata_90" : name.replace(/_[ab]$/, "");
+        assert.deepEqual(await collect(payload), files.get(key).subarray(40));
+        return true;
+      },
+      firehose: { cfg: { SECTOR_SIZE_IN_BYTES: 4096 }, async cmdProgramSparse(lun, start, plan) {
+        assert.equal(lun, 4); assert.equal(start, 6n);
+        assert.equal(events.filter(event => event === "erase4").length, 1);
+        assert.equal(events.includes("erase5"), true);
+        assert.deepEqual(plan.extents, slot === "a" ? [[0n, 1n], [20n, 1n], [40n, 1n]] : [[0n, 1n], [30n, 1n], [50n, 1n]]);
+        events.push("firmware");
+        if (mode === "nak") return false;
+        for (let i = 0; i < plan.parts.length; i++) assert.deepEqual(await collect(plan.parts[i].stream()), files.get(physical[i]).subarray(40));
+        return true;
+      } },
+      setActiveSlot(value) { assert.equal(value, slot); events.push("activate"); return true; },
+      reset() { events.push("reset"); return true; },
+    };
+    let sourceSignal;
+    const run = flashManifest(device, entries, new URL("file:///tmp/manifest.json"), { slot, report: row => phases.push(row.phase), openImage(item, signal) {
+      sourceSignal = signal;
+      const expected = mode === "source" && item.name === "abl" ? { ...item, chunkHashes: ["0".repeat(64)] } : item;
+      return verifyImageStream(stream(files.get(item.name)), expected);
+    } });
+    if (mode === "source") await assert.rejects(run, /SHA-256 mismatch/);
+    else if (mode === "nak") await assert.rejects(run, /flash_firmware_lun4 failed/);
+    else await run;
+    assert.equal(sourceSignal.aborted, true);
+    assert.equal(events.includes("activate"), !["source", "nak"].includes(mode));
+    assert.equal(events.includes("reset"), !["source", "nak"].includes(mode));
+    assert.equal(phases.includes("flash_firmware_lun4"), mode === "batch");
+    if (mode !== "source") assert.equal(events.includes("firmware"), mode !== "fallback");
+    if (mode === "batch") assert.deepEqual(events.slice(12), [`system_${slot}`, "firmware", `xbl_${slot}`, `xbl_config_${slot}`, "userdata", "activate", "reset"]);
+    if (mode === "fallback") assert.equal(events.filter(event => event === "modem_a").length, 1);
+  }
+});
+
+test("CRC-valid GPT usable bounds cannot cover backup GPT sectors before mutation", async () => {
+  for (const [offset, value] of [[32, 1n], [40, 5n], [48, BigInt(storage.total_blocks - 5)]]) {
+    const { entries, files } = fixture(true);
+    const header = files.get("gpt_main_4").subarray(4096, 4096 + 92);
+    header.writeBigUInt64LE(value, offset); header.writeUInt32LE(0, 16);
+    header.writeInt32LE(crc32(header), 16);
+    let mutations = 0;
+    const device = { getStorageInfo: () => storage, canFlashStream: () => true,
+      repairGpt() { mutations++; }, eraseLun() { mutations++; } };
+    await assert.rejects(flashManifest(device, entries, new URL("file:///tmp/a"), { openImage: image => stream(files.get(image.name)) }), /GPT header/);
+    assert.equal(mutations, 0);
+  }
+});
+
+test("explicit physical slot aliases fail preflight before repair or erase", async () => {
+  for (const [slot, name] of [["a", "boot_b"], ["b", "boot_a"], ["b", "modem_b"]]) {
+    const { entries, files } = fixture(true);
+    const original = entries.find(image => image.name === name.replace(/_[ab]$/, ""));
+    entries.push({ ...original, name, has_ab: false }); files.set(name, files.get(original.name));
+    let mutations = 0;
+    const device = { getStorageInfo: () => storage, canFlashStream: () => true,
+      repairGpt() { mutations++; }, eraseLun() { mutations++; } };
+    await assert.rejects(flashManifest(device, entries, new URL("file:///tmp/a"), { slot, openImage: image => stream(files.get(image.name)) }), /unselected slot/);
+    assert.equal(mutations, 0);
+  }
+});
+
+test("unsupported programmer or bad GPT fails before any device mutation", async () => {
+  const { entries, files } = fixture();
+  const device = { getStorageInfo() { return storage; }, canFlashStream() { return false; } };
+  await assert.rejects(flashManifest(device, entries, new URL("file:///tmp/a")), /Programmer lacks/);
+  device.canFlashStream = () => true;
+  files.get("gpt_main_0")[4096] = 0;
+  await assert.rejects(flashManifest(device, entries, new URL("file:///tmp/a"), { openImage: async image => stream(files.get(image.name)) }), /GPT header/);
+});
+
+function parsedGpt(input) {
+  const bytes = new Uint8Array(input);
+  const gpt = new GPT(4096);
+  gpt.parseHeader(bytes.subarray(4096, 8192), 1n);
+  gpt.parsePartEntries(bytes.subarray(8192));
+  return gpt;
+}
+
+test("DDR preservation accepts expanded calibration and rejects changed or overlapping geometry", () => {
+  const { files } = fixture();
+  const bytes = files.get("gpt_main_3");
+  const desired = readDdrPartition(bytes);
+  assert.equal(desired.type, "20a0c19c-286a-42fa-9ce7-f64c3226a794");
+  assert.equal(canPreserveDdr(desired, desired), true);
+  const expanded = { ...desired, sectors: desired.lastUsableLba - 63n, end: desired.lastUsableLba };
+  assert.equal(canPreserveDdr(expanded, desired), true);
+  for (const change of [{ lun: 0 }, { start: 65n }, { sectors: 255n }, { type: "wrong" }, { name: "DDR" }, { sectorSize: 512 }, { lastUsableLba: 318n }]) {
+    assert.equal(canPreserveDdr({ ...desired, ...change }, desired), false);
+  }
+  assert.equal(canPreserveDdr(desired, expanded), false);
+  assert.equal(canPreserveDdr(null, desired), false);
+  const gpt = parsedGpt(bytes);
+  gpt.getPartitions = () => [desired, { ...desired, name: "other" }];
+  assert.throws(() => ddrPartitionFromGpt(gpt), CalibrationLayoutError);
+  const bad = bytes.slice(); bad[4096 + 16] ^= 1;
+  assert.throws(() => readDdrPartition(bad), CalibrationLayoutError);
+  assert.throws(() => readDdrPartition(bytes.subarray(0, -1)), CalibrationLayoutError);
+});
+
+test("corrupt old GPT recovers persist after repair, while transport errors and changed repaired geometry stop erase", async () => {
+  for (const scenario of ["corrupt", "usb", "persist", "ddr"]) {
+    const { entries, files } = fixture();
+    let repairs = 0, erases = 0, reads = 0;
+    const device = {
+      getStorageInfo() { return storage; }, canFlashStream() { return true; },
+      getGpt() {
+        reads++;
+        if (scenario === "usb") throw new Error("USB read failed");
+        if (scenario === "corrupt" && !repairs) throw Object.assign(new Error("Bad GPT"), { code: "GPT_CORRUPT" });
+        const gpt = parsedGpt(files.get("gpt_main_3"));
+        if (scenario === "ddr" && reads === 2) gpt.getPartitions = () => [];
+        return gpt;
+      },
+      repairGpt() { repairs++; return true; },
+      detectPartition() { assert.equal(repairs, 6); return [true, 0, { start: scenario === "persist" ? 9n : 8n, sectors: 8192n }]; },
+      eraseLun(lun, preserve) { if (lun === 3) assert.equal(preserve.includes("ddr"), false); erases++; return true; },
+      async flashStream(name, info, payload) { await collect(payload); return true; },
+      setActiveSlot() { return true; }, reset() { return true; },
+    };
+    const run = flashManifest(device, entries, new URL("file:///tmp/a"), { openImage: async image => stream(files.get(image.name)) });
+    if (scenario === "corrupt") { await run; assert.equal(erases, 6); }
+    else { await assert.rejects(run, /USB read failed|persist location|DDR location/); assert.equal(erases, 0); }
+    assert.equal(repairs, scenario === "usb" ? 0 : 6);
+  }
+});
+
+
+test("a failed early frame cancels a stalled later HTTP read during prefill", async t => {
+  const chunk = Buffer.alloc(VERIFIED_CHUNK_SIZE, 7);
+  const frame = zstdCompressSync(chunk);
+  const server = createServer((request, response) => {
+    response.writeHead(200, { "content-length": frame.length * 2 });
+    response.write(frame); // The second frame never arrives.
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); });
+  const image = { ...metadata(Buffer.concat([chunk, chunk])), archiveUrl: new URL(`http://127.0.0.1:${server.address().port}/image`),
+    archiveSize: frame.length * 2, frameSizes: [frame.length, frame.length] };
+  image.chunkHashes[0] = "0".repeat(64);
+  const reader = (await openVerifiedImage(image)).getReader();
+  let timer;
+  try {
+    await assert.rejects(Promise.race([reader.read(), new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error("Timed out waiting for hash failure")), 2000); })]), /SHA-256 mismatch.*chunk 0/);
+  } finally { clearTimeout(timer); await reader.cancel().catch(() => undefined); }
+});
+
+function addLz4Companion(entries) {
+  const bytes = Buffer.alloc(4096, 7);
+  const info = metadata(bytes);
+  const companion = { zstd_url: "lz4.zst", archive_size: 123, file_size: bytes.length,
+    hash: info.hash, chunk_size: info.chunkSize, chunk_hashes: info.chunkHashes,
+    zstd_chunked_url: "lz4-frames.zst", zstd_chunked_size: 129, zstd_frame_sizes: [129],
+    stream: { sector_size: 4096, num_partition_sectors: 1, data_sectors: 1, extents: [[0, 1]], compressed_bytes: 4096, first_frame_bytes: 4096 } };
+  const system = entries.find(image => image.name === "system");
+  system.hash_raw = hash(Buffer.alloc(4096, 5));
+  companion.hash_raw = system.hash_raw;
+  system.flash = { lz4: companion };
+  return { bytes, companion };
+}
+
+test("LZ4 companion selection preserves raw fallback and validates source and target layout before writes", () => {
+  const { entries } = fixture();
+  const { companion } = addLz4Companion(entries);
+  const url = new URL("file:///tmp/manifest.json");
+  assert.equal(prepareManifest(entries, url, storage).images[0].transport, "sparse");
+  const selected = prepareManifest(entries, url, storage, "b", () => true).images[0];
+  assert.equal(selected.transport, "lz4");
+  assert.equal(selected.names[0], "system_b");
+  assert.equal(selected.archiveUrl.href, "file:///tmp/lz4-frames.zst");
+  assert.equal(selected.fileSize, 4096);
+  assert.equal(selected.stream.compressedBytes, 4096);
+  for (const change of [value => { value.file_size = 8192; }, value => { value.stream.extents = [[1, 1]]; },
+    value => { value.stream.first_frame_bytes = 1; }, value => { value.chunk_hashes = []; },
+    value => { value.zstd_frame_sizes = [130]; }, value => { value.zstd_chunked_url = "data:,bad"; },
+    value => { value.hash_raw = "0".repeat(64); }]) {
+    const changed = structuredClone(companion); change(changed);
+    entries.find(image => image.name === "system").flash.lz4 = changed;
+    assert.throws(() => prepareManifest(entries, url, storage, "a", () => true));
+  }
+});
+
+test("full manifest sends verified LZ4 wire directly and stops on stream failure", async () => {
+  for (const fail of [false, true]) {
+    const { entries, files } = fixture();
+    const { bytes } = addLz4Companion(entries);
+    let lz4Writes = 0, finalized = false, systemOpens = 0;
+    const device = {
+      getStorageInfo() { return storage; }, canFlashStream() { return true; }, canFlashLz4Stream() { return true; },
+      getGpt() { return parsedGpt(files.get("gpt_main_3")); }, repairGpt() { return true; }, eraseLun() { return true; },
+      detectPartition() { return [true, 0, { start: 8n, sectors: 8192n }]; },
+      async flashLz4Stream(name, info, payload, progress, erase) {
+        lz4Writes++; assert.equal(name, "system_a"); assert.equal(erase, false); assert.equal(info.compressedBytes, bytes.length);
+        assert.deepEqual(await collect(payload), bytes); return true;
+      },
+      async flashStream(name, info, payload) { assert.notEqual(name, "system_a"); await collect(payload); return true; },
+      setActiveSlot() { finalized = true; return true; }, reset() { return true; },
+    };
+    const run = flashManifest(device, entries, new URL("file:///tmp/a"), { openImage: async image => {
+      if (image.transport !== "lz4") return stream(files.get(image.name));
+      systemOpens++;
+      if (fail) return new ReadableStream({ pull(controller) { controller.error(new Error("LZ4 source failed")); } });
+      return stream(bytes);
+    } });
+    if (fail) await assert.rejects(run, /LZ4 source failed/); else await run;
+    assert.equal(lz4Writes, fail ? 0 : 1); assert.equal(finalized, !fail); assert.equal(systemOpens, 1);
+  }
+});
+
+
+test("LZ4 may fill sparse holes but cannot omit raw coverage or exceed logical bounds", () => {
+  const { entries } = fixture();
+  const { companion } = addLz4Companion(entries);
+  const system = entries.find(image => image.name === "system");
+  system.size = 4096 * 4;
+  system.stream.num_partition_sectors = 4;
+  system.stream.extents = [[1, 1]];
+  companion.stream.num_partition_sectors = 4;
+  companion.stream.data_sectors = 4;
+  companion.stream.extents = [[0, 4]];
+  const prepare = () => prepareManifest(entries, new URL("file:///tmp/a"), storage, "a", () => true);
+  assert.equal(prepare().images[0].stream.dataSectors, 4);
+  companion.stream.extents = [[0, 1], [2, 2]];
+  companion.stream.data_sectors = 3;
+  assert.throws(prepare, /omits sparse data/);
+  for (const extents of [[[0, 3], [2, 1]], [[0, 5]], [[0, Number.MAX_SAFE_INTEGER]]]) {
+    companion.stream.extents = extents;
+    companion.stream.data_sectors = extents.reduce((sum, extent) => sum + extent[1], 0);
+    assert.throws(prepare);
+  }
+});
+
+
+test("verified prefetch is byte bounded and cancellation stops its producer", async () => {
+  let produced = 0, cancelled = false;
+  const source = new ReadableStream({ pull(controller) { produced++; controller.enqueue(new Uint8Array(VERIFIED_CHUNK_SIZE)); },
+    cancel() { cancelled = true; } }, { highWaterMark: 0 });
+  const buffered = bufferVerifiedSource(source, VERIFIED_CHUNK_SIZE * 2);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  // Two queued chunks plus at most one pending transform and one pipe read.
+  assert.ok(produced >= 2 && produced <= 4, `unexpected prefetch count ${produced}`);
+  await buffered.cancel();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(cancelled, true);
+  assert.equal(source.locked, false);
+});
+
+test("prefetch errors are observed before consumption and abort the full flow", async () => {
+  const expected = new Error("prefetch hash failed");
+  const abort = new AbortController();
+  let observed;
+  const source = new ReadableStream({ pull(controller) { controller.error(expected); } }, { highWaterMark: 0 });
+  const buffered = bufferVerifiedSource(source, VERIFIED_CHUNK_SIZE, abort.signal, error => { observed = error; abort.abort(error); });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(observed, expected);
+  assert.equal(abort.signal.reason, expected);
+  await assert.rejects(buffered.getReader().read(), /prefetch hash failed/);
+  assert.throws(() => bufferVerifiedSource(stream(new Uint8Array(1)), 1), /prefetch size/);
+});
+
+
+test("full-flow failure is not hidden by an uncooperative pending source or cancellation", { timeout: 6000 }, async () => {
+  for (const failure of ["open", "cancel"]) {
+    const { entries, files } = fixture();
+    const device = {
+      getStorageInfo() { return storage; }, canFlashStream() { return true; },
+      getGpt() { return parsedGpt(files.get("gpt_main_3")); }, repairGpt() { return true; }, eraseLun() { return true; },
+      detectPartition() { return [true, 0, { start: 8n, sectors: 8192n }]; },
+      flashStream() { throw new Error("original USB failure"); },
+      setActiveSlot() { assert.fail("must not activate"); }, reset() { assert.fail("must not reset"); },
+    };
+    const started = performance.now();
+    await assert.rejects(flashManifest(device, entries, new URL("file:///tmp/a"), { openImage: async image => {
+      if (image.name === "boot") {
+        if (failure === "open") return new Promise(() => { /* A source that ignores abort. */ });
+        return new ReadableStream({ cancel() { return new Promise(() => { /* A source that ignores cancellation. */ }); } });
+      }
+      return stream(files.get(image.name));
+    } }), /original USB failure/);
+    assert.ok(performance.now() - started < 2500);
+  }
+});

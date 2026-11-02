@@ -1,5 +1,5 @@
-import * as constants from "./constants";
-import { concatUint8Array } from "./utils";
+import * as constants from "./constants.js";
+import { concatUint8Array, runWithTimeout } from "./utils.js";
 
 
 export class usbClass {
@@ -86,6 +86,17 @@ export class usbClass {
     await this.#connectDevice(device);
   }
 
+  async close() {
+    const device = this.device;
+    this.device = null;
+    this.epIn = null;
+    this.epOut = null;
+    if (device?.opened) {
+      try { await runWithTimeout(device.close(), 2000); }
+      catch (error) { throw new Error("USB close failed; power-cycle the device before retrying", { cause: error }); }
+    }
+  }
+
   /**
    * @param {number} [length=0]
    * @returns {Promise<Uint8Array>}
@@ -97,7 +108,10 @@ export class usbClass {
       const chunks = [];
       let received = 0;
       do {
-        const chunk = await this.read();
+        const size = Math.min(constants.BULK_TRANSFER_SIZE, Math.ceil((length - received) / this.maxSize) * this.maxSize);
+        const result = await this.device.transferIn(this.epIn.endpointNumber, size);
+        if (result.status !== "ok") throw new Error(`USB read failed: ${result.status}`);
+        const chunk = result.data ? new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength) : new Uint8Array();
         if (chunk.byteLength) {
           chunks.push(chunk);
           received += chunk.byteLength;
@@ -106,7 +120,8 @@ export class usbClass {
       return concatUint8Array(chunks);
     }
     const result = await this.device.transferIn(this.epIn.endpointNumber, this.maxSize);
-    return new Uint8Array(result.data?.buffer);
+    if (result.status !== "ok") throw new Error(`USB read failed: ${result.status}`);
+    return result.data ? new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength) : new Uint8Array();
   }
 
   /**
@@ -120,10 +135,19 @@ export class usbClass {
     do {
       const chunk = data.subarray(offset, offset + constants.BULK_TRANSFER_SIZE);
       offset += chunk.byteLength;
-      const promise = this.device.transferOut(this.epOut.endpointNumber, chunk);
+      const payload = chunk.byteOffset === 0 && chunk.byteLength === chunk.buffer.byteLength ? chunk.buffer : chunk;
+      const promise = this.device.transferOut(this.epOut.endpointNumber, payload);
       // this is a hack, webusb doesn't have timed out catching
       // this only happens in sahara.configure(). The loader receive the packet but doesn't respond back (same as edl repo).
-      if (wait) await promise;
+      if (wait) {
+        const result = await promise;
+        if (result.status !== "ok" || result.bytesWritten !== chunk.byteLength) {
+          throw new Error(`USB write failed: ${result.status}, ${result.bytesWritten}/${chunk.byteLength} bytes`);
+        }
+      } else {
+        // Configure checks the device's XML ACK; still observe a late transport rejection.
+        void promise.catch(() => undefined);
+      }
     } while (offset < data.byteLength);
   }
 }

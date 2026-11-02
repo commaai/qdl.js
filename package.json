@@ -21,16 +21,33 @@
     "./utils": {
       "types": "./dist/utils.d.ts",
       "import": "./dist/utils.js"
+    },
+    "./sparse-stream": {
+      "types": "./dist/sparse-stream.d.ts",
+      "import": "./dist/sparse-stream.js"
+    },
+    "./manifest-batch": {
+      "types": "./dist/manifest-batch.d.ts",
+      "import": "./dist/manifest-batch.js"
+    },
+    "./calibration": {
+      "types": "./dist/calibration.d.ts",
+      "import": "./dist/calibration.js"
+    },
+    "./lz4-stream": {
+      "types": "./dist/lz4-stream.d.ts",
+      "import": "./dist/lz4-stream.js"
     }
   },
   "scripts": {
     "build": "tsc",
-    "postinstall": "bun run build",
+    "postinstall": "tsc",
     "lint": "biome lint"
   },
   "bin": {
     "simg2img.js": "src/bin/simg2img.js",
-    "qdl.js": "src/bin/qdl.js"
+    "qdl.js": "src/bin/qdl.js",
+    "qdl-flash-manifest": "src/bin/flash-manifest.js"
   },
   "//devDependencies": {
     "@biomejs/biome": "code linter and formatter",
