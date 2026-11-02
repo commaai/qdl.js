@@ -148,6 +148,19 @@ test("wrong slot, shared modem, partition overlap and out-of-bounds data fail be
   }
 });
 
+test("physical slot aliases cannot bypass selection, while unpaired suffixes remain valid", () => {
+  for (const [slot, name] of [["a", "boot_b"], ["b", "boot_a"], ["a", "modem_b"], ["b", "modem_b"]]) {
+    const f = fixture(slot);
+    f.images.push(image(name, name, 4));
+    assert.throws(() => createFirmwareBatch(f.device, f.images, f.destinations, slot), /Invalid firmware destination/);
+    assert.equal(f.events.length, 0);
+  }
+  const f = fixture();
+  const unpaired = image("oem_b", "oem_b", 5);
+  f.images.push(unpaired); f.destinations.set("oem_b", { lun: 4, start: 150n, sectors: 8n, end: 157n });
+  assert.equal(createFirmwareBatch(f.device, f.images, f.destinations).images.includes(unpaired), true);
+});
+
 test("live GPT changes and sector mismatches fail before opening any source", async () => {
   for (const mutate of [
     f => { f.destinations.get("boot_a").start++; },

@@ -130,7 +130,7 @@ export function prepareManifest(entries, baseUrl, storage, slot = "a", supportsL
   }
   const destinations = images.filter(image => !image.gpt).flatMap(image => image.names);
   if (new Set(destinations).size !== destinations.length) throw new Error("Duplicate flash destinations");
-  return { images: images.filter(image => !image.gpt), gpts: gpts.sort((a, b) => a.gpt.lun - b.gpt.lun), userdata };
+  return { images: images.filter(image => !image.gpt), gpts: gpts.sort((a, b) => a.gpt.lun - b.gpt.lun), userdata, slot };
 }
 
 /** Validate the supplied GPTs and all destinations before changing the device. */
@@ -167,6 +167,9 @@ export function validateManifestDestinations(plan, gptBytes, storage) {
   for (const image of plan.images) {
     for (const name of image.names) {
       const partition = destinations.get(name);
+      const base = name.replace(/_[ab]$/, "");
+      if (base !== name && destinations.has(`${base}_a`) && destinations.has(`${base}_b`)
+        && name !== `${base}_${base === "modem" ? "a" : plan.slot}`) throw new Error(`Image targets an unselected slot: ${name}`);
       if (!partition || BigInt(image.stream.numPartitionSectors) > partition.sectors) throw new Error(`Image exceeds or has no destination: ${name}`);
       if (name === "persist") throw new Error("Cannot flash persist");
     }

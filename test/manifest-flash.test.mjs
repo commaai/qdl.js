@@ -352,6 +352,19 @@ test("CRC-valid GPT usable bounds cannot cover backup GPT sectors before mutatio
   }
 });
 
+test("explicit physical slot aliases fail preflight before repair or erase", async () => {
+  for (const [slot, name] of [["a", "boot_b"], ["b", "boot_a"], ["b", "modem_b"]]) {
+    const { entries, files } = fixture(true);
+    const original = entries.find(image => image.name === name.replace(/_[ab]$/, ""));
+    entries.push({ ...original, name, has_ab: false }); files.set(name, files.get(original.name));
+    let mutations = 0;
+    const device = { getStorageInfo: () => storage, canFlashStream: () => true,
+      repairGpt() { mutations++; }, eraseLun() { mutations++; } };
+    await assert.rejects(flashManifest(device, entries, new URL("file:///tmp/a"), { slot, openImage: image => stream(files.get(image.name)) }), /unselected slot/);
+    assert.equal(mutations, 0);
+  }
+});
+
 test("unsupported programmer or bad GPT fails before any device mutation", async () => {
   const { entries, files } = fixture();
   const device = { getStorageInfo() { return storage; }, canFlashStream() { return false; } };

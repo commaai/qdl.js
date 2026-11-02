@@ -45,6 +45,9 @@ export function createFirmwareBatch(device, images, destinations, slot = "a") {
   if (selected.length < 2) return null;
   const members = selected.map(image => {
     const name = image.names[0];
+    const base = name.replace(/_[ab]$/, "");
+    if (base !== name && destinations.has(`${base}_a`) && destinations.has(`${base}_b`)
+      && name !== `${base}_${base === "modem" ? "a" : slot}`) throw new Error(`Invalid firmware destination: ${name}`);
     const hasSlots = destinations.has(`${image.name}_a`) || destinations.has(`${image.name}_b`);
     const expected = hasSlots ? `${image.name}_${image.name === "modem" ? "a" : slot}` : image.name;
     if (name !== expected || ["persist", "ddr", "system", "userdata"].includes(image.name)) throw new Error(`Invalid firmware destination: ${name}`);
