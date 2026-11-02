@@ -1,6 +1,8 @@
 import * as constants from "./constants";
 import { concatUint8Array } from "./utils";
 
+const MAX_READ_SIZE = 16 * 1024 * 1024;
+
 
 export class usbClass {
   constructor() {
@@ -97,7 +99,9 @@ export class usbClass {
       const chunks = [];
       let received = 0;
       do {
-        const chunk = await this.read();
+        // ask for exactly what's left, more could swallow the response that follows
+        const result = await this.device.transferIn(this.epIn.endpointNumber, Math.min(length - received, MAX_READ_SIZE));
+        const chunk = result.data ? new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength) : new Uint8Array(0);
         if (chunk.byteLength) {
           chunks.push(chunk);
           received += chunk.byteLength;
@@ -107,6 +111,34 @@ export class usbClass {
     }
     const result = await this.device.transferIn(this.epIn.endpointNumber, this.maxSize);
     return new Uint8Array(result.data?.buffer);
+  }
+
+  /**
+   * Send each chunk as its own bulk transfer, keeping up to `depth` queued.
+   * @param {AsyncIterable<Uint8Array>} chunks
+   * @param {number} depth
+   * @param {(bytes: number) => void} [onWritten]
+   * @returns {Promise<void>}
+   */
+  async writePipelined(chunks, depth, onWritten) {
+    if (!this.device || !this.epOut) throw "USB - Not connected";
+    /** @type {Promise<void>[]} */
+    const inflight = [];
+    let error = null;
+    try {
+      for await (const chunk of chunks) {
+        const promise = this.device.transferOut(this.epOut.endpointNumber, chunk).then(
+          () => onWritten?.(chunk.byteLength),
+          (e) => { error ??= e; },
+        );
+        inflight.push(promise);
+        if (inflight.length >= depth) await inflight.shift();
+        if (error) break;
+      }
+    } finally {
+      await Promise.all(inflight);
+    }
+    if (error) throw error;
   }
 
   /**

@@ -1,8 +1,15 @@
 import { concatUint8Array, containsBytes, compareStringToBytes, runWithTimeout } from "./utils"
 import { createLogger } from "./logger"
 import { toXml, xmlParser } from "./xml"
+/** @typedef {import("./sparse").Run} Run */
 
 const logger = createLogger("firehose")
+
+// big transfers, several queued to cover the USB turnaround
+const PROGRAM_CHUNK_SIZE = 4 * 1024 * 1024;
+const PROGRAM_DEPTH = 3;
+const READ_AHEAD = 4;
+const ERASE_RETRIES = 30;
 
 
 /**
@@ -32,7 +39,8 @@ class response {
 
 class cfg {
   constructor() {
-    this.ZLPAwareHost = 1;
+    // no ZLP after each transfer, so they don't have to match the programmer's buffer
+    this.ZlpAwareHost = 0;
     this.SkipStorageInit = 0;
     this.SkipWrite = 0;
     this.MaxPayloadSizeToTargetInBytes = 1048576;
@@ -45,6 +53,57 @@ class cfg {
     this.FastErase = true;
   }
 }
+
+/**
+ * Data for a program command. Reads start on construction, so a command's data can be
+ * read while the previous command is still writing.
+ */
+export class ProgramData {
+  /**
+   * @param {Blob | Run} blob
+   * @param {number} chunkSize
+   * @param {number} sectorSize
+   */
+  constructor(blob, chunkSize, sectorSize) {
+    this.blob = blob;
+    this.size = blob.size;
+    this.chunkSize = chunkSize;
+    this.sectorSize = sectorSize;
+    /** @type {Promise<Uint8Array>[]} */
+    this.reads = [];
+    this.next = 0;
+    this.#queue();
+  }
+
+  /** @param {number} offset */
+  async #read(offset) {
+    const len = Math.min(this.size - offset, this.chunkSize);
+    const data = new Uint8Array(await this.blob.slice(offset, offset + len).arrayBuffer());
+    if (len % this.sectorSize === 0) return data;
+    const padded = new Uint8Array(Math.ceil(len / this.sectorSize) * this.sectorSize);
+    padded.set(data);
+    return padded;
+  }
+
+  // several reads in flight keep the disk busy enough to stay ahead of the device
+  #queue() {
+    while (this.reads.length < READ_AHEAD && this.next < this.size) {
+      const promise = this.#read(this.next);
+      promise.catch(() => undefined); // rethrown when awaited, unless the command failed first
+      this.reads.push(promise);
+      this.next += this.chunkSize;
+    }
+  }
+
+  async* chunks() {
+    while (this.reads.length) {
+      const data = await /** @type {Promise<Uint8Array>} */ (this.reads.shift());
+      this.#queue();
+      yield data;
+    }
+  }
+}
+
 
 export class Firehose {
   /**
@@ -61,9 +120,10 @@ export class Firehose {
   /**
    * @param {string} command
    * @param {boolean} [wait=true]
+   * @param {number} [retries] - seconds without data before giving up on the response
    * @returns {Promise<response>}
    */
-  async xmlSend(command, wait = true) {
+  async xmlSend(command, wait = true, retries = 3) {
     // FIXME: warn if command is shortened
     const dataToSend = new TextEncoder().encode(command).slice(0, this.cfg.MaxXMLSizeInBytes);
     try {
@@ -72,7 +132,7 @@ export class Firehose {
       throw "Firehose - Timed out while sending command";
     }
 
-    const rData = await this.waitForData();
+    const rData = await this.waitForData(retries);
     const resp = this.xml.getResponse(rData);
     const log = this.xml.getLog(rData);
     this.#printLogMessages(log);
@@ -111,7 +171,7 @@ export class Firehose {
       AlwaysValidate: 0,
       MaxDigestTableSizeInBytes: 2048,
       MaxPayloadSizeToTargetInBytes: this.cfg.MaxPayloadSizeToTargetInBytes,
-      ZLPAwareHost: this.cfg.ZLPAwareHost,
+      ZlpAwareHost: this.cfg.ZlpAwareHost,
       SkipStorageInit: this.cfg.SkipStorageInit,
       SkipWrite: this.cfg.SkipWrite,
     });
@@ -203,9 +263,20 @@ export class Firehose {
   }
 
   /**
+   * Start reading data for cmdProgram ahead of time.
+   * @param {Blob | Run} blob
+   * @returns {ProgramData}
+   */
+  prepareProgram(blob) {
+    // with ZLPs every transfer must fill the programmer's buffer exactly
+    const chunkSize = this.cfg.ZlpAwareHost ? this.cfg.MaxPayloadSizeToTargetInBytes : PROGRAM_CHUNK_SIZE;
+    return new ProgramData(blob, chunkSize, this.cfg.SECTOR_SIZE_IN_BYTES);
+  }
+
+  /**
    * @param {number} physicalPartitionNumber
    * @param {bigint} startSector
-   * @param {Blob} blob
+   * @param {Blob | Run | ProgramData} blob
    * @param {progressCallback|undefined} [onProgress] - Returns number of bytes written
    * @returns {Promise<boolean>}
    */
@@ -225,29 +296,19 @@ export class Firehose {
       return false;
     }
 
-    let i = 0;
-    let offset = 0;
-    let bytesToWrite = total;
-
-    while (bytesToWrite > 0) {
-      const wlen = Math.min(bytesToWrite, this.cfg.MaxPayloadSizeToTargetInBytes);
-      let wdata = new Uint8Array(await blob.slice(offset, offset + wlen).arrayBuffer());
-      if (wlen % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {
-        const fillLen = (Math.floor(wlen / this.cfg.SECTOR_SIZE_IN_BYTES) + 1) * this.cfg.SECTOR_SIZE_IN_BYTES;
-        const fillArray = new Uint8Array(fillLen - wlen).fill(0x00);
-        wdata = concatUint8Array([wdata, fillArray]);
+    const zlp = this.cfg.ZlpAwareHost;
+    const data = blob instanceof ProgramData ? blob : this.prepareProgram(blob);
+    async function* chunks() {
+      for await (const chunk of data.chunks()) {
+        yield chunk;
+        if (zlp) yield new Uint8Array(0);
       }
-      await this.cdc.write(wdata);
-      await this.cdc.write(new Uint8Array(0));
-      offset += wlen;
-      bytesToWrite -= wlen;
-
-      if (i % 10 === 0) {
-        onProgress?.(offset);
-      }
-      i += 1;
     }
-    onProgress?.(total);
+    let written = 0;
+    await this.cdc.writePipelined(chunks(), zlp ? 1 : PROGRAM_DEPTH, (n) => {
+      written = Math.min(total, written + n);
+      onProgress?.(written);
+    });
 
     const wd = await this.waitForData();
     const response = this.xml.getResponse(wd);
@@ -278,7 +339,8 @@ export class Firehose {
       start_sector: startSector,
     };
     if (this.cfg.FastErase) {
-      const rsp = await this.xmlSend(toXml("erase", attributes));
+      // unmapping a lot of written data can take the device several seconds
+      const rsp = await this.xmlSend(toXml("erase", attributes), true, ERASE_RETRIES);
       const resp = this.xml.getResponse(rsp.data);
       if (!("value" in resp)) throw "Failed to erase: no return value";
       if (resp.value !== "ACK") throw "Failed to erase: NAK";
@@ -293,7 +355,7 @@ export class Firehose {
         const wlen = Math.min(bytesToWrite, this.cfg.MaxPayloadSizeToTargetInBytes);
         await this.cdc.write(empty.slice(0, wlen));
         bytesToWrite -= wlen;
-        await this.cdc.write(new Uint8Array(0));
+        if (this.cfg.ZlpAwareHost) await this.cdc.write(new Uint8Array(0));
       }
 
       const res = await this.waitForData();
