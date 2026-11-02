@@ -248,6 +248,35 @@ export class qdlDevice {
   }
 
   /**
+   * Finish one GPT copy before callers update its peer. A combined UFS write
+   * is not atomic; the other copy remains available if this write is interrupted.
+   * @param {number} lun
+   * @param {GPT} gpt
+   * @param {Uint8Array} entries
+   * @returns {Promise<boolean>}
+   */
+  async #writeGpt(lun, gpt, entries) {
+    const header = gpt.buildHeader(entries);
+    const sectors = Math.ceil(entries.length / gpt.sectorSize);
+    let start;
+    let data;
+    if (gpt.partEntriesStartLba === gpt.currentLba + 1n) {
+      start = gpt.currentLba;
+      data = new Uint8Array((1 + sectors) * gpt.sectorSize);
+      data.set(header);
+      data.set(entries, gpt.sectorSize);
+    } else if (gpt.partEntriesStartLba + BigInt(sectors) === gpt.currentLba) {
+      start = gpt.partEntriesStartLba;
+      data = new Uint8Array((sectors + 1) * gpt.sectorSize);
+      data.set(entries);
+      data.set(header, sectors * gpt.sectorSize);
+    }
+    if (data) return this.firehose.cmdProgram(lun, start, new Blob([data]));
+    if (!await this.firehose.cmdProgram(lun, gpt.partEntriesStartLba, new Blob([entries]))) return false;
+    return this.firehose.cmdProgram(lun, gpt.currentLba, new Blob([header]));
+  }
+
+  /**
    * @param {number} lun
    * @param {Blob} primaryGptBlob
    * @returns {Promise<boolean>}
@@ -267,17 +296,7 @@ export class qdlDevice {
     const primaryGpt = await this.getGpt(lun, 1n);
     const backupGpt = primaryGpt.asAlternate();
     const backupPartEntries = backupGpt.buildPartEntries();
-    const backupHeader = backupGpt.buildHeader(backupPartEntries);
-
-    logger.debug(`Writing backup partition table to LBA ${backupGpt.partEntriesStartLba}`);
-    if (!await this.firehose.cmdProgram(lun, backupGpt.partEntriesStartLba, new Blob([backupPartEntries]))) {
-      throw new Error("Failed to write backup partition table");
-    }
-
-    logger.debug(`Writing backup GPT header to LBA ${backupGpt.currentLba}`);
-    if (!await this.firehose.cmdProgram(lun, backupGpt.currentLba, new Blob([backupHeader]))) {
-      throw new Error("Failed to write backup GPT header");
-    }
+    if (!await this.#writeGpt(lun, backupGpt, backupPartEntries)) throw new Error("Failed to write backup GPT data");
 
     logger.info(`Successfully repaired GPT on LUN ${lun}`);
     return true;
@@ -586,14 +605,12 @@ export class qdlDevice {
       gpt.setActiveSlot(slot);
       const entries = gpt.buildPartEntries();
       if (previous.length === entries.length && previous.every((byte, index) => byte === entries[index])) return;
-      if (!await this.firehose.cmdProgram(lun, gpt.partEntriesStartLba, new Blob([entries]))) throw new Error("Failed to update slot partition entries");
-      const header = gpt.buildHeader(entries);
-      if (!await this.firehose.cmdProgram(lun, gpt.currentLba, new Blob([header]))) throw new Error("Failed to update slot GPT header");
+      if (!await this.#writeGpt(lun, gpt, entries)) throw new Error("Failed to update slot GPT data");
     };
     for (const lun of this.firehose.luns) {
       const primaryGpt = await this.getGpt(lun, 1n);
-      await updateGpt(lun, primaryGpt);
       const backupGpt = await this.getGpt(lun, primaryGpt.alternateLba);
+      await updateGpt(lun, primaryGpt);
       await updateGpt(lun, backupGpt);
     }
 

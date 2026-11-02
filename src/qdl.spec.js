@@ -609,7 +609,7 @@ describe("slot activation writes", () => {
         events.push(["read", lun, sector]);
         let current = initial(lun, sector);
         return Promise.resolve({
-          alternateLba: 100n, currentLba: sector, partEntriesStartLba: sector + 1n,
+          sectorSize: 4096, alternateLba: 100n, currentLba: sector, partEntriesStartLba: sector === 1n ? 2n : 99n,
           setActiveSlot: slot => { current = slot; },
           buildPartEntries: () => Uint8Array.of(current === "a" ? 1 : 2),
           buildHeader: () => new Uint8Array(4),
@@ -628,7 +628,7 @@ describe("slot activation writes", () => {
   test("writes only changed tables and activates the boot LUN after all updates", async () => {
     const { device, events } = activationDevice((lun, sector) => lun === 0 && sector === 100n ? "b" : "a");
     expect(await device.setActiveSlot("a")).toBe(true);
-    expect(events.filter(event => event[0] === "write")).toEqual([["write", 101n], ["write", 100n]]);
+    expect(events.filter(event => event[0] === "write")).toEqual([["write", 99n]]);
     expect(events.at(-1)).toEqual(["boot", 1]);
   });
 
@@ -636,7 +636,7 @@ describe("slot activation writes", () => {
     const { device, events } = activationDevice(() => "b");
     Object.defineProperty(device, "firehose", { value: { luns: [0], cmdProgram: () => Promise.resolve(false),
       cmdSetBootLunId: () => { events.push(["boot"]); return Promise.resolve(true); } } });
-    await expect(device.setActiveSlot("a")).rejects.toThrow("Failed to update slot partition entries");
+    await expect(device.setActiveSlot("a")).rejects.toThrow("Failed to update slot GPT data");
     expect(events.some(event => event[0] === "boot")).toBe(false);
   });
 
@@ -646,5 +646,79 @@ describe("slot activation writes", () => {
     expect(events.at(-1)).toEqual(["boot", 2]);
     Object.defineProperty(device, "firehose", { value: { luns: [], cmdSetBootLunId: () => Promise.resolve(false) } });
     await expect(device.setActiveSlot("b")).rejects.toThrow("Failed to set active boot LUN");
+  });
+});
+
+describe("adjacent GPT writes", () => {
+  function writingDevice(layout) {
+    const device = new TestDevice(new ArrayBuffer(1));
+    device.storage = disk(100n, layout);
+    const transport = device.firehose;
+    const writes = [];
+    let activated = false;
+    Object.defineProperty(device, "firehose", { value: { ...transport,
+      cmdProgram: async (lun, sector, blob) => { writes.push({ lun, sector, data: new Uint8Array(await blob.arrayBuffer()) }); return true; },
+      cmdFixGpt: () => Promise.resolve(),
+      cmdSetBootLunId: () => { activated = true; return Promise.resolve(true); },
+    } });
+    return { device, writes, activated: () => activated };
+  }
+
+  test("writes complete adjacent copies with correct header, entries and sector padding", async () => {
+    const { device, writes, activated } = writingDevice({ count: 33 });
+    const expected = [];
+    for (const lba of [1n, 10000n]) {
+      const gpt = await device.getGpt(0, lba);
+      gpt.setActiveSlot("a");
+      const entries = gpt.buildPartEntries();
+      expected.push({ entries, header: gpt.buildHeader(entries) });
+    }
+    expect(await device.setActiveSlot("a")).toBe(true);
+    expect(writes.map(({ sector, data }) => [sector, data.length])).toEqual([[1n, 12288], [9998n, 12288]]);
+    for (const [index, { data }] of writes.entries()) {
+      const headerOffset = index === 0 ? 0 : 8192;
+      const entriesOffset = index === 0 ? 4096 : 0;
+      expect(data.subarray(headerOffset, headerOffset + 92)).toEqual(expected[index].header);
+      expect(data.subarray(headerOffset + 92, headerOffset + 4096).every(byte => byte === 0)).toBe(true);
+      expect(data.subarray(entriesOffset, entriesOffset + 4224)).toEqual(expected[index].entries);
+      expect(data.subarray(entriesOffset + 4224, entriesOffset + 8192).every(byte => byte === 0)).toBe(true);
+    }
+    expect(activated()).toBe(true);
+  });
+
+  test("nonadjacent arrays retain separate entries-before-header writes", async () => {
+    const { device, writes } = writingDevice({ count: 33, primaryEntriesStart: 10n, backupEntriesStart: 9980n });
+    expect(await device.setActiveSlot("a")).toBe(true);
+    expect(writes.map(({ sector, data }) => [sector, data.length])).toEqual([[10n, 4224], [1n, 92], [9980n, 4224], [10000n, 92]]);
+  });
+
+  test("repair writes a single backup only after the repaired primary validates", async () => {
+    const { device, writes } = writingDevice({ count: 33 });
+    const primary = await device.getGpt(0, 1n);
+    const backup = primary.asAlternate();
+    const entries = backup.buildPartEntries();
+    const header = backup.buildHeader(entries);
+    expect(await device.repairGpt(0, new Blob([Uint8Array.of(7)]))).toBe(true);
+    expect(writes.map(({ sector, data }) => [sector, data.length])).toEqual([[0, 1], [9998n, 12288]]);
+    expect(writes[1].data.subarray(0, entries.length)).toEqual(entries);
+    expect(writes[1].data.subarray(8192, 8192 + header.length)).toEqual(header);
+  });
+
+  test("failed first-copy writes leave the peer untouched and do not activate", async () => {
+    const { device, activated } = writingDevice({});
+    let attempted = 0;
+    device.firehose.cmdProgram = () => { attempted++; return Promise.resolve(false); };
+    await expect(device.setActiveSlot("a")).rejects.toThrow("Failed to update slot GPT data");
+    expect(attempted).toBe(1);
+    expect(device.readRequests.some(([sector]) => sector === 9996n)).toBe(true);
+    expect(activated()).toBe(false);
+  });
+
+  test("validates the untouched backup before changing the primary", async () => {
+    const { device, writes, activated } = writingDevice({});
+    device.storage.backup[16] ^= 1;
+    await expect(device.setActiveSlot("a")).rejects.toThrow();
+    expect(writes).toHaveLength(0);
+    expect(activated()).toBe(false);
   });
 });
