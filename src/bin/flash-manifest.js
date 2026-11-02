@@ -7,7 +7,8 @@ import { localOrRemoteUrl, openVerifiedImage, readResource, requireNativeZstd } 
 import { qdlDevice } from "../qdl.js";
 import { usbClass } from "../usblib.js";
 
-const commandStarted = performance.now();
+// performance.now() starts with the Node process, before static imports run.
+const startupSeconds = performance.now() / 1000;
 const { values } = parseArgs({ options: {
   manifest: { type: "string" },
   programmer: { type: "string" },
@@ -33,6 +34,7 @@ const interrupted = () => {
 process.once("SIGINT", interrupted);
 process.once("SIGTERM", interrupted);
 try {
+  console.info(JSON.stringify({ phase: "startup", seconds: startupSeconds }));
   requireNativeZstd();
   if (values.slot !== "a" && values.slot !== "b") throw new Error("--slot must be a or b");
   const concurrency = Number(values["decode-concurrency"]);
@@ -75,6 +77,6 @@ try {
   process.removeListener("SIGINT", interrupted);
   process.removeListener("SIGTERM", interrupted);
 }
-console.info(JSON.stringify({ phase: "command", seconds: (performance.now() - commandStarted) / 1000, success: !process.exitCode }));
+console.info(JSON.stringify({ phase: "command", seconds: performance.now() / 1000, success: !process.exitCode }));
 await new Promise(resolve => process.stdout.write("", resolve));
 process.exit(process.exitCode ?? 0);
