@@ -39,15 +39,9 @@ bun run build
 
 For a full factory flash, use the [native Node.js manifest CLI](docs/flash-manifest.md).
 
-`device.flashBlob("system_a", image)` writes one partition. Pass explicit names to write the same image to multiple partitions:
+`device.flashBlob("system_a", image)` writes one partition. The full-manifest CLI selects slot A by default; pass `--slot b` to select slot B.
 
-```js
-await device.flashBlob(["system_a", "system_b"], image, written => console.log(written));
-```
-
-Programmers advertising native sparse copies receive the payload once for both destinations. Other programmers write each destination sequentially. Progress counts logical bytes across all destinations.
-
-For downloads verified in chunks, `device.canFlashStream(copies, extentCount)` checks native support. `device.flashStream(names, metadata, stream, onProgress, erase)` accepts a packed sparse payload and metadata containing `sectorSize`, `numPartitionSectors`, `dataSectors`, and `extents`. Verify each source chunk before enqueueing it; `selectSparseRanges` from `@commaai/qdl/sparse-stream` selects the packed payload from a verified sparse file stream. Source errors close USB and require a device power cycle before retrying.
+For downloads verified in chunks, `device.canFlashStream(extentCount)` checks native support. `device.flashStream(name, metadata, stream, onProgress, erase)` accepts a packed sparse payload and metadata containing `sectorSize`, `numPartitionSectors`, `dataSectors`, and `extents`. Verify each source chunk before enqueueing it; `selectSparseRanges` from `@commaai/qdl/sparse-stream` selects the packed payload from a verified sparse file stream. Source errors close USB and require a device power cycle before retrying.
 
 ## Logging
 

@@ -284,46 +284,6 @@ test("streaming reuses buffers only after their USB transfers finish", async () 
   expect(inFlight.size).toBe(0);
 });
 
-test("native sparse copies require an explicit capability and send the payload once", async () => {
-  const { hose, plan, writes, commands } = nativeTransport();
-  const secondary = { physicalPartitionNumber: 0, startSector: 200n, numPartitionSectors: 20n };
-  await expect(hose.cmdProgramSparse(0, 100n, plan, undefined, secondary)).rejects.toThrow("negotiated support");
-  expect(commands).toHaveLength(0);
-  hose.programSparseMaxCopies = 2;
-  expect(await hose.cmdProgramSparse(0, 100n, plan, undefined, secondary)).toBe(true);
-  expect(commands).toHaveLength(1);
-  expect(commands[0]).toContain('secondary_physical_partition_number="0"');
-  expect(commands[0]).toContain('secondary_start_sector="200"');
-  expect(commands[0]).toContain('secondary_num_partition_sectors="20"');
-  expect(writes.map(data => data.length)).toEqual([4096, 4096, 4096]);
-});
-
-test("native sparse copies reject invalid or overlapping destinations before USB", async () => {
-  for (const secondary of [
-    { physicalPartitionNumber: 0, startSector: 104n, numPartitionSectors: 20n },
-    { physicalPartitionNumber: 0, startSector: 96n, numPartitionSectors: 20n },
-    { physicalPartitionNumber: 0, startSector: 200n, numPartitionSectors: 4n },
-    { physicalPartitionNumber: 0, startSector: -1n, numPartitionSectors: 20n },
-    { physicalPartitionNumber: 6, startSector: 200n, numPartitionSectors: 20n },
-  ]) {
-    const { hose, plan, writes, commands } = nativeTransport();
-    hose.programSparseMaxCopies = 2;
-    await expect(hose.cmdProgramSparse(0, 100n, plan, undefined, secondary)).rejects.toThrow();
-    expect(commands).toHaveLength(0);
-    expect(writes).toHaveLength(0);
-  }
-});
-
-test("configure ignores absent or invalid copy capabilities and resets a previous device", async () => {
-  for (const [extents, copies, expected] of [[4096, undefined, 1], [4096, "2", 2], [4096, "99", 2], [4096, "-2", 1], [4096, "2.0", 1], [4096, "true", 1], [4096, "9007199254740992", 1], [0, "2", 1]]) {
-    const hose = new Firehose({ write: () => Promise.resolve() });
-    hose.programSparseMaxCopies = 2;
-    hose.waitForData = () => Promise.resolve(new TextEncoder().encode(`<?xml version="1.0"?><data><log value="Calling handler for configure"/><log value="Storage type set to value UFS"/><response value="ACK" MemoryName="UFS" ProgramSparseMaxExtents="${extents}" ${copies === undefined ? "" : `ProgramSparseMaxCopies="${copies}"`}/></data>`));
-    await hose.configure();
-    expect(hose.programSparseMaxCopies).toBe(expected);
-  }
-});
-
 test("one-shot sparse streams validate EOF before submitting their final payload", async () => {
   const { hose, plan, writes } = nativeTransport();
   let finish;
@@ -528,4 +488,13 @@ test("safe erase uses its own response deadline without extending other commands
   expect(await hose.cmdErase(0, 20n, 0xffffffff)).toBe(true);
   await hose.xmlSend("<nop/>");
   expect(deadlines).toEqual([1000, 60000, 1000]);
+});
+
+test("boot LUN activation requires an explicit ACK, including responses without rawmode", async () => {
+  const hose = new Firehose({ write: () => Promise.resolve() });
+  for (const attributes of ['value="NAK"', 'value="NAK" rawmode="false"', '', 'value="ACK"']) {
+    hose.waitForData = () => Promise.resolve(new TextEncoder().encode(`<?xml version="1.0"?><data><response ${attributes}/></data>`));
+    if (attributes === 'value="ACK"') expect(await hose.cmdSetBootLunId(2)).toBe(true);
+    else await expect(hose.cmdSetBootLunId(2)).rejects.toBe("Failed to set boot lun 2");
+  }
 });

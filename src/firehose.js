@@ -58,7 +58,6 @@ export class Firehose {
     /** @type {number[]} */
     this.luns = [];
     this.programSparseMaxExtents = 0;
-    this.programSparseMaxCopies = 1;
     this.ufsUnmapLimits = false;
     this.failed = false;
   }
@@ -114,7 +113,6 @@ export class Firehose {
   async configure() {
     if (this.failed) throw new Error("Flash transfer interrupted; power-cycle the device before retrying");
     this.programSparseMaxExtents = 0;
-    this.programSparseMaxCopies = 1;
     this.ufsUnmapLimits = false;
     const connectCmd = toXml("configure", {
       MemoryName: this.cfg.MemoryName,
@@ -149,11 +147,6 @@ export class Firehose {
     if (/^[1-9][0-9]*$/.test(sparseLimit)) {
       const limit = Number(sparseLimit);
       if (Number.isSafeInteger(limit)) this.programSparseMaxExtents = Math.min(limit, 4096);
-    }
-    const sparseCopies = response.ProgramSparseMaxCopies;
-    if (this.programSparseMaxExtents && /^[1-9][0-9]*$/.test(sparseCopies)) {
-      const copies = Number(sparseCopies);
-      if (Number.isSafeInteger(copies)) this.programSparseMaxCopies = Math.min(copies, 2);
     }
     this.ufsUnmapLimits = response.UfsUnmapLimits === "1";
     this.luns = Array.from({ length: this.cfg.maxlun }, (x, i) => i);
@@ -268,10 +261,9 @@ export class Firehose {
    * @param {bigint} startSector
    * @param {import("./sparse-program").SparseProgram} plan
    * @param {progressCallback} [onProgress]
-   * @param {{physicalPartitionNumber: number, startSector: bigint, numPartitionSectors: bigint}} [secondary]
    * @returns {Promise<boolean>}
    */
-  async cmdProgramSparse(physicalPartitionNumber, startSector, plan, onProgress = undefined, secondary = undefined) {
+  async cmdProgramSparse(physicalPartitionNumber, startSector, plan, onProgress = undefined) {
     if (!this.programSparseMaxExtents || this.cfg.ZLPAwareHost) {
       throw new Error("Native sparse programming requires negotiated support and ZlpAwareHost=0");
     }
@@ -284,22 +276,6 @@ export class Firehose {
       extent_count: plan.extents.length,
       data_sectors: plan.dataSectors,
     };
-    if (secondary) {
-      if (this.programSparseMaxCopies < 2) throw new Error("Multiple sparse destinations require negotiated support");
-      const span = BigInt(plan.numPartitionSectors);
-      const validLun = lun => Number.isInteger(lun) && lun >= 0 && lun < this.cfg.maxlun;
-      const validStart = start => typeof start === "bigint" && start >= 0n && start + span <= 0xffffffffffffffffn;
-      if (!validLun(physicalPartitionNumber) || !validLun(secondary.physicalPartitionNumber) || !validStart(startSector) || !validStart(secondary.startSector)
-        || typeof secondary.numPartitionSectors !== "bigint" || secondary.numPartitionSectors < span || secondary.startSector + secondary.numPartitionSectors > 0xffffffffffffffffn) {
-        throw new Error("Invalid sparse destination");
-      }
-      if (physicalPartitionNumber === secondary.physicalPartitionNumber && startSector < secondary.startSector + span && secondary.startSector < startSector + span) {
-        throw new Error("Overlapping sparse destinations");
-      }
-      attributes.secondary_physical_partition_number = secondary.physicalPartitionNumber;
-      attributes.secondary_start_sector = secondary.startSector;
-      attributes.secondary_num_partition_sectors = secondary.numPartitionSectors;
-    }
     const result = await this.xmlSend(toXml("program_sparse", attributes));
     const initial = this.xml.getResponse(result.data);
     if (initial.value !== "ACK" || initial.rawmode !== "true") return false;
@@ -547,7 +523,7 @@ export class Firehose {
    */
   async cmdSetBootLunId(lun) {
     const val = await this.xmlSend(toXml("setbootablestoragedrive", { value: lun }));
-    if (val.resp) {
+    if (val.resp && this.xml.getResponse(val.data).value === "ACK") {
       logger.info(`Successfully set bootID to lun ${lun}`);
       return true;
     }
