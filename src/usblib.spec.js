@@ -66,9 +66,23 @@ test("whole buffers avoid the native WebUSB shim's typed-array copy", async () =
 
 test("close drops the connection and prevents further I/O even if device cleanup fails", async () => {
   const usb = transport({ opened: true, close: () => Promise.reject(new Error("disconnected")) });
-  await expect(usb.close()).rejects.toThrow("disconnected");
+  await expect(usb.close()).rejects.toThrow("power-cycle");
   expect(usb.device).toBeNull();
   expect(usb.epIn).toBeNull();
   expect(usb.epOut).toBeNull();
   await expect(usb.write(new Uint8Array(1))).rejects.toBe("USB - Not connected");
+});
+
+test("close is bounded when the native WebUSB shim leaves an IN transfer pending", async () => {
+  const usb = transport({ opened: true, close: () => new Promise(() => undefined) });
+  const closing = usb.close();
+  expect(usb.device).toBeNull();
+  await expect(usb.write(new Uint8Array(1))).rejects.toBe("USB - Not connected");
+  await expect(closing).rejects.toThrow("power-cycle");
+}, 5000);
+
+test("unawaited configure writes observe late USB rejection", async () => {
+  const usb = transport({ transferOut: () => Promise.reject(new Error("configure transfer failed")) });
+  await usb.write(new Uint8Array(4), false);
+  await new Promise(resolve => setTimeout(resolve, 0));
 });

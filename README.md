@@ -37,6 +37,8 @@ bun run build
 
 ## Flashing images
 
+For a full factory flash, use the [native Node.js manifest CLI](docs/flash-manifest.md).
+
 `device.flashBlob("system_a", image)` writes one partition. Pass explicit names to write the same image to multiple partitions:
 
 ```js

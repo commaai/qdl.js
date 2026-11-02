@@ -418,3 +418,90 @@ test("USB failure interrupts a stalled network read without waiting for more sou
   expect(cancelled).toBe(true);
   expect(writes).toBe(2);
 });
+
+test("failed programming has bounded cleanup even if transport, source, and writes never settle", async () => {
+  const { hose, plan } = nativeTransport();
+  hose.cfg.MaxPayloadSizeToTargetInBytes = 4096;
+  plan.numPartitionSectors = 8;
+  plan.dataSectors = 4;
+  plan.extents = [[0n, 4n]];
+  let writes = 0;
+  let reads = 0;
+  let cancelled = false;
+  hose.cdc.write = () => {
+    const index = writes++;
+    return index === 0 ? Promise.resolve() : index === 2 ? Promise.reject(new Error("USB failed")) : new Promise(() => undefined);
+  };
+  hose.cdc.close = () => new Promise(() => undefined);
+  plan.parts = [{ size: 16384, stream: () => ({ getReader: () => ({
+    read: () => reads++ < 2 ? Promise.resolve({ value: new Uint8Array(4096), done: false }) : new Promise(() => undefined),
+    cancel: () => { cancelled = true; return new Promise(() => undefined); },
+    releaseLock: () => undefined,
+  }) }) }];
+  await expect(hose.cmdProgramSparse(0, 0n, plan)).rejects.toThrow("USB failed");
+  expect(hose.failed).toBe(true);
+  expect(cancelled).toBe(true);
+  expect(writes).toBe(3);
+}, 7000);
+
+test("a response timeout poisons the connection instead of queuing another IN read", async () => {
+  let reads = 0;
+  let closed = false;
+  const hose = new Firehose({ read: () => { reads++; return new Promise(() => undefined); },
+    close: () => { closed = true; return Promise.resolve(); } });
+  await expect(hose.waitForData()).rejects.toThrow("power-cycle");
+  expect(reads).toBe(1);
+  expect(closed).toBe(true);
+  await expect(hose.waitForData()).rejects.toThrow("power-cycle");
+  expect(reads).toBe(1);
+}, 3000);
+
+test("a later USB failure interrupts a stalled oldest write at queue capacity", async () => {
+  const { hose, plan } = nativeTransport();
+  hose.cfg.MaxPayloadSizeToTargetInBytes = 4096;
+  plan.numPartitionSectors = 12;
+  plan.dataSectors = 12;
+  plan.extents = [[0n, 12n]];
+  plan.parts = [new Blob([new Uint8Array(12 * 4096)])];
+  let writes = 0;
+  let rejectLater;
+  let closed = false;
+  hose.cdc.write = () => {
+    const index = writes++;
+    if (index === 1) return new Promise(() => undefined);
+    if (index === 2) return new Promise((_, reject) => { rejectLater = reject; });
+    if (index === 8) setTimeout(() => rejectLater(new Error("later USB write failed")), 10);
+    return Promise.resolve();
+  };
+  hose.cdc.close = () => { closed = true; return Promise.resolve(); };
+  await expect(hose.cmdProgramSparse(0, 0n, plan)).rejects.toThrow("later USB write failed");
+  expect(closed).toBe(true);
+  expect(writes).toBe(9);
+}, 5000);
+
+test("a command write failure closes and poisons the connection before reading a reply", async () => {
+  let closed = false;
+  let reads = 0;
+  const hose = new Firehose({ write: () => Promise.reject(new Error("command USB failure")),
+    read: () => { reads++; return Promise.resolve(new Uint8Array()); },
+    close: () => { closed = true; return Promise.resolve(); } });
+  await expect(hose.xmlSend("command")).rejects.toThrow("command USB failure");
+  expect(closed).toBe(true);
+  expect(hose.failed).toBe(true);
+  expect(reads).toBe(0);
+});
+
+test("a raw read timeout closes the connection without reading the final ACK", async () => {
+  let reads = 0;
+  let writes = 0;
+  let closed = false;
+  const hose = new Firehose({ write: () => { writes++; return Promise.resolve(); },
+    read: () => ++reads === 1 ? Promise.resolve(ack()) : new Promise(() => undefined),
+    close: () => { closed = true; return Promise.resolve(); } });
+  await expect(hose.cmdReadBuffer(0, 1n, 1)).rejects.toThrow("power-cycle");
+  expect(reads).toBe(2);
+  expect(closed).toBe(true);
+  expect(hose.failed).toBe(true);
+  await expect(hose.cmdReadBuffer(0, 1n, 1)).rejects.toThrow("power-cycle");
+  expect(writes).toBe(1);
+}, 4000);

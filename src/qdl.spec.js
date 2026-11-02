@@ -2,8 +2,19 @@ import { describe, expect, test } from "bun:test";
 import { buf as crc32 } from "crc-32";
 import { qdlDevice } from "./qdl";
 
-function disk(start) {
-  const entries = new Uint8Array(4096);
+function updateHeader(header, update) {
+  const view = new DataView(header.buffer, header.byteOffset, header.byteLength);
+  update(view);
+  view.setInt32(16, 0, true);
+  view.setInt32(16, crc32(header.subarray(0, 92)), true);
+}
+
+function disk(start, { count = 128, primaryEntriesStart = 2n, backupEntriesStart } = {}) {
+  const entryBytes = count * 128;
+  const entrySectors = Math.ceil(entryBytes / 4096);
+  backupEntriesStart ??= 10000n - BigInt(entrySectors);
+  const entries = new Uint8Array(entrySectors * 4096);
+  entries.fill(0xa5, entryBytes);
   const ev = new DataView(entries.buffer);
   ev.setUint32(0, 1, true);
   ev.setBigUint64(32, start, true);
@@ -12,30 +23,48 @@ function disk(start) {
   const header = new Uint8Array(4096);
   header.set(new TextEncoder().encode("EFI PART"));
   const hv = new DataView(header.buffer);
-  for (const [offset, value] of [[8, 65536], [12, 92], [80, 32], [84, 128]]) hv.setUint32(offset, value, true);
-  for (const [offset, value] of [[24, 1n], [32, 10000n], [40, 6n], [48, 9998n], [72, 2n]]) hv.setBigUint64(offset, value, true);
-  hv.setInt32(88, crc32(entries), true);
+  for (const [offset, value] of [[8, 65536], [12, 92], [80, count], [84, 128]]) hv.setUint32(offset, value, true);
+  for (const [offset, value] of [[24, 1n], [32, 10000n], [40, primaryEntriesStart + BigInt(entrySectors)], [48, backupEntriesStart - 1n], [72, primaryEntriesStart]]) hv.setBigUint64(offset, value, true);
+  hv.setInt32(88, crc32(entries.subarray(0, entryBytes)), true);
   hv.setInt32(16, crc32(header.subarray(0, 92)), true);
   const backup = header.slice();
   const bv = new DataView(backup.buffer);
   bv.setBigUint64(24, 10000n, true);
   bv.setBigUint64(32, 1n, true);
-  bv.setBigUint64(72, 9999n, true);
+  bv.setBigUint64(72, backupEntriesStart, true);
   bv.setInt32(16, 0, true);
   bv.setInt32(16, crc32(backup.subarray(0, 92)), true);
-  return { header, backup, entries };
+  return { header, backup, entries, backupEntries: entries.slice(), primaryEntriesStart, backupEntriesStart };
 }
 
 class TestDevice extends qdlDevice {
   storage = disk(100n);
   reads = 0;
+  readRequests = [];
+  storageInfo = { block_size: 4096, total_blocks: 10001 };
+  storageInfoRequests = [];
+  readBuffer(sector, count) {
+    this.reads++;
+    this.readRequests.push([sector, count]);
+    if (sector < 0n || sector + BigInt(count) > 10001n) throw new Error("Read outside LUN");
+    const result = new Uint8Array(count * 4096);
+    for (const [start, data] of [[1n, this.storage.header], [10000n, this.storage.backup],
+      [this.storage.primaryEntriesStart, this.storage.entries], [this.storage.backupEntriesStart, this.storage.backupEntries]]) {
+      const offset = Number(start - sector) * 4096;
+      const from = Math.max(0, -offset);
+      const to = Math.min(data.length, result.length - offset);
+      if (to > from) result.set(data.subarray(from, to), offset + from);
+    }
+    return Promise.resolve(result);
+  }
   get firehose() {
     return {
       cfg: { SECTOR_SIZE_IN_BYTES: 4096 },
       luns: [0],
-      cmdReadBuffer: (_, sector) => {
-        this.reads++;
-        return Promise.resolve(sector === 1n ? this.storage.header : sector === 10000n ? this.storage.backup : this.storage.entries);
+      cmdReadBuffer: (_, sector, count) => this.readBuffer(sector, count),
+      cmdGetStorageInfo: lun => {
+        this.storageInfoRequests.push(lun);
+        return Promise.resolve([`INFO: ${JSON.stringify({ storage_info: this.storageInfo })}`]);
       },
       cmdProgram: async () => false,
       cmdReset: async () => true,
@@ -47,14 +76,14 @@ describe("partition lookup cache", () => {
   test("reuses validated GPTs and explicit reads refresh them", async () => {
     const device = new TestDevice(new ArrayBuffer(1));
     expect((await device.detectPartition("system_a"))[2].start).toBe(100n);
-    expect(device.reads).toBe(4);
+    expect(device.reads).toBe(2);
     await device.detectPartition("system_a");
     await device.detectPartition("missing");
-    expect(device.reads).toBe(4);
+    expect(device.reads).toBe(2);
     device.storage = disk(200n);
     await device.getGpt(0);
     expect((await device.detectPartition("system_a"))[2].start).toBe(200n);
-    expect(device.reads).toBe(8);
+    expect(device.reads).toBe(4);
   });
 
   test("invalidates before a failed GPT repair", async () => {
@@ -71,6 +100,162 @@ describe("partition lookup cache", () => {
     await device.reset();
     device.storage = disk(400n);
     expect((await device.detectPartition("system_a"))[2].start).toBe(400n);
+  });
+});
+
+describe("bounded GPT reads", () => {
+  test("reads each usual header and entry array in one bounded window", async () => {
+    const device = new TestDevice(new ArrayBuffer(1));
+    expect((await device.getGpt(0)).locatePartition("system_a").start).toBe(100n);
+    expect(device.readRequests).toEqual([[1n, 5], [9996n, 5]]);
+    expect(device.storageInfoRequests).toEqual([]);
+  });
+
+  test("explicit backup reads end at the last sector and do not populate the full GPT cache", async () => {
+    const device = new TestDevice(new ArrayBuffer(1));
+    expect((await device.getGpt(0, 10000n)).currentLba).toBe(10000n);
+    expect(device.readRequests).toEqual([[9996n, 5]]);
+    await device.detectPartition("system_a");
+    expect(device.readRequests).toEqual([[9996n, 5], [1n, 5], [9996n, 5]]);
+  });
+
+  test("uses exact separate reads for nonadjacent entry arrays", async () => {
+    const device = new TestDevice(new ArrayBuffer(1));
+    device.storage = disk(100n, { primaryEntriesStart: 8n, backupEntriesStart: 9970n });
+    await device.getGpt(0);
+    expect(device.readRequests).toEqual([[1n, 5], [8n, 4], [9996n, 5], [9970n, 4]]);
+  });
+
+  test("uses exact separate reads when the arrays exceed the window", async () => {
+    const device = new TestDevice(new ArrayBuffer(1));
+    device.storage = disk(100n, { count: 160 });
+    await device.getGpt(0);
+    expect(device.readRequests).toEqual([[1n, 5], [2n, 5], [9996n, 5], [9995n, 5]]);
+  });
+
+  test("hashes only declared entries, excluding nonzero sector padding", async () => {
+    const device = new TestDevice(new ArrayBuffer(1));
+    device.storage = disk(100n, { count: 33 });
+    expect((await device.getGpt(0)).locatePartition("system_a").start).toBe(100n);
+    expect(device.reads).toBe(2);
+  });
+
+  test("uses trusted per-LUN capacity, not corrupt primary metadata, to recover the backup", async () => {
+    const device = new TestDevice(new ArrayBuffer(1));
+    const view = new DataView(device.storage.header.buffer);
+    view.setBigUint64(32, 0xffffffffffffffffn, true);
+    view.setUint32(80, 0xffffffff, true);
+    expect((await device.getGpt(3)).currentLba).toBe(10000n);
+    expect(device.readRequests).toEqual([[1n, 5], [9996n, 5]]);
+    expect(device.storageInfoRequests).toEqual([3]);
+  });
+
+  test("rejects invalid primary metadata before reading its entry array", async () => {
+    for (const update of [
+      view => view.setBigUint64(24, 2n, true),
+      view => view.setBigUint64(32, 1n, true),
+      view => view.setBigUint64(40, 1n, true),
+      view => view.setBigUint64(48, 10000n, true),
+      view => view.setBigUint64(72, 100n, true),
+      view => view.setUint32(80, 0, true),
+      view => view.setUint32(80, 0xffffffff, true),
+      view => view.setUint32(84, 96, true),
+    ]) {
+      const device = new TestDevice(new ArrayBuffer(1));
+      updateHeader(device.storage.header, update);
+      expect((await device.getGpt(0)).currentLba).toBe(10000n);
+      expect(device.readRequests).toEqual([[1n, 5], [9996n, 5]]);
+      expect(device.storageInfoRequests).toEqual([0]);
+    }
+  });
+
+  test("does not guess the backup LBA when trusted capacity is unavailable", async () => {
+    for (const info of [null, {}, { block_size: 512, total_blocks: 10001 },
+      ...[0, 2, -1, 1.5, "10001", Number.MAX_SAFE_INTEGER + 1].map(total_blocks => ({ block_size: 4096, total_blocks }))]) {
+      const device = new TestDevice(new ArrayBuffer(1));
+      device.storage.header[0] ^= 1;
+      device.storageInfo = info;
+      await expect(device.getGpt(0)).rejects.toThrow("cannot locate backup safely");
+      expect(device.readRequests).toEqual([[1n, 5]]);
+    }
+    const device = new TestDevice(new ArrayBuffer(1));
+    device.storage.header[0] ^= 1;
+    device.getStorageInfo = () => Promise.reject(new Error("Unsupported command"));
+    await expect(device.getGpt(0)).rejects.toThrow("cannot locate backup safely");
+    expect(device.readRequests).toEqual([[1n, 5]]);
+  });
+
+  test("caps entry allocations even when CRC-valid metadata describes a larger disk", async () => {
+    const device = new TestDevice(new ArrayBuffer(1));
+    updateHeader(device.storage.header, view => {
+      view.setBigUint64(32, 300000n, true);
+      view.setBigUint64(40, 100000n, true);
+      view.setBigUint64(48, 200000n, true);
+      view.setUint32(80, 262145, true);
+    });
+    await expect(device.getGpt(0, 1n)).rejects.toThrow("Invalid GPT header");
+    expect(device.readRequests).toEqual([[1n, 5]]);
+  });
+
+  test("validates recovered backup backpointers and entry bounds before reading entries", async () => {
+    for (const update of [
+      view => view.setBigUint64(32, 2n, true),
+      view => view.setBigUint64(72, 10000n, true),
+      view => view.setUint32(80, 0xffffffff, true),
+    ]) {
+      const device = new TestDevice(new ArrayBuffer(1));
+      device.storage.header[0] ^= 1;
+      updateHeader(device.storage.backup, update);
+      await expect(device.getGpt(0)).rejects.toThrow("Both primary and backup");
+      expect(device.readRequests).toEqual([[1n, 5], [9996n, 5]]);
+    }
+  });
+
+  test("recovers corrupt primary entries from a validated backup and caches it", async () => {
+    const device = new TestDevice(new ArrayBuffer(1));
+    device.storage.entries[0] ^= 1;
+    expect((await device.getGpt(0)).currentLba).toBe(10000n);
+    expect((await device.detectPartition("system_a"))[2].start).toBe(100n);
+    expect(device.reads).toBe(2);
+  });
+
+  test("retains valid primary entries when the backup header is corrupt", async () => {
+    const device = new TestDevice(new ArrayBuffer(1));
+    device.storage.backup[0] ^= 1;
+    expect((await device.getGpt(0)).currentLba).toBe(1n);
+    expect(device.readRequests).toEqual([[1n, 5], [9996n, 5]]);
+  });
+
+  test("rejects corruption of both arrays and does not retain a stale cache", async () => {
+    const device = new TestDevice(new ArrayBuffer(1));
+    await device.detectPartition("system_a");
+    device.storage.entries[0] ^= 1;
+    device.storage.backupEntries[0] ^= 1;
+    await expect(device.getGpt(0)).rejects.toThrow("Both primary and backup");
+    device.storage = disk(200n);
+    expect((await device.detectPartition("system_a"))[2].start).toBe(200n);
+    expect(device.reads).toBe(6);
+  });
+
+  test("rejects corrupt entries on explicit reads", async () => {
+    const device = new TestDevice(new ArrayBuffer(1));
+    device.storage.entries[0] ^= 1;
+    await expect(device.getGpt(0, 1n)).rejects.toThrow("GPT partition entries are corrupted");
+    expect(device.reads).toBe(1);
+  });
+
+  test("rejects truncated combined and separate reads", async () => {
+    for (const separate of [false, true]) {
+      const device = new TestDevice(new ArrayBuffer(1));
+      device.storage = disk(100n, { count: separate ? 160 : 128 });
+      const read = device.readBuffer.bind(device);
+      device.readBuffer = async (sector, count) => {
+        const data = await read(sector, count);
+        return sector === (separate ? 2n : 1n) ? data.subarray(0, data.length - 1) : data;
+      };
+      await expect(device.getGpt(0)).rejects.toThrow("Truncated GPT");
+      expect(device.reads).toBe(separate ? 2 : 1);
+    }
   });
 });
 

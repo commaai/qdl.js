@@ -87,33 +87,83 @@ export class qdlDevice {
   async getGpt(lun, sector = undefined) {
     this.#gptCache.delete(lun);
     // TODO: get sector size from getStorageInfo
+    const sectorSize = this.firehose.cfg.SECTOR_SIZE_IN_BYTES;
+    const readGpt = async (headerLba) => {
+      if (typeof headerLba !== "bigint" || headerLba < 1n) throw new Error("Invalid GPT header LBA");
+      // The usual 128-entry table occupies four 4 KiB sectors. A backup
+      // window ends at its header, so this never reads beyond the disk.
+      const windowStart = headerLba === 1n ? 1n : headerLba > 4n ? headerLba - 4n : 1n;
+      const windowSectors = headerLba === 1n ? 5 : Number(headerLba - windowStart) + 1;
+      const window = await this.firehose.cmdReadBuffer(lun, windowStart, windowSectors);
+      if (window.byteLength !== windowSectors * sectorSize) throw new Error("Truncated GPT read");
+      const offset = Number(headerLba - windowStart) * sectorSize;
+      const gpt = new GPT(sectorSize);
+      const header = gpt.parseHeader(window.subarray(offset, offset + sectorSize), headerLba);
+      if (!header || header.mismatchCrc32) return { gpt, headerValid: false, entries: null };
+
+      const entryBytes = gpt.numPartEntries * gpt.partEntrySize;
+      const entrySectors = Math.ceil(entryBytes / sectorSize);
+      const lastLba = headerLba === 1n ? gpt.alternateLba : headerLba;
+      // Bound fallback allocations even for a CRC-valid but bogus header;
+      // 32 MiB accommodates 262144 standard partition entries.
+      if (gpt.currentLba !== headerLba || gpt.alternateLba === headerLba ||
+          (headerLba === 1n ? gpt.alternateLba <= 1n : gpt.alternateLba !== 1n) ||
+          gpt.firstUsableLba <= 1n || gpt.lastUsableLba < gpt.firstUsableLba || gpt.lastUsableLba >= lastLba ||
+          gpt.numPartEntries === 0 || gpt.partEntrySize < 128 || !Number.isInteger(Math.log2(gpt.partEntrySize)) ||
+          !Number.isSafeInteger(entryBytes) || entryBytes > 32 * 1024 * 1024 || gpt.partEntriesStartLba < 2n) {
+        return { gpt, headerValid: false, entries: null };
+      }
+      const entriesEnd = gpt.partEntriesStartLba + BigInt(entrySectors);
+      if (headerLba === 1n ? entriesEnd > gpt.firstUsableLba :
+          gpt.partEntriesStartLba <= gpt.lastUsableLba || entriesEnd > headerLba) {
+        return { gpt, headerValid: false, entries: null };
+      }
+      let entries;
+      if (gpt.partEntriesStartLba >= windowStart && entriesEnd <= windowStart + BigInt(windowSectors)) {
+        const start = Number(gpt.partEntriesStartLba - windowStart) * sectorSize;
+        entries = window.subarray(start, start + entryBytes);
+      } else {
+        const data = await this.firehose.cmdReadBuffer(lun, gpt.partEntriesStartLba, entrySectors);
+        if (data.byteLength !== entrySectors * sectorSize) throw new Error("Truncated GPT entries read");
+        entries = data.subarray(0, entryBytes);
+      }
+      return { gpt, headerValid: true, entries: gpt.parsePartEntries(entries) };
+    };
+
     logger.debug("reading primary GPT");
-    const primaryGpt = new GPT(this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
-    const primaryHeader = primaryGpt.parseHeader(await this.firehose.cmdReadBuffer(lun, sector ?? 1n, 1), sector ?? 1n);
-    let primaryCorrupted = !primaryHeader;
-    if (primaryHeader) {
-      primaryCorrupted |= primaryHeader.mismatchCrc32;
-    }
-    const primaryPartEntries = primaryGpt.parsePartEntries(await this.firehose.cmdReadBuffer(lun, primaryGpt.partEntriesStartLba, primaryGpt.partEntriesSectors));
-    primaryCorrupted |= primaryPartEntries.mismatchCrc32;
+    const primary = await readGpt(sector ?? 1n);
+    const primaryGpt = primary.gpt;
+    const primaryCorrupted = !primary.headerValid || primary.entries.mismatchCrc32;
 
     if (sector !== undefined) {
       // Return early if specific sector is requested
+      if (!primary.headerValid) throw new Error(`LUN ${lun}: Invalid GPT header at sector ${sector}`);
+      if (primaryCorrupted) throw new Error(`LUN ${lun}: GPT partition entries are corrupted at sector ${sector}`);
       return primaryGpt;
     }
 
-    logger.debug("reading backup GPT");
-    const backupGpt = new GPT(this.firehose.cfg.SECTOR_SIZE_IN_BYTES);
-    // TODO: can we predict the alternate lba instead of relying on a potentially faulty value from the primary header?
-    const backupHeader = backupGpt.parseHeader(await this.firehose.cmdReadBuffer(lun, primaryGpt.alternateLba, 1), primaryGpt.alternateLba);
-    let backupCorrupted = !backupHeader;
-    if (backupHeader) {
-      backupCorrupted |= backupHeader.mismatchCrc32;
+    let backupLba;
+    if (primary.headerValid) {
+      backupLba = primaryGpt.alternateLba;
+    } else {
+      // A corrupt header cannot supply a trusted backup LBA or entry count.
+      // Ask the device for this LUN's capacity only on the recovery path.
+      try {
+        const info = await this.getStorageInfo(lun);
+        if (info?.block_size !== sectorSize || !Number.isSafeInteger(info.total_blocks) || info.total_blocks < 3) {
+          throw new Error("Invalid LUN capacity");
+        }
+        backupLba = BigInt(info.total_blocks) - 1n;
+      } catch (cause) {
+        throw new Error(`LUN ${lun}: Invalid GPT header and cannot locate backup safely`, { cause });
+      }
     }
-    const backupPartEntries = backupGpt.parsePartEntries(await this.firehose.cmdReadBuffer(lun, backupGpt.partEntriesStartLba, backupGpt.partEntriesSectors));
-    backupCorrupted |= backupPartEntries.mismatchCrc32;
+    logger.debug("reading backup GPT");
+    const backup = await readGpt(backupLba);
+    const backupGpt = backup.gpt;
+    const backupCorrupted = !backup.headerValid || backup.entries.mismatchCrc32;
 
-    const partEntriesConsistency = primaryPartEntries && backupPartEntries && primaryPartEntries.partEntriesCrc32 === backupPartEntries.partEntriesCrc32;
+    const partEntriesConsistency = !primaryCorrupted && !backupCorrupted && primary.entries.partEntriesCrc32 === backup.entries.partEntriesCrc32;
     logger.debug({
       primaryCorrupted,
       backupCorrupted,
@@ -125,7 +175,7 @@ export class qdlDevice {
         throw new Error(`LUN ${lun}: Both primary and backup GPT headers are corrupted, cannot recover`);
       }
       // TODO: restore primary from backup
-      logger.warn(`LUN ${lun}: Primary GPT header is corrupted, using backup`);
+      logger.warn(`LUN ${lun}: Primary GPT is corrupted, using backup`);
       this.#gptCache.set(lun, backupGpt);
       return backupGpt;
     }
@@ -481,10 +531,11 @@ export class qdlDevice {
   }
 
   /**
+   * @param {number} [lun=0]
    * @returns {Promise<any>}
    */
-  async getStorageInfo() {
-    const log = (await this.firehose.cmdGetStorageInfo()).find((log) => log.includes("storage_info"));
+  async getStorageInfo(lun = 0) {
+    const log = (await this.firehose.cmdGetStorageInfo(lun)).find((log) => log.includes("storage_info"));
     if (!log) throw new Error("Storage info JSON not returned - not implemented?");
     try {
       return JSON.parse(log.substring("INFO: ".length))?.storage_info;

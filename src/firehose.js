@@ -73,8 +73,8 @@ export class Firehose {
     const dataToSend = new TextEncoder().encode(command).slice(0, this.cfg.MaxXMLSizeInBytes);
     try {
       await runWithTimeout(this.cdc.write(dataToSend, wait), 1000);
-    } catch (e) {
-      throw "Firehose - Timed out while sending command";
+    } catch (error) {
+      throw await this.#abortProgram(error);
     }
 
     const rData = await this.waitForData();
@@ -163,12 +163,17 @@ export class Firehose {
    * @returns {Promise<Uint8Array>}
    */
   async cmdReadBuffer(physicalPartitionNumber, startSector, numPartitionSectors) {
-    await this.cdc.write(new TextEncoder().encode(toXml("read", {
-      SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
-      num_partition_sectors: numPartitionSectors,
-      physical_partition_number: physicalPartitionNumber,
-      start_sector: startSector,
-    })));
+    if (this.failed) throw new Error("Flash transfer interrupted; power-cycle the device before retrying");
+    try {
+      await runWithTimeout(this.cdc.write(new TextEncoder().encode(toXml("read", {
+        SECTOR_SIZE_IN_BYTES: this.cfg.SECTOR_SIZE_IN_BYTES,
+        num_partition_sectors: numPartitionSectors,
+        physical_partition_number: physicalPartitionNumber,
+        start_sector: startSector,
+      }))), 1000);
+    } catch (error) {
+      throw await this.#abortProgram(error);
+    }
 
     let data = await this.waitForData(1);
     let rsp = this.xml.getResponse(data);
@@ -184,8 +189,8 @@ export class Firehose {
     let buffer;
     try {
       buffer = await runWithTimeout(this.cdc.read(this.cfg.SECTOR_SIZE_IN_BYTES * numPartitionSectors), 2000);
-    } catch {
-      throw new Error("Failed to read buffer: timed out");
+    } catch (error) {
+      throw await this.#abortProgram(error);
     }
 
     data = await this.waitForData();
@@ -205,10 +210,17 @@ export class Firehose {
    * @returns {Promise<Uint8Array>}
    */
   async waitForData(retries = 3) {
+    if (this.failed) throw new Error("Flash transfer interrupted; power-cycle the device before retrying");
     let tmp = new Uint8Array();
     let timeout = 0;
     while (!containsBytes("<response", tmp)) {
-      const res = await runWithTimeout(this.cdc.read(), 1000).catch(() => new Uint8Array());
+      let res;
+      try { res = await runWithTimeout(this.cdc.read(), 1000); }
+      catch (error) {
+        // A timed-out WebUSB read cannot be withdrawn portably. Retrying could
+        // let the abandoned read consume the next command's response.
+        throw await this.#abortProgram(error);
+      }
       if (compareStringToBytes("", res)) {
         timeout += 1;
         if (timeout > retries) break;
@@ -301,7 +313,7 @@ export class Firehose {
 
   async #abortProgram(error) {
     this.failed = true;
-    try { await this.cdc.close?.(); } catch { /* Preserve the transfer error. */ }
+    try { await runWithTimeout(Promise.resolve(this.cdc.close?.()), 2000); } catch { /* Preserve the transfer error. */ }
     return new Error(`${error instanceof Error ? error.message : error}; power-cycle the device before retrying`, { cause: error });
   }
 
@@ -314,18 +326,18 @@ export class Firehose {
     let readBuffer = new Uint8Array();
     let readOffset = 0;
     let writeFailure = null;
-    let rejectSourceRead = null;
+    let rejectWait = null;
     const failWrite = error => {
       writeFailure ??= { error };
-      rejectSourceRead?.(error);
-      rejectSourceRead = null;
+      rejectWait?.(error);
+      rejectWait = null;
     };
-    const readSource = read => {
+    const waitForOperation = read => {
       if (writeFailure) return Promise.reject(writeFailure.error);
       return new Promise((resolve, reject) => {
-        rejectSourceRead = reject;
+        rejectWait = reject;
         const finish = (callback, value) => {
-          if (rejectSourceRead === reject) rejectSourceRead = null;
+          if (rejectWait === reject) rejectWait = null;
           callback(value);
         };
         try { Promise.resolve(read()).then(value => finish(resolve, value), error => finish(reject, error)); }
@@ -356,7 +368,7 @@ export class Firehose {
         reader = part.stream().getReader();
       }
       if (!reader) {
-        const data = await readSource(() => part.slice(partOffset, partOffset + length).arrayBuffer());
+        const data = await waitForOperation(() => part.slice(partOffset, partOffset + length).arrayBuffer());
         if (data.byteLength !== length) throw new Error("Short image read while programming");
         partOffset += length;
         return new Uint8Array(data);
@@ -365,7 +377,7 @@ export class Firehose {
       let offset = 0;
       while (offset < length) {
         if (readOffset === readBuffer.length) {
-          const result = await readSource(() => reader.read());
+          const result = await waitForOperation(() => reader.read());
           if (result.done) throw new Error("Short image read while programming");
           readBuffer = result.value;
           readOffset = 0;
@@ -383,7 +395,7 @@ export class Firehose {
       }
       if (partOffset === part.size) {
         // One-shot input must finish validation before its final bytes reach USB.
-        if (typeof part.slice !== "function" && !(await readSource(() => reader.read())).done) throw new Error("Image stream exceeds its declared size");
+        if (typeof part.slice !== "function" && !(await waitForOperation(() => reader.read())).done) throw new Error("Image stream exceeds its declared size");
         await closeReader();
       }
       return data;
@@ -417,8 +429,9 @@ export class Firehose {
     let completed = 0;
     let chunks = 0;
     const completeWrite = async () => {
-      const [result, length] = pending.shift();
-      const failure = await result;
+      const [result, length] = pending[0];
+      const failure = await waitForOperation(() => result);
+      pending.shift();
       if (failure) throw failure.error;
       completed += length;
       if (chunks++ % 10 === 0) onProgress?.(completed);
@@ -449,8 +462,15 @@ export class Firehose {
     } catch (error) {
       throw await this.#abortProgram(error);
     } finally {
-      try { await closeReader(); } catch { /* Transfer errors have already been reported. */ }
-      await Promise.all(pending.map(([result]) => result));
+      if (this.failed) {
+        await Promise.allSettled([
+          runWithTimeout(closeReader(), 2000),
+          runWithTimeout(Promise.all(pending.map(([result]) => result)), 2000),
+        ]);
+      } else {
+        await closeReader();
+        await Promise.all(pending.map(([result]) => result));
+      }
     }
     onProgress?.(total);
 
@@ -549,10 +569,11 @@ export class Firehose {
   }
 
   /**
+   * @param {number} [lun=0]
    * @returns {Promise<string[]>}
    */
-  async cmdGetStorageInfo() {
-    const resp = await this.xmlSend(toXml("getstorageinfo", { physical_partition_number: 0, print_raw: 0 }));
+  async cmdGetStorageInfo(lun = 0) {
+    const resp = await this.xmlSend(toXml("getstorageinfo", { physical_partition_number: lun, print_raw: 0 }));
     if (!resp.resp || !resp.log) throw new Error("Failed to get storage info", { cause: resp.error });
     return resp.log;
   }

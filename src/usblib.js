@@ -1,5 +1,5 @@
 import * as constants from "./constants.js";
-import { concatUint8Array } from "./utils.js";
+import { concatUint8Array, runWithTimeout } from "./utils.js";
 
 
 export class usbClass {
@@ -91,7 +91,10 @@ export class usbClass {
     this.device = null;
     this.epIn = null;
     this.epOut = null;
-    if (device?.opened) await device.close();
+    if (device?.opened) {
+      try { await runWithTimeout(device.close(), 2000); }
+      catch (error) { throw new Error("USB close failed; power-cycle the device before retrying", { cause: error }); }
+    }
   }
 
   /**
@@ -141,6 +144,9 @@ export class usbClass {
         if (result.status !== "ok" || result.bytesWritten !== chunk.byteLength) {
           throw new Error(`USB write failed: ${result.status}, ${result.bytesWritten}/${chunk.byteLength} bytes`);
         }
+      } else {
+        // Configure checks the device's XML ACK; still observe a late transport rejection.
+        void promise.catch(() => undefined);
       }
     } while (offset < data.byteLength);
   }
