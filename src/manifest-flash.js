@@ -172,7 +172,7 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
     const storage = await phase("storage", () => device.getStorageInfo());
     const plan = prepareManifest(entries, baseUrl, storage, slot);
     for (const image of plan.images) {
-      if (!device.canFlashStream(image.names.length, image.stream.extents.length)) throw new Error(`Programmer lacks native sparse support for ${image.name}`);
+      if (!device.canFlashStream(image.stream.extents.length)) throw new Error(`Programmer lacks native sparse support for ${image.name}`);
     }
     const gptBytes = new Map();
     await phase("verify_gpts", async () => {
@@ -205,7 +205,7 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
         const source = await sources.next();
         const payload = selectSparseRanges(source, image.stream, image.fileSize);
         try {
-          if (!await device.flashStream(image.names, image.stream, payload, undefined, false)) throw new Error(`Flashing ${image.name} failed`);
+        if (!await device.flashStream(image.names[0], image.stream, payload, undefined, false)) throw new Error(`Flashing ${image.name} failed`);
         } finally {
           if (!payload.locked) await payload.cancel().catch(() => undefined);
         }

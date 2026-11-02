@@ -227,9 +227,10 @@ test("full flow preserves persist, erases six LUNs, writes one slot, and finaliz
       detectPartition() { return [true, 0, { start: 8n, sectors: 8192n }]; },
       repairGpt(lun) { events.push(`gpt${lun}`); return true; },
       eraseLun(lun, preserve) { assert.deepEqual(preserve, lun === 0 ? ["mbr", "gpt", "persist"] : ["mbr", "gpt"]); events.push(`erase${lun}`); return true; },
-      async flashStream(names, info, payload, progress, erase) {
+      async flashStream(name, info, payload, progress, erase) {
         assert.equal(erase, false); assert.equal(info.dataSectors, 1);
-        events.push(names.join(","));
+        assert.equal(typeof name, "string");
+        events.push(name);
         if (failure === "usb") throw new Error("USB write failed");
         assert.equal((await collect(payload)).length, 4096); return true;
       },
