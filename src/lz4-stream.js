@@ -66,11 +66,13 @@ export function validateLz4Stream(source, metadata, onFrame = undefined) {
   let cleanupPromise;
   const cleanup = (cancel, reason = undefined) => {
     cleanupPromise ??= (async () => {
+      let cancellation;
       try {
-        if (cancel) await reader.cancel(reason);
+        if (cancel) cancellation = reader.cancel(reason);
       } finally {
         reader.releaseLock();
       }
+      await cancellation;
     })();
     return cleanupPromise;
   };
@@ -154,7 +156,7 @@ export function validateLz4Stream(source, metadata, onFrame = undefined) {
       }
     } catch (error) {
       failed = true;
-      try { await cleanup(true, error); } catch { /* Keep the validation or source error. */ }
+      cleanup(true, error).catch(() => undefined);
       throw error;
     } finally {
       if (!failed) await cleanup(!completed);

@@ -63,6 +63,19 @@ export function selectSparseRanges(source, metadata, fileSize) {
   const plan = validateSparseStreamMetadata(metadata, fileSize);
   const reader = source.getReader();
   let cancelled = false;
+  let cleanupPromise;
+  const cleanup = (cancel, reason = undefined) => {
+    cleanupPromise ??= (async () => {
+      let cancellation;
+      try {
+        if (cancel) cancellation = reader.cancel(reason);
+      } finally {
+        reader.releaseLock();
+      }
+      await cancellation;
+    })();
+    return cleanupPromise;
+  };
   let buffer = new Uint8Array();
   let bufferOffset = 0;
   let received = 0;
@@ -101,6 +114,7 @@ export function selectSparseRanges(source, metadata, fileSize) {
 
   async function* payload() {
     let completed = false;
+    let failed = false;
     try {
       const header = view(await exact(28));
       check(header.getUint32(0, true) === 0xed26ff3a && header.getUint16(4, true) === 1 && header.getUint16(6, true) === 0, "invalid sparse header");
@@ -204,13 +218,14 @@ export function selectSparseRanges(source, metadata, fileSize) {
         check(last.done || (last.value instanceof Uint8Array && last.value.length === 0), "source exceeds file size");
       } while (!last.done);
       completed = true;
+      await cleanup(false);
       if (tail?.length) yield tail;
+    } catch (error) {
+      failed = true;
+      cleanup(true, error).catch(() => undefined);
+      throw error;
     } finally {
-      try {
-        if (!completed) await reader.cancel();
-      } finally {
-        reader.releaseLock();
-      }
+      if (!failed) await cleanup(!completed);
     }
   }
 
@@ -229,9 +244,9 @@ export function selectSparseRanges(source, metadata, fileSize) {
     async cancel(reason) {
       cancelled = true;
       try {
-        await reader.cancel(reason);
+        await cleanup(true, reason);
       } finally {
-        try { await iterator.return(); } finally { reader.releaseLock(); }
+        await iterator.return();
       }
     },
   });

@@ -49,6 +49,7 @@ function source(bytes, sizes = [1, 15, 3, 4096, 19], state = {}) {
     cancel(reason) {
       state.cancelled = true;
       state.reason = reason;
+      if (state.cancelNever) return new Promise(() => { /* Model a stuck upstream cleanup. */ });
       if (state.cancelError) throw state.cancelError;
     },
   }, { highWaterMark: 0 });
@@ -274,5 +275,28 @@ describe("native LZ4 frames", () => {
     const broken = source(bad, [bad.length], { cancelError: new Error("cleanup failed") });
     await expect(collect(validateLz4Stream(broken, metadata))).rejects.toThrow("invalid frame flags");
     expect(broken.locked).toBe(false);
+  });
+
+  test("reports malformed frames promptly when source cancellation never settles", async () => {
+    for (const frameIndex of [0, 1]) {
+      const { bytes, metadata, frames } = fixture();
+      new DataView(bytes.buffer).setUint32((frameIndex ? frames[0].length : 0) + 12, 9, true);
+      const state = { cancelNever: true };
+      const input = source(bytes, [bytes.length], state);
+      const reader = validateLz4Stream(input, metadata).getReader();
+      let timer;
+      try {
+        if (frameIndex) expect((await reader.read()).value).toEqual(frames[0]);
+        const deadline = new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("validation waited for cancellation")), 1000);
+        });
+        await expect(Promise.race([reader.read(), deadline])).rejects.toThrow("invalid frame flags");
+        expect(state.cancelled).toBe(true);
+        expect(input.locked).toBe(false);
+      } finally {
+        clearTimeout(timer);
+        reader.releaseLock();
+      }
+    }
   });
 });

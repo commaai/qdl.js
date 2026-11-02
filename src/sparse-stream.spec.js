@@ -40,7 +40,11 @@ function source(bytes, sizes = [1, 11, 4, 32, 17, 4096], state = {}) {
       controller.enqueue(bytes.subarray(offset, offset + size));
       offset = Math.min(offset + size, bytes.length);
     },
-    cancel() { state.cancelled = true; },
+    cancel() {
+      state.cancelled = true;
+      if (state.cancelNever) return new Promise(() => { /* Model a stuck upstream cleanup. */ });
+      if (state.cancelError) throw state.cancelError;
+    },
   });
 }
 
@@ -199,5 +203,40 @@ describe("continuous sparse streams", () => {
     const plan = { ...metadata, parts: [{ size: metadata.dataSectors * 4096, stream: () => selectSparseRanges(source(bytes), metadata, blob.size) }] };
     expect(validateSparseProgram(plan, 4096).length).toBe(4096);
     expect(validateSparseStreamMetadata(metadata, blob.size).sourceRanges).toEqual(metadata.sourceRanges);
+  });
+
+  test("rejects malformed input without waiting for upstream cancellation", async () => {
+    const { blob, bytes, metadata } = await fixture([raw(1)]);
+    new DataView(bytes.buffer).setUint32(0, 0, true);
+    for (const options of [{ cancelNever: true }, { cancelError: new Error("cleanup failed") }]) {
+      const state = { ...options };
+      const input = source(bytes, [28], state);
+      const reader = selectSparseRanges(input, metadata, blob.size).getReader();
+      let timer;
+      try {
+        const deadline = new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("validation waited for cancellation")), 1000);
+        });
+        await expect(Promise.race([reader.read(), deadline])).rejects.toThrow("invalid sparse header");
+        expect(state.cancelled).toBe(true);
+        expect(input.locked).toBe(false);
+      } finally {
+        clearTimeout(timer);
+        reader.releaseLock();
+      }
+    }
+  });
+
+  test("cancels a pending upstream read and releases its lock", async () => {
+    const { blob, metadata } = await fixture();
+    let cancelled = false;
+    const input = new ReadableStream({ cancel() { cancelled = true; } }, { highWaterMark: 0 });
+    const reader = selectSparseRanges(input, metadata, blob.size).getReader();
+    const pending = reader.read();
+    await reader.cancel("stopped");
+    expect((await pending).done).toBe(true);
+    expect(cancelled).toBe(true);
+    expect(input.locked).toBe(false);
+    reader.releaseLock();
   });
 });
