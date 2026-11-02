@@ -276,8 +276,9 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
     if (preserveDdr && !canPreserveDdr(ddrPartitionFromGpt(await device.getGpt(3)), desiredDdr)) {
       throw new Error("Unexpected DDR location after GPT repair");
     }
+    // Samsung system writes are storage-bound; warming only userdata avoids competing with firmware writes.
     if (prefetchBytes) sources.warm(plan.images.filter(image => image.transport === "lz4"
-      && (image.name === "system" || image.name === plan.userdata)), prefetchBytes);
+      && (image.name === plan.userdata || (image.name === "system" && storage.manufacturer_id !== 462))), prefetchBytes);
     for (let lun = 0; lun < 6; lun++) {
       const preserve = ["mbr", "gpt"];
       if (lun === 0) preserve.push("persist");

@@ -487,3 +487,32 @@ test("full-flow failure is not hidden by an uncooperative pending source or canc
     assert.ok(performance.now() - started < 2500);
   }
 });
+
+
+test("Samsung prefetches userdata without spending early CPU on its storage-bound system image", async () => {
+  const { entries, files } = fixture();
+  const { bytes, companion } = addLz4Companion(entries);
+  const userdata = entries.find(image => image.name === "userdata_90");
+  userdata.hash_raw = companion.hash_raw;
+  userdata.flash = { lz4: structuredClone(companion) };
+  const pulls = { system: 0, userdata_90: 0 };
+  const device = {
+    getStorageInfo() { return { ...storage, prod_name: "KLUDG4U1EA-B0C1", manufacturer_id: 462, total_blocks: 29765632 }; },
+    canFlashStream() { return true; }, canFlashLz4Stream() { return true; },
+    getGpt() { return parsedGpt(files.get("gpt_main_3")); }, repairGpt() { return true; },
+    detectPartition() { return [true, 0, { start: 8n, sectors: 8192n }]; },
+    async eraseLun(lun) {
+      if (lun === 0) { await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(pulls.system, 0); assert.equal(pulls.userdata_90, 1); }
+      return true;
+    },
+    async flashStream(name, info, payload) { await collect(payload); return true; },
+    async flashLz4Stream(name, info, payload) { assert.deepEqual(await collect(payload), bytes); return true; },
+    setActiveSlot() { return true; }, reset() { return true; },
+  };
+  await flashManifest(device, entries, new URL("file:///tmp/a"), { openImage: async image => {
+    if (image.transport !== "lz4") return stream(files.get(image.name));
+    let sent = false;
+    return new ReadableStream({ pull(controller) { if (sent) return controller.close(); sent = true; pulls[image.name]++; controller.enqueue(bytes); } }, { highWaterMark: 0 });
+  } });
+  assert.deepEqual(pulls, { system: 1, userdata_90: 1 });
+});
