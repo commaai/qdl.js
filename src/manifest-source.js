@@ -80,7 +80,8 @@ async function openVerifiedFrames(image, signal, concurrency) {
   async function decode(bytes, index) {
     const expected = Math.min(VERIFIED_CHUNK_SIZE, image.fileSize - index * VERIFIED_CHUNK_SIZE);
     const decoded = await decompress(bytes, {
-      chunkSize: VERIFIED_CHUNK_SIZE,
+      // One spare byte avoids zlib allocating another output buffer just to discover EOF.
+      chunkSize: Math.max(64, expected + 1),
       maxOutputLength: expected,
       params: { [zlib.constants.ZSTD_d_windowLogMax]: 22 },
     });
