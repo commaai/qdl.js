@@ -40,8 +40,9 @@ jobs:
 
       - name: download system image
         run: |
-          url=$(curl https://raw.githubusercontent.com/commaai/openpilot/master/system/hardware/tici/agnos.json | jq -r ".[] | select(.name == \"system\") | .url")
-          curl -L $url | unxz > system.img
+          set -o pipefail
+          url=$(curl -fsSL https://raw.githubusercontent.com/commaai/openpilot/master/openpilot/system/hardware/tici/agnos.json | jq -er '.[] | select(.name == "system") | .url')
+          curl -fsSL "$url" | unxz > system.img
 
       - name: generate raw system image
         run: simg2img system.img system-raw.img
