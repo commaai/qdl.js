@@ -172,7 +172,7 @@ export class qdlDevice {
 
     if (primaryCorrupted) {
       if (backupCorrupted) {
-        throw new Error(`LUN ${lun}: Both primary and backup GPT headers are corrupted, cannot recover`);
+        throw Object.assign(new Error(`LUN ${lun}: Both primary and backup GPT headers are corrupted, cannot recover`), { code: "GPT_CORRUPT" });
       }
       // TODO: restore primary from backup
       logger.warn(`LUN ${lun}: Primary GPT is corrupted, using backup`);

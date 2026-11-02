@@ -280,7 +280,9 @@ describe("bounded GPT reads", () => {
     await device.detectPartition("system_a");
     device.storage.entries[0] ^= 1;
     device.storage.backupEntries[0] ^= 1;
-    await expect(device.getGpt(0)).rejects.toThrow("Both primary and backup");
+    const failure = device.getGpt(0);
+    await expect(failure).rejects.toThrow("Both primary and backup");
+    await expect(failure).rejects.toHaveProperty("code", "GPT_CORRUPT");
     device.storage = disk(200n);
     expect((await device.detectPartition("system_a"))[2].start).toBe(200n);
     expect(device.reads).toBe(6);
@@ -302,9 +304,19 @@ describe("bounded GPT reads", () => {
         const data = await read(sector, count);
         return sector === (separate ? 2n : 1n) ? data.subarray(0, data.length - 1) : data;
       };
-      await expect(device.getGpt(0)).rejects.toThrow("Truncated GPT");
+      const failure = device.getGpt(0);
+      await expect(failure).rejects.toThrow("Truncated GPT");
+      await expect(failure).rejects.not.toHaveProperty("code");
       expect(device.reads).toBe(separate ? 2 : 1);
     }
+  });
+
+  test("does not classify transport failures as corrupt GPT metadata", async () => {
+    const device = new TestDevice(new ArrayBuffer(1));
+    const failure = new Error("USB disconnected");
+    device.readBuffer = () => Promise.reject(failure);
+    await expect(device.getGpt(0)).rejects.toBe(failure);
+    expect(failure).not.toHaveProperty("code");
   });
 });
 
