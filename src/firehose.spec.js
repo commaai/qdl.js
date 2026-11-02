@@ -505,3 +505,27 @@ test("a raw read timeout closes the connection without reading the final ACK", a
   await expect(hose.cmdReadBuffer(0, 1n, 1)).rejects.toThrow("power-cycle");
   expect(writes).toBe(1);
 }, 4000);
+
+test("safe UNMAP coalescing requires the exact capability and resets on configure", async () => {
+  const hose = new Firehose({ write: () => Promise.resolve() });
+  for (const value of ['UfsUnmapLimits="1"', 'UfsUnmapLimits="0"', 'UfsUnmapLimits="2"',
+    'UfsUnmapLimits="true"', 'UfsUnmapLimits="01"', 'UnknownUfsUnmapLimits="1"', '']) {
+    hose.waitForData = () => Promise.resolve(new TextEncoder().encode(`<?xml version="1.0"?><data><log value="Calling handler for configure"/><log value="Storage type set to value UFS"/><response value="ACK" MemoryName="UFS" ${value}/></data>`));
+    await hose.configure();
+    expect(hose.ufsUnmapLimits).toBe(value === 'UfsUnmapLimits="1"');
+  }
+});
+
+test("safe erase uses its own response deadline without extending other commands", async () => {
+  const hose = new Firehose({ write: () => Promise.resolve() });
+  const deadlines = [];
+  hose.waitForData = (_, timeoutMs) => {
+    deadlines.push(timeoutMs);
+    return Promise.resolve(ack("ACK", "false"));
+  };
+  expect(await hose.cmdErase(0, 20n, 1)).toBe(true);
+  hose.ufsUnmapLimits = true;
+  expect(await hose.cmdErase(0, 20n, 0xffffffff)).toBe(true);
+  await hose.xmlSend("<nop/>");
+  expect(deadlines).toEqual([1000, 60000, 1000]);
+});

@@ -59,15 +59,17 @@ export class Firehose {
     this.luns = [];
     this.programSparseMaxExtents = 0;
     this.programSparseMaxCopies = 1;
+    this.ufsUnmapLimits = false;
     this.failed = false;
   }
 
   /**
    * @param {string} command
    * @param {boolean} [wait=true]
+   * @param {number} [responseTimeoutMs=1000]
    * @returns {Promise<response>}
    */
-  async xmlSend(command, wait = true) {
+  async xmlSend(command, wait = true, responseTimeoutMs = 1000) {
     if (this.failed) throw new Error("Flash transfer interrupted; power-cycle the device before retrying");
     // FIXME: warn if command is shortened
     const dataToSend = new TextEncoder().encode(command).slice(0, this.cfg.MaxXMLSizeInBytes);
@@ -77,7 +79,7 @@ export class Firehose {
       throw await this.#abortProgram(error);
     }
 
-    const rData = await this.waitForData();
+    const rData = await this.waitForData(3, responseTimeoutMs);
     const resp = this.xml.getResponse(rData);
     const log = this.xml.getLog(rData);
     this.#printLogMessages(log);
@@ -113,6 +115,7 @@ export class Firehose {
     if (this.failed) throw new Error("Flash transfer interrupted; power-cycle the device before retrying");
     this.programSparseMaxExtents = 0;
     this.programSparseMaxCopies = 1;
+    this.ufsUnmapLimits = false;
     const connectCmd = toXml("configure", {
       MemoryName: this.cfg.MemoryName,
       Verbose: 0,
@@ -152,6 +155,7 @@ export class Firehose {
       const copies = Number(sparseCopies);
       if (Number.isSafeInteger(copies)) this.programSparseMaxCopies = Math.min(copies, 2);
     }
+    this.ufsUnmapLimits = response.UfsUnmapLimits === "1";
     this.luns = Array.from({ length: this.cfg.maxlun }, (x, i) => i);
     return true;
   }
@@ -207,15 +211,16 @@ export class Firehose {
 
   /**
    * @param {number} [retries]
+   * @param {number} [timeoutMs=1000]
    * @returns {Promise<Uint8Array>}
    */
-  async waitForData(retries = 3) {
+  async waitForData(retries = 3, timeoutMs = 1000) {
     if (this.failed) throw new Error("Flash transfer interrupted; power-cycle the device before retrying");
     let tmp = new Uint8Array();
     let timeout = 0;
     while (!containsBytes("<response", tmp)) {
       let res;
-      try { res = await runWithTimeout(this.cdc.read(), 1000); }
+      try { res = await runWithTimeout(this.cdc.read(), timeoutMs); }
       catch (error) {
         // A timed-out WebUSB read cannot be withdrawn portably. Retrying could
         // let the abandoned read consume the next command's response.
@@ -503,7 +508,7 @@ export class Firehose {
       start_sector: startSector,
     };
     if (this.cfg.FastErase) {
-      const rsp = await this.xmlSend(toXml("erase", attributes));
+      const rsp = await this.xmlSend(toXml("erase", attributes), true, this.ufsUnmapLimits ? 60000 : 1000);
       const resp = this.xml.getResponse(rsp.data);
       if (!("value" in resp)) throw "Failed to erase: no return value";
       if (resp.value !== "ACK") throw "Failed to erase: NAK";

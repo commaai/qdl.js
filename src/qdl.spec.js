@@ -2,6 +2,55 @@ import { describe, expect, test } from "bun:test";
 import { buf as crc32 } from "crc-32";
 import { qdlDevice } from "./qdl";
 
+describe("VPD-aware erase ranges", () => {
+  function eraseDevice(ufsUnmapLimits, lastLba, fail = false, backup = false) {
+    const calls = [];
+    const device = new qdlDevice(new ArrayBuffer(1));
+    Object.defineProperty(device, "firehose", { value: { ufsUnmapLimits, cfg: { FastErase: true },
+      cmdErase: (lun, start, count) => { calls.push([lun, start, count]); return Promise.resolve(!fail); } } });
+    device.getGpt = async () => ({ currentLba: backup ? lastLba : 1n, alternateLba: backup ? 1n : lastLba, firstUsableLba: 6n,
+      lastUsableLba: lastLba - 5n, locatePartition: name => name === "persist" ? { start: 11n, end: 19n } : undefined });
+    return { device, calls };
+  }
+
+  test("coalesces only supported erases while preserving GPT, MBR and persist", async () => {
+    const lastLba = 2n * 512n * 1024n + 100n;
+    for (const supported of [false, true]) {
+      const { device, calls } = eraseDevice(supported, lastLba);
+      expect(await device.eraseLun(0)).toBe(true);
+      expect(calls[0]).toEqual([0, 6n, 5]);
+      let next = 20n;
+      for (const [lun, start, count] of calls.slice(1)) {
+        expect(lun).toBe(0);
+        expect(start).toBe(next);
+        expect(count).toBeLessThanOrEqual(supported ? 0xffffffff : 512 * 1024);
+        next += BigInt(count);
+      }
+      expect(next).toBe(lastLba - 4n);
+      expect(calls).toHaveLength(supported ? 2 : 4);
+    }
+  });
+
+  test("splits at the wire count limit and stops immediately after failed erases", async () => {
+    const large = eraseDevice(true, 0xffffffffn + 100n);
+    expect(await large.device.eraseLun(0)).toBe(true);
+    expect(large.calls).toEqual([[0, 6n, 5], [0, 20n, 0xffffffff], [0, 0xffffffffn + 20n, 76]]);
+    const failed = eraseDevice(true, 1000n, true);
+    expect(await failed.device.eraseLun(0)).toBe(false);
+    expect(failed.calls).toHaveLength(1);
+  });
+
+  test("preserves identical ranges when recovering the primary GPT from the backup", async () => {
+    for (const supported of [false, true]) {
+      const primary = eraseDevice(supported, 1048676n);
+      const backup = eraseDevice(supported, 1048676n, false, true);
+      expect(await primary.device.eraseLun(0)).toBe(true);
+      expect(await backup.device.eraseLun(0)).toBe(true);
+      expect(backup.calls).toEqual(primary.calls);
+    }
+  });
+});
+
 function updateHeader(header, update) {
   const view = new DataView(header.buffer, header.byteOffset, header.byteLength);
   update(view);

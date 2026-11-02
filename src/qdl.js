@@ -231,14 +231,17 @@ export class qdlDevice {
   async eraseLun(lun, preservePartitions = ["mbr", "gpt", "persist"]) {
     const primaryGpt = await this.getGpt(lun);
     const { currentLba, alternateLba, firstUsableLba, lastUsableLba } = primaryGpt;
+    // Recovery may return the backup GPT, whose current/alternate LBAs are reversed.
+    const primaryHeaderLba = currentLba < alternateLba ? currentLba : alternateLba;
+    const backupHeaderLba = currentLba > alternateLba ? currentLba : alternateLba;
     /** @type {{ name: string; start: bigint; end: bigint }[]} */
     const protectedRanges = [];
     if (preservePartitions.includes("mbr")) {
       protectedRanges.push({ name: "mbr", start: 0n, end: 0n });
     }
     if (preservePartitions.includes("gpt")) {
-      protectedRanges.push({ name: "gpt-primary", start: currentLba, end: firstUsableLba - 1n });
-      protectedRanges.push({ name: "gpt-backup", start: lastUsableLba + 1n, end: alternateLba });
+      protectedRanges.push({ name: "gpt-primary", start: primaryHeaderLba, end: firstUsableLba - 1n });
+      protectedRanges.push({ name: "gpt-backup", start: lastUsableLba + 1n, end: backupHeaderLba });
     }
     for (const name of preservePartitions) {
       if (name === "mbr" || name === "gpt") continue;
@@ -280,8 +283,8 @@ export class qdlDevice {
       }
       lastEndSector = range.end;
     }
-    if (lastEndSector < alternateLba) {
-      erasableRanges.push({ start: lastEndSector + 1n, end: alternateLba });
+    if (lastEndSector < backupHeaderLba) {
+      erasableRanges.push({ start: lastEndSector + 1n, end: backupHeaderLba });
     }
 
     this.#gptCache.delete(lun);
@@ -289,14 +292,15 @@ export class qdlDevice {
       const sectors = range.end - range.start + 1n;
       logger.debug(`Erasing sectors ${range.start}-${range.end} (${sectors})`);
 
-      // Erase command times out for larger numbers of sectors
-      const maxSectors = 512 * 1024;
+      // New programmers split requests internally using the device's VPD limits.
+      // Older programmers keep the bounded requests their response deadline allows.
+      const maxSectors = this.firehose.ufsUnmapLimits && this.firehose.cfg.FastErase ? 0xffffffff : 512 * 1024;
       let sector = range.start;
       while (sector <= range.end) {
         const chunkSectors = Math.min(Number(range.end - sector + 1n), maxSectors);
         const result = await this.firehose.cmdErase(lun, sector, chunkSectors);
         if (!result) {
-          logger.error(`Failed to erase sectors chunk ${sectors}-${sectors + BigInt(chunkSectors - 1)}`);
+          logger.error(`Failed to erase sectors chunk ${sector}-${sector + BigInt(chunkSectors - 1)}`);
           return false;
         }
         sector = sector + BigInt(chunkSectors);
