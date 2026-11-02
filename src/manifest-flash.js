@@ -224,23 +224,28 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
   if (!Number.isSafeInteger(prefetchBytes) || prefetchBytes < 0 || prefetchBytes > 256 * 1024 * 1024
     || (prefetchBytes !== 0 && prefetchBytes < 4 * 1024 * 1024)) throw new Error("Invalid verified prefetch size");
   const started = performance.now();
+  let measuredSeconds = 0;
+  const record = (name, seconds) => { measuredSeconds += seconds; report({ phase: name, seconds }); };
   async function phase(name, operation) {
     signal?.throwIfAborted();
     const begin = performance.now();
     const result = await operation();
     if (result === false) throw new Error(`${name} failed`);
-    report({ phase: name, seconds: (performance.now() - begin) / 1000 });
+    record(name, (performance.now() - begin) / 1000);
     return result;
   }
   const controller = new AbortController();
   signal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
-  let sources;
+  let sources, completed;
   try {
     const storage = await phase("storage", () => device.getStorageInfo());
-    const plan = prepareManifest(entries, baseUrl, storage, slot, count => device.canFlashLz4Stream?.(count) ?? false);
-    for (const image of plan.images) {
-      if (image.transport !== "lz4" && !device.canFlashStream(image.stream.extents.length)) throw new Error(`Programmer lacks native sparse support for ${image.name}`);
-    }
+    const plan = await phase("prepare_manifest", () => {
+      const result = prepareManifest(entries, baseUrl, storage, slot, count => device.canFlashLz4Stream?.(count) ?? false);
+      for (const image of result.images) {
+        if (image.transport !== "lz4" && !device.canFlashStream(image.stream.extents.length)) throw new Error(`Programmer lacks native sparse support for ${image.name}`);
+      }
+      return result;
+    });
     const gptBytes = new Map();
     await phase("verify_gpts", async () => {
       await Promise.all(plan.gpts.map(async image => {
@@ -256,29 +261,35 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
       }));
       validateManifestDestinations(plan, gptBytes, storage);
     });
-    const desiredDdr = readDdrPartition(gptBytes.get(3));
-    let existingDdr = null;
-    try {
-      existingDdr = ddrPartitionFromGpt(await device.getGpt(3));
-    } catch (error) {
-      // A blank or corrupt GPT can be recovered from the supplied images. Transport failures cannot.
-      if (error.code !== "GPT_CORRUPT" && !(error instanceof CalibrationLayoutError)) throw error;
-    }
-    const preserveDdr = canPreserveDdr(existingDdr, desiredDdr);
-    sources = prefetchImages(plan.images, openImage, signal, error => controller.abort(error));
+    const { desiredDdr, preserveDdr } = await phase("check_existing_calibration", async () => {
+      const desiredDdr = readDdrPartition(gptBytes.get(3));
+      let existingDdr = null;
+      try {
+        existingDdr = ddrPartitionFromGpt(await device.getGpt(3));
+      } catch (error) {
+        // A blank or corrupt GPT can be recovered from the supplied images. Transport failures cannot.
+        if (error.code !== "GPT_CORRUPT" && !(error instanceof CalibrationLayoutError)) throw error;
+      }
+      return { desiredDdr, preserveDdr: canPreserveDdr(existingDdr, desiredDdr) };
+    });
+    await phase("start_sources", () => { sources = prefetchImages(plan.images, openImage, signal, error => controller.abort(error)); });
     await phase("repair_gpts", async () => {
       for (const image of plan.gpts) {
         if (!await device.repairGpt(image.gpt.lun, new Blob([gptBytes.get(image.gpt.lun)]))) throw new Error(`GPT repair failed on LUN ${image.gpt.lun}`);
       }
     });
-    const [found, lun, persist] = await device.detectPartition("persist");
-    if (!found || lun !== 0 || persist.start !== 8n || persist.sectors !== 8192n) throw new Error("Unexpected persist location after GPT repair");
-    if (preserveDdr && !canPreserveDdr(ddrPartitionFromGpt(await device.getGpt(3)), desiredDdr)) {
-      throw new Error("Unexpected DDR location after GPT repair");
-    }
-    // Samsung system writes are storage-bound; warming only userdata avoids competing with firmware writes.
-    if (prefetchBytes) sources.warm(plan.images.filter(image => image.transport === "lz4"
-      && (image.name === plan.userdata || (image.name === "system" && storage.manufacturer_id !== 462))), prefetchBytes);
+    await phase("check_repaired_calibration", async () => {
+      const [found, lun, persist] = await device.detectPartition("persist");
+      if (!found || lun !== 0 || persist.start !== 8n || persist.sectors !== 8192n) throw new Error("Unexpected persist location after GPT repair");
+      if (preserveDdr && !canPreserveDdr(ddrPartitionFromGpt(await device.getGpt(3)), desiredDdr)) {
+        throw new Error("Unexpected DDR location after GPT repair");
+      }
+    });
+    await phase("start_prefetch", () => {
+      // Samsung system writes are storage-bound; warming only userdata avoids competing with firmware writes.
+      if (prefetchBytes) sources.warm(plan.images.filter(image => image.transport === "lz4"
+        && (image.name === plan.userdata || (image.name === "system" && storage.manufacturer_id !== 462))), prefetchBytes);
+    });
     for (let lun = 0; lun < 6; lun++) {
       const preserve = ["mbr", "gpt"];
       if (lun === 0) preserve.push("persist");
@@ -299,9 +310,14 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
     }
     await phase(`activate_${slot}`, () => device.setActiveSlot(slot));
     await phase("reset", () => device.reset());
-    report({ phase: "complete", seconds: (performance.now() - started) / 1000, userdata: plan.userdata, slot });
+    completed = { userdata: plan.userdata, slot };
   } finally {
+    const cleanupStarted = performance.now();
     controller.abort();
     await sources?.close();
+    record("source_cleanup", (performance.now() - cleanupStarted) / 1000);
   }
+  const seconds = (performance.now() - started) / 1000;
+  record("host_overhead", Math.max(0, seconds - measuredSeconds));
+  report({ phase: "complete", seconds, ...completed });
 }

@@ -230,7 +230,7 @@ test("full flow preserves persist, erases six LUNs, writes one slot, and finaliz
   for (const [slot, failure] of [[undefined, "none"], [undefined, "usb"], [undefined, "source"], ["b", "none"]]) {
     const fail = failure !== "none";
     const { entries, files } = fixture();
-    const events = [];
+    const events = [], reports = [];
     const device = {
       getStorageInfo() { return storage; }, canFlashStream() { return true; },
       getGpt() { return parsedGpt(files.get("gpt_main_3")); },
@@ -248,7 +248,7 @@ test("full flow preserves persist, erases six LUNs, writes one slot, and finaliz
       reset() { events.push("reset"); },
     };
     let cancelled = false;
-    const run = flashManifest(device, entries, new URL("file:///tmp/manifest.json"), { slot, openImage: async image => {
+    const run = flashManifest(device, entries, new URL("file:///tmp/manifest.json"), { slot, report: event => reports.push(event), openImage: async image => {
       if (failure === "source" && image.name === "boot") throw new Error("Prefetch failed");
       const bytes = files.get(image.name);
       let offset = 0;
@@ -264,6 +264,13 @@ test("full flow preserves persist, erases six LUNs, writes one slot, and finaliz
     assert.equal(events.includes("reset"), !fail);
     assert.equal(events.includes("activate"), !fail);
     if (!fail) { assert.equal(events.filter(name => name === "modem_a").length, 1); assert.equal(events.includes("modem_b"), false); }
+    if (!fail) {
+      for (const name of ["prepare_manifest", "check_existing_calibration", "check_repaired_calibration", "source_cleanup", "host_overhead"]) assert.ok(reports.some(event => event.phase === name));
+      assert.equal(reports.at(-1).phase, "complete");
+      assert.ok(reports.findIndex(event => event.phase === "source_cleanup") > reports.findIndex(event => event.phase === "reset"));
+      const stages = reports.filter(event => event.phase !== "complete").reduce((sum, event) => sum + event.seconds, 0);
+      assert.ok(Math.abs(stages - reports.at(-1).seconds) < 1e-8);
+    } else assert.equal(reports.some(event => event.phase === "complete"), false);
   }
 });
 
