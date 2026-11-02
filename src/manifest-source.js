@@ -240,6 +240,18 @@ export async function openResource(url, signal, expectedSize = undefined) {
   return response.body;
 }
 
+/** Prefetch verified chunks with a byte limit; cancellation propagates to the archive producer. */
+export function bufferVerifiedSource(source, bytes, signal, onError = () => undefined) {
+  if (!Number.isSafeInteger(bytes) || bytes < VERIFIED_CHUNK_SIZE || bytes > 256 * 1024 * 1024) throw new Error("Invalid verified prefetch size");
+  const buffer = new TransformStream({ transform(chunk, output) {
+    if (!(chunk instanceof Uint8Array) || !chunk.length || chunk.length > VERIFIED_CHUNK_SIZE) throw new Error("Invalid verified prefetch chunk");
+    output.enqueue(chunk);
+  } }, { highWaterMark: 1 }, { highWaterMark: bytes, size: chunk => chunk.byteLength });
+  // Observing the pipe error also stops the full flash when a future image fails early.
+  void source.pipeTo(buffer.writable, { signal }).catch(onError);
+  return buffer.readable;
+}
+
 /** Bounded native decompression: no archive cache and no whole-image allocation. */
 export async function openVerifiedImage(image, signal, concurrency = 8) {
   requireNativeZstd();

@@ -1,7 +1,7 @@
 import { CalibrationLayoutError, canPreserveDdr, ddrPartitionFromGpt, readDdrPartition } from "./calibration.js";
 import { GPT } from "./gpt.js";
 import { validateLz4Metadata } from "./lz4-stream.js";
-import { openVerifiedImage, resourceUrl, validateFrameSizes, validateImageHashes } from "./manifest-source.js";
+import { bufferVerifiedSource, openVerifiedImage, resourceUrl, validateFrameSizes, validateImageHashes } from "./manifest-source.js";
 import { selectSparseRanges, validateSparseStreamMetadata } from "./sparse-stream.js";
 
 const SECTOR_SIZE = 4096;
@@ -172,35 +172,57 @@ export function validateManifestDestinations(plan, gptBytes, storage) {
 }
 
 
-function prefetchImages(images, openImage, signal) {
+async function finishCleanup(operation) {
+  let timer;
+  try {
+    await Promise.race([Promise.resolve(operation).catch(() => undefined), new Promise(resolve => { timer = setTimeout(resolve, 2000); })]);
+  } finally { clearTimeout(timer); }
+}
+
+function prefetchImages(images, openImage, signal, onError) {
   const pending = [];
+  const opened = new Map();
   let index = 0;
-  const fill = () => {
-    while (pending.length < 4 && index < images.length) {
-      const image = images[index++];
-      // Store errors as values so an early rejection is observed while USB is busy.
-      pending.push(Promise.resolve().then(() => openImage(image, signal)).then(source => ({ source }), error => ({ error })));
+  const get = image => {
+    if (!opened.has(image)) {
+      const record = { promise: Promise.resolve().then(() => openImage(image, signal)).then(source => ({ source }), error => ({ error })) };
+      opened.set(image, record);
     }
+    return opened.get(image);
+  };
+  const fill = () => {
+    while (pending.length < 4 && index < images.length) pending.push(get(images[index++]));
   };
   fill();
   return {
+    warm(candidates, bytes) {
+      for (const image of candidates) {
+        const record = get(image);
+        record.promise = record.promise.then(result => {
+          if (result.error) { onError(result.error); return result; }
+          return { source: bufferVerifiedSource(result.source, bytes, signal, onError) };
+        }).catch(error => { onError(error); return { error }; });
+      }
+    },
     async next() {
       fill();
-      const result = await pending.shift();
+      const result = await pending.shift().promise;
       if (result.error) throw result.error;
       return result.source;
     },
     async close() {
-      await Promise.all(pending.map(async promise => {
-        const { source } = await promise;
+      await finishCleanup(Promise.all([...opened.values()].map(async record => {
+        const { source } = await record.promise;
         if (source && !source.locked) await source.cancel().catch(() => undefined);
-      }));
+      })));
     },
   };
 }
 
 /** Full factory flash. Only activate the selected slot and reset after every image succeeds. */
-export async function flashManifest(device, entries, baseUrl, { slot = "a", signal, report = () => undefined, openImage = openVerifiedImage } = {}) {
+export async function flashManifest(device, entries, baseUrl, { slot = "a", signal, report = () => undefined, openImage = openVerifiedImage, prefetchBytes = 128 * 1024 * 1024 } = {}) {
+  if (!Number.isSafeInteger(prefetchBytes) || prefetchBytes < 0 || prefetchBytes > 256 * 1024 * 1024
+    || (prefetchBytes !== 0 && prefetchBytes < 4 * 1024 * 1024)) throw new Error("Invalid verified prefetch size");
   const started = performance.now();
   async function phase(name, operation) {
     signal?.throwIfAborted();
@@ -243,7 +265,7 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
       if (error.code !== "GPT_CORRUPT" && !(error instanceof CalibrationLayoutError)) throw error;
     }
     const preserveDdr = canPreserveDdr(existingDdr, desiredDdr);
-    sources = prefetchImages(plan.images, openImage, signal);
+    sources = prefetchImages(plan.images, openImage, signal, error => controller.abort(error));
     await phase("repair_gpts", async () => {
       for (const image of plan.gpts) {
         if (!await device.repairGpt(image.gpt.lun, new Blob([gptBytes.get(image.gpt.lun)]))) throw new Error(`GPT repair failed on LUN ${image.gpt.lun}`);
@@ -254,6 +276,8 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
     if (preserveDdr && !canPreserveDdr(ddrPartitionFromGpt(await device.getGpt(3)), desiredDdr)) {
       throw new Error("Unexpected DDR location after GPT repair");
     }
+    if (prefetchBytes) sources.warm(plan.images.filter(image => image.transport === "lz4"
+      && (image.name === "system" || image.name === plan.userdata)), prefetchBytes);
     for (let lun = 0; lun < 6; lun++) {
       const preserve = ["mbr", "gpt"];
       if (lun === 0) preserve.push("persist");
@@ -268,7 +292,7 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
           const flash = image.transport === "lz4" ? device.flashLz4Stream.bind(device) : device.flashStream.bind(device);
           if (!await flash(image.names[0], image.stream, payload, undefined, false)) throw new Error(`Flashing ${image.name} failed`);
         } finally {
-          if (!payload.locked) await payload.cancel().catch(() => undefined);
+          if (!payload.locked) await finishCleanup(payload.cancel());
         }
       });
     }

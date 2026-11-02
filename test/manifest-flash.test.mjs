@@ -4,7 +4,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test as nativeTest } from "node:test";
+// The CLI requires Node; Bun tests preload Happy DOM with incompatible AbortSignal objects.
+const test = process.versions.bun ? nativeTest.skip : nativeTest;
 import { pathToFileURL } from "node:url";
 import { zstdCompressSync } from "node:zlib";
 import CRC32 from "crc-32";
@@ -12,7 +14,7 @@ const { buf: crc32 } = CRC32;
 import { GPT } from "../src/gpt.js";
 import { CalibrationLayoutError, canPreserveDdr, ddrPartitionFromGpt, readDdrPartition } from "../src/calibration.js";
 import { flashManifest, prepareManifest, userdataForStorage, validateManifestDestinations } from "../src/manifest-flash.js";
-import { openResource, openVerifiedImage, VERIFIED_CHUNK_SIZE, verifyImageStream } from "../src/manifest-source.js";
+import { bufferVerifiedSource, openResource, openVerifiedImage, VERIFIED_CHUNK_SIZE, verifyImageStream } from "../src/manifest-source.js";
 
 const hash = data => createHash("sha256").update(data).digest("hex");
 const metadata = bytes => ({ name: "fixture", hash: hash(bytes), fileSize: bytes.length, chunkSize: VERIFIED_CHUNK_SIZE,
@@ -331,8 +333,7 @@ test("corrupt old GPT recovers persist after repair, while transport errors and 
 });
 
 
-// Bun tests preload Happy DOM, whose AbortSignal is not compatible with native fetch.
-test("a failed early frame cancels a stalled later HTTP read during prefill", { skip: Boolean(process.versions.bun) }, async t => {
+test("a failed early frame cancels a stalled later HTTP read during prefill", async t => {
   const chunk = Buffer.alloc(VERIFIED_CHUNK_SIZE, 7);
   const frame = zstdCompressSync(chunk);
   const server = createServer((request, response) => {
@@ -390,7 +391,7 @@ test("full manifest sends verified LZ4 wire directly and stops on stream failure
   for (const fail of [false, true]) {
     const { entries, files } = fixture();
     const { bytes } = addLz4Companion(entries);
-    let lz4Writes = 0, finalized = false;
+    let lz4Writes = 0, finalized = false, systemOpens = 0;
     const device = {
       getStorageInfo() { return storage; }, canFlashStream() { return true; }, canFlashLz4Stream() { return true; },
       getGpt() { return parsedGpt(files.get("gpt_main_3")); }, repairGpt() { return true; }, eraseLun() { return true; },
@@ -404,11 +405,12 @@ test("full manifest sends verified LZ4 wire directly and stops on stream failure
     };
     const run = flashManifest(device, entries, new URL("file:///tmp/a"), { openImage: async image => {
       if (image.transport !== "lz4") return stream(files.get(image.name));
+      systemOpens++;
       if (fail) return new ReadableStream({ pull(controller) { controller.error(new Error("LZ4 source failed")); } });
       return stream(bytes);
     } });
     if (fail) await assert.rejects(run, /LZ4 source failed/); else await run;
-    assert.equal(lz4Writes, 1); assert.equal(finalized, !fail);
+    assert.equal(lz4Writes, fail ? 0 : 1); assert.equal(finalized, !fail); assert.equal(systemOpens, 1);
   }
 });
 
@@ -432,5 +434,56 @@ test("LZ4 may fill sparse holes but cannot omit raw coverage or exceed logical b
     companion.stream.extents = extents;
     companion.stream.data_sectors = extents.reduce((sum, extent) => sum + extent[1], 0);
     assert.throws(prepare);
+  }
+});
+
+
+test("verified prefetch is byte bounded and cancellation stops its producer", async () => {
+  let produced = 0, cancelled = false;
+  const source = new ReadableStream({ pull(controller) { produced++; controller.enqueue(new Uint8Array(VERIFIED_CHUNK_SIZE)); },
+    cancel() { cancelled = true; } }, { highWaterMark: 0 });
+  const buffered = bufferVerifiedSource(source, VERIFIED_CHUNK_SIZE * 2);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  // Two queued chunks plus at most one pending transform and one pipe read.
+  assert.ok(produced >= 2 && produced <= 4, `unexpected prefetch count ${produced}`);
+  await buffered.cancel();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(cancelled, true);
+  assert.equal(source.locked, false);
+});
+
+test("prefetch errors are observed before consumption and abort the full flow", async () => {
+  const expected = new Error("prefetch hash failed");
+  const abort = new AbortController();
+  let observed;
+  const source = new ReadableStream({ pull(controller) { controller.error(expected); } }, { highWaterMark: 0 });
+  const buffered = bufferVerifiedSource(source, VERIFIED_CHUNK_SIZE, abort.signal, error => { observed = error; abort.abort(error); });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(observed, expected);
+  assert.equal(abort.signal.reason, expected);
+  await assert.rejects(buffered.getReader().read(), /prefetch hash failed/);
+  assert.throws(() => bufferVerifiedSource(stream(new Uint8Array(1)), 1), /prefetch size/);
+});
+
+
+test("full-flow failure is not hidden by an uncooperative pending source or cancellation", { timeout: 6000 }, async () => {
+  for (const failure of ["open", "cancel"]) {
+    const { entries, files } = fixture();
+    const device = {
+      getStorageInfo() { return storage; }, canFlashStream() { return true; },
+      getGpt() { return parsedGpt(files.get("gpt_main_3")); }, repairGpt() { return true; }, eraseLun() { return true; },
+      detectPartition() { return [true, 0, { start: 8n, sectors: 8192n }]; },
+      flashStream() { throw new Error("original USB failure"); },
+      setActiveSlot() { assert.fail("must not activate"); }, reset() { assert.fail("must not reset"); },
+    };
+    const started = performance.now();
+    await assert.rejects(flashManifest(device, entries, new URL("file:///tmp/a"), { openImage: async image => {
+      if (image.name === "boot") {
+        if (failure === "open") return new Promise(() => { /* A source that ignores abort. */ });
+        return new ReadableStream({ cancel() { return new Promise(() => { /* A source that ignores cancellation. */ }); } });
+      }
+      return stream(files.get(image.name));
+    } }), /original USB failure/);
+    assert.ok(performance.now() - started < 2500);
   }
 });

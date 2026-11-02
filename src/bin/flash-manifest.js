@@ -12,6 +12,7 @@ const { values } = parseArgs({ options: {
   programmer: { type: "string" },
   "programmer-sha256": { type: "string" },
   "decode-concurrency": { type: "string", default: "8" },
+  "prefetch-mib": { type: "string", default: "128" },
   slot: { type: "string", default: "a" },
   help: { type: "boolean", short: "h" },
 } });
@@ -35,6 +36,8 @@ try {
   if (values.slot !== "a" && values.slot !== "b") throw new Error("--slot must be a or b");
   const concurrency = Number(values["decode-concurrency"]);
   if (concurrency !== 4 && concurrency !== 8) throw new Error("--decode-concurrency must be 4 or 8");
+  const prefetchMiB = Number(values["prefetch-mib"]);
+  if (!Number.isInteger(prefetchMiB) || prefetchMiB < 0 || prefetchMiB > 256 || (prefetchMiB !== 0 && prefetchMiB < 4)) throw new Error("--prefetch-mib must be 0 or 4..256");
   const manifestUrl = localOrRemoteUrl(values.manifest);
   const entries = JSON.parse((await readResource(manifestUrl, 16 * 1024 * 1024, controller.signal)).toString("utf8"));
   const programmer = await readResource(localOrRemoteUrl(values.programmer), 32 * 1024 * 1024, controller.signal);
@@ -49,6 +52,7 @@ try {
   console.info(JSON.stringify({ phase: "connect", seconds: (performance.now() - start) / 1000 }));
   await flashManifest(device, entries, manifestUrl, {
     slot: values.slot,
+    prefetchBytes: prefetchMiB * 1024 * 1024,
     signal: controller.signal,
     report: event => console.info(JSON.stringify(event)),
     openImage: (image, signal) => openVerifiedImage(image, signal, concurrency),
