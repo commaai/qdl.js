@@ -1,9 +1,9 @@
 import { custom, struct, uint32 } from "@incognitojam/tiny-struct";
 
-import { cmd_t, sahara_mode_t, status_t, exec_cmd_t } from "./saharaDefs"
-import { containsBytes, packGenerator, runWithTimeout } from "./utils";
-import { createLogger } from "./logger";
-import { toXml } from "./xml";
+import { cmd_t, sahara_mode_t, status_t, exec_cmd_t } from "./saharaDefs.js"
+import { containsBytes, packGenerator, runWithTimeout } from "./utils.js";
+import { createLogger } from "./logger.js";
+import { toXml } from "./xml.js";
 
 // parse uint64 but cast to Number
 const uint64 = () => custom(8, (buffer, offset, littleEndian) => {
@@ -229,8 +229,9 @@ export class Sahara {
 
     const start = performance.now();
     let remainingBytes = this.programmer.byteLength;
+    let nextResponse = this.getResponse();
     while (remainingBytes >= 0) {
-      const resp = await this.getResponse();
+      const resp = await nextResponse;
       if (!resp || !("cmd" in resp)) {
         throw "Sahara - Timeout while uploading loader. Wrong loader?";
       }
@@ -256,7 +257,13 @@ export class Sahara {
           dataToWrite = new Uint8Array(this.programmer, data_offset, data_len);
         }
 
-        await this.cdc.write(dataToWrite);
+        const writing = this.cdc.write(dataToWrite);
+        if (remainingBytes >= data_len) nextResponse = this.getResponse();
+        try { await writing; }
+        catch (error) {
+          try { await this.cdc.close?.(); } catch { /* Preserve the upload error. */ }
+          throw error;
+        }
         remainingBytes -= data_len;
       } else if (cmd === cmd_t.SAHARA_END_TRANSFER) {
         if (pkt.image_tx_status === status_t.SAHARA_STATUS_SUCCESS) {

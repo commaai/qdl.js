@@ -284,3 +284,47 @@ describe("verified sparse streams", () => {
     }
   });
 });
+
+describe("slot activation writes", () => {
+  function activationDevice(initial) {
+    const events = [];
+    class Device extends qdlDevice {
+      get firehose() {
+        return { luns: [0, 1], cmdProgram: (_, sector) => { events.push(["write", sector]); return Promise.resolve(true); },
+          cmdSetBootLunId: lun => { events.push(["boot", lun]); return Promise.resolve(true); } };
+      }
+      getGpt(lun, sector) {
+        events.push(["read", lun, sector]);
+        let current = initial(lun, sector);
+        return Promise.resolve({
+          alternateLba: 100n, currentLba: sector, partEntriesStartLba: sector + 1n,
+          setActiveSlot: slot => { current = slot; },
+          buildPartEntries: () => Uint8Array.of(current === "a" ? 1 : 2),
+          buildHeader: () => new Uint8Array(4),
+        });
+      }
+    }
+    return { device: new Device(new ArrayBuffer(1)), events };
+  }
+
+  test("validates every primary and backup while skipping unchanged entry bytes", async () => {
+    const { device, events } = activationDevice(() => "a");
+    expect(await device.setActiveSlot("a")).toBe(true);
+    expect(events).toEqual([["read", 0, 1n], ["read", 0, 100n], ["read", 1, 1n], ["read", 1, 100n], ["boot", 1]]);
+  });
+
+  test("writes only changed tables and activates the boot LUN after all updates", async () => {
+    const { device, events } = activationDevice((lun, sector) => lun === 0 && sector === 100n ? "b" : "a");
+    expect(await device.setActiveSlot("a")).toBe(true);
+    expect(events.filter(event => event[0] === "write")).toEqual([["write", 101n], ["write", 100n]]);
+    expect(events.at(-1)).toEqual(["boot", 1]);
+  });
+
+  test("does not activate the boot LUN after a GPT write failure", async () => {
+    const { device, events } = activationDevice(() => "b");
+    Object.defineProperty(device, "firehose", { value: { luns: [0], cmdProgram: () => Promise.resolve(false),
+      cmdSetBootLunId: () => { events.push(["boot"]); return Promise.resolve(true); } } });
+    await expect(device.setActiveSlot("a")).rejects.toThrow("Failed to update slot partition entries");
+    expect(events.some(event => event[0] === "boot")).toBe(false);
+  });
+});

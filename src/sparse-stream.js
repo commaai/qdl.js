@@ -1,4 +1,4 @@
-import { validateSparseProgramMetadata } from "./sparse-program";
+import { validateSparseProgramMetadata } from "./sparse-program.js";
 
 const MAX_INPUT_CHUNK = 4 * 1024 * 1024;
 const MAX_RANGES = 65536;

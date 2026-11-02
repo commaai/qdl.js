@@ -1,4 +1,4 @@
-import { createLogger } from "./logger";
+import { createLogger } from "./logger.js";
 
 const FILE_MAGIC = 0xed26ff3a;
 export const FILE_HEADER_SIZE = 28;

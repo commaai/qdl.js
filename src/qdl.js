@@ -1,10 +1,10 @@
-import { Firehose } from "./firehose"
-import { GPT } from "./gpt"
-import { Sahara } from "./sahara";
-import * as Sparse from "./sparse";
-import { prepareSparseProgram, validateSparseProgram } from "./sparse-program";
-import { selectSparseRanges } from "./sparse-stream";
-import { createLogger } from "./logger";
+import { Firehose } from "./firehose.js"
+import { GPT } from "./gpt.js"
+import { Sahara } from "./sahara.js";
+import * as Sparse from "./sparse.js";
+import { prepareSparseProgram, validateSparseProgram } from "./sparse-program.js";
+import { selectSparseRanges } from "./sparse-stream.js";
+import { createLogger } from "./logger.js";
 
 const logger = createLogger("qdl");
 const streamingPlans = new WeakMap();
@@ -507,24 +507,20 @@ export class qdlDevice {
     this.#gptCache.clear();
     if (slot !== "a" && slot !== "b") throw new Error("Invalid slot");
 
+    const updateGpt = async (lun, gpt) => {
+      const previous = gpt.buildPartEntries();
+      gpt.setActiveSlot(slot);
+      const entries = gpt.buildPartEntries();
+      if (previous.length === entries.length && previous.every((byte, index) => byte === entries[index])) return;
+      if (!await this.firehose.cmdProgram(lun, gpt.partEntriesStartLba, new Blob([entries]))) throw new Error("Failed to update slot partition entries");
+      const header = gpt.buildHeader(entries);
+      if (!await this.firehose.cmdProgram(lun, gpt.currentLba, new Blob([header]))) throw new Error("Failed to update slot GPT header");
+    };
     for (const lun of this.firehose.luns) {
-      // Update primary GPT
       const primaryGpt = await this.getGpt(lun, 1n);
-      primaryGpt.setActiveSlot(slot);
-
-      const primaryPartEntries = primaryGpt.buildPartEntries();
-      await this.firehose.cmdProgram(lun, primaryGpt.partEntriesStartLba, new Blob([primaryPartEntries]));
-      const primaryHeader = primaryGpt.buildHeader(primaryPartEntries);
-      await this.firehose.cmdProgram(lun, primaryGpt.currentLba, new Blob([primaryHeader]));
-
-      // Update backup GPT
+      await updateGpt(lun, primaryGpt);
       const backupGpt = await this.getGpt(lun, primaryGpt.alternateLba);
-      backupGpt.setActiveSlot(slot);
-
-      const backupPartEntries = backupGpt.buildPartEntries();
-      await this.firehose.cmdProgram(lun, backupGpt.partEntriesStartLba, new Blob([backupPartEntries]));
-      const backupHeader = backupGpt.buildHeader(backupPartEntries);
-      await this.firehose.cmdProgram(lun, backupGpt.currentLba, new Blob([backupHeader]));
+      await updateGpt(lun, backupGpt);
     }
 
     const activeBootLunId = (slot === "a") ? 1 : 2;

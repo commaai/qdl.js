@@ -1,5 +1,5 @@
-import * as constants from "./constants";
-import { concatUint8Array } from "./utils";
+import * as constants from "./constants.js";
+import { concatUint8Array } from "./utils.js";
 
 
 export class usbClass {

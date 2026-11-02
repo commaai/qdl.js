@@ -1,7 +1,7 @@
-import { concatUint8Array, containsBytes, compareStringToBytes, runWithTimeout } from "./utils"
-import { createLogger } from "./logger"
-import { toXml, xmlParser } from "./xml"
-import { validateSparseProgram } from "./sparse-program"
+import { concatUint8Array, containsBytes, compareStringToBytes, runWithTimeout } from "./utils.js"
+import { createLogger } from "./logger.js"
+import { toXml, xmlParser } from "./xml.js"
+import { validateSparseProgram } from "./sparse-program.js"
 
 const logger = createLogger("firehose")
 
@@ -552,7 +552,7 @@ export class Firehose {
    * @returns {Promise<string[]>}
    */
   async cmdGetStorageInfo() {
-    const resp = await this.xmlSend(toXml("getstorageinfo", { physical_partition_number: 0 }));
+    const resp = await this.xmlSend(toXml("getstorageinfo", { physical_partition_number: 0, print_raw: 0 }));
     if (!resp.resp || !resp.log) throw new Error("Failed to get storage info", { cause: resp.error });
     return resp.log;
   }

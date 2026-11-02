@@ -34,7 +34,8 @@
   },
   "bin": {
     "simg2img.js": "src/bin/simg2img.js",
-    "qdl.js": "src/bin/qdl.js"
+    "qdl.js": "src/bin/qdl.js",
+    "qdl-flash-manifest": "src/bin/flash-manifest.js"
   },
   "//devDependencies": {
     "@biomejs/biome": "code linter and formatter",
