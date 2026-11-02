@@ -6,6 +6,23 @@ import { validateLz4Metadata, validateLz4Stream } from "./lz4-stream.js"
 
 const logger = createLogger("firehose")
 
+/**
+ * @typedef {object} TransferOptions
+ * @property {number} [transferSize=1048576] Host USB payload bytes, independent of the target receive buffer.
+ * @property {number} [transferQueueDepth=8] Maximum outstanding payload writes.
+ */
+
+/** @param {TransferOptions} [options] */
+export function normalizeTransferOptions({ transferSize = 1048576, transferQueueDepth = 8 } = {}) {
+  if (!Number.isInteger(transferSize) || transferSize < 4096 || transferSize > 1048576 || transferSize % 4096 !== 0) {
+    throw new Error("Transfer size must be a multiple of 4096 between 4096 and 1048576 bytes");
+  }
+  if (!Number.isInteger(transferQueueDepth) || transferQueueDepth < 1 || transferQueueDepth > 64 || transferSize * transferQueueDepth > 8 * 1048576) {
+    throw new Error("Transfer queue depth must be between 1 and 64 with at most 8 MiB outstanding");
+  }
+  return Object.freeze({ transferSize, transferQueueDepth });
+}
+
 
 /**
  * Progress callback
@@ -49,10 +66,14 @@ class cfg {
 }
 
 export class Firehose {
+  #transferOptions;
+
   /**
    * @param {usbClass} cdc
+   * @param {TransferOptions} [transferOptions]
    */
-  constructor(cdc) {
+  constructor(cdc, transferOptions = undefined) {
+    this.#transferOptions = normalizeTransferOptions(transferOptions);
     this.cdc = cdc;
     this.xml = new xmlParser();
     this.cfg = new cfg();
@@ -359,6 +380,7 @@ export class Firehose {
   async #programData(blob, onProgress, requireRawMode = false) {
     const parts = Array.isArray(blob) ? blob : [blob];
     const total = parts.reduce((size, part) => size + part.size, 0);
+    const transferSize = Math.min(this.cfg.MaxPayloadSizeToTargetInBytes, this.#transferOptions.transferSize);
     let partIndex = 0;
     let partOffset = 0;
     let reader = null;
@@ -386,7 +408,7 @@ export class Firehose {
     const pool = [];
     const borrowed = new Set();
     const acquire = (length) => {
-      const buffer = pool.pop() || new ArrayBuffer(this.cfg.MaxPayloadSizeToTargetInBytes);
+      const buffer = pool.pop() || new ArrayBuffer(transferSize);
       borrowed.add(buffer);
       return new Uint8Array(buffer, 0, length);
     };
@@ -403,7 +425,7 @@ export class Firehose {
     };
     const readPart = async (length) => {
       const part = parts[partIndex];
-      if (!reader && partOffset === 0 && (part.size >= this.cfg.MaxPayloadSizeToTargetInBytes || typeof part.slice !== "function") && typeof part.stream === "function") {
+      if (!reader && partOffset === 0 && (part.size >= transferSize || typeof part.slice !== "function") && typeof part.stream === "function") {
         reader = part.stream().getReader();
       }
       if (!reader) {
@@ -464,7 +486,7 @@ export class Firehose {
     };
 
     const pending = [];
-    const depth = this.cfg.ZLPAwareHost ? 1 : 8;
+    const depth = this.cfg.ZLPAwareHost ? 1 : this.#transferOptions.transferQueueDepth;
     let completed = 0;
     let chunks = 0;
     const completeWrite = async () => {
@@ -478,7 +500,7 @@ export class Firehose {
 
     try {
       for (let offset = 0; offset < total;) {
-        let wdata = await readChunk(Math.min(total - offset, this.cfg.MaxPayloadSizeToTargetInBytes));
+        let wdata = await readChunk(Math.min(total - offset, transferSize));
         const wlen = wdata.byteLength;
         offset += wlen;
         if (wlen % this.cfg.SECTOR_SIZE_IN_BYTES !== 0) {

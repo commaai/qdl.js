@@ -2,6 +2,33 @@ import { describe, expect, test } from "bun:test";
 import { buf as crc32 } from "crc-32";
 import { qdlDevice } from "./qdl";
 
+test("transfer options reject invalid or unbounded settings before connecting", () => {
+  for (const options of [{ transferSize: 0 }, { transferSize: 4097 }, { transferSize: 2 ** 21 },
+    { transferSize: Number.NaN }, { transferSize: "131072" }, { transferQueueDepth: 0 },
+    { transferQueueDepth: 65 }, { transferQueueDepth: 1.5 }, { transferQueueDepth: 9 }]) {
+    expect(() => new qdlDevice(new ArrayBuffer(1), options)).toThrow();
+  }
+  expect(() => new qdlDevice(new ArrayBuffer(1), { transferSize: 131072, transferQueueDepth: 32 })).not.toThrow();
+});
+
+test("connect passes host transfer options without lowering the negotiated target buffer", async () => {
+  const device = new qdlDevice(new ArrayBuffer(1), { transferSize: 4096, transferQueueDepth: 4 });
+  const writes = [];
+  const responses = [
+    '<?xml version="1.0"?><data><response value="ACK"/></data>',
+    '<?xml version="1.0"?><data><log value="Calling handler for configure"/><log value="Storage type set to value UFS"/><response value="ACK" MemoryName="UFS"/></data>',
+    '<?xml version="1.0"?><data><response value="ACK" rawmode="true"/></data>',
+    '<?xml version="1.0"?><data><response value="ACK" rawmode="false"/></data>',
+  ];
+  await device.connect({ connected: true,
+    write: bytes => { writes.push(bytes.slice()); return Promise.resolve(); },
+    read: () => Promise.resolve(new TextEncoder().encode(responses.shift())),
+  });
+  expect(new TextDecoder().decode(writes[0])).toContain('MaxPayloadSizeToTargetInBytes="1048576"');
+  expect(await device.firehose.cmdProgram(0, 0n, new Blob([new Uint8Array(8192)]))).toBe(true);
+  expect(writes.slice(2).map(bytes => bytes.length)).toEqual([4096, 4096]);
+});
+
 describe("VPD-aware erase ranges", () => {
   function eraseDevice(ufsUnmapLimits, lastLba, fail = false, backup = false) {
     const calls = [];

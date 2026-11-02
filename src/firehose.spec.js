@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { Firehose } from "./firehose";
 
-function programTransport(zlp = false) {
+function programTransport(zlp = false, options = undefined) {
   const writes = [];
-  const hose = new Firehose({ write: data => { writes.push(data.slice()); return Promise.resolve(); } });
+  const hose = new Firehose({ write: data => { writes.push(data.slice()); return Promise.resolve(); } }, options);
   hose.cfg.MaxPayloadSizeToTargetInBytes = 8192;
   hose.cfg.ZLPAwareHost = Number(zlp);
   hose.xmlSend = async () => ({ resp: true });
@@ -30,6 +30,51 @@ test("program retains ZLP framing when requested", async () => {
   const { hose, writes } = programTransport(true);
   await hose.cmdProgram(0, 0n, new Blob([new Uint8Array(16384)]));
   expect(writes.map(data => data.length)).toEqual([8192, 0, 8192, 0]);
+});
+
+test("host transfer tuning bounds USB writes and buffers without shrinking target payloads", async () => {
+  const options = { transferSize: 128 * 1024, transferQueueDepth: 32 };
+  const { hose } = programTransport(false, options);
+  hose.cfg.MaxPayloadSizeToTargetInBytes = 1048576;
+  options.transferSize = 4096;
+  options.transferQueueDepth = 1;
+  const input = Uint8Array.from({ length: 128 * 1024 * 35 + 17 }, (_, index) => index % 251);
+  const writes = [];
+  let active = 0;
+  let peak = 0;
+  hose.cdc.write = bytes => {
+    expect(bytes.buffer.byteLength).toBeLessThanOrEqual(128 * 1024);
+    peak = Math.max(peak, ++active);
+    return new Promise(resolve => setTimeout(() => {
+      writes.push(bytes.slice());
+      active--;
+      resolve();
+    }, 1));
+  };
+  const source = { size: input.length, stream: () => new ReadableStream({ start(controller) { controller.enqueue(input); controller.close(); } }) };
+  expect(await hose.cmdProgram(0, 0n, [source])).toBe(true);
+  expect(peak).toBe(32);
+  expect(active).toBe(0);
+  expect(hose.cfg.MaxPayloadSizeToTargetInBytes).toBe(1048576);
+  expect(writes.map(bytes => bytes.length)).toEqual([...Array(35).fill(128 * 1024), 4096]);
+  const output = new Uint8Array(128 * 1024 * 35 + 4096);
+  let offset = 0;
+  for (const bytes of writes) { output.set(bytes, offset); offset += bytes.length; }
+  expect(output.subarray(0, input.length)).toEqual(input);
+  expect(output.subarray(input.length).every(byte => byte === 0)).toBe(true);
+});
+
+test("legacy ZLP transfers stay sequential with a larger requested queue", async () => {
+  const { hose, writes } = programTransport(true, { transferSize: 4096, transferQueueDepth: 32 });
+  let active = 0;
+  const write = hose.cdc.write;
+  hose.cdc.write = async bytes => {
+    expect(++active).toBe(1);
+    await write(bytes);
+    active--;
+  };
+  await hose.cmdProgram(0, 0n, new Blob([new Uint8Array(8192)]));
+  expect(writes.map(bytes => bytes.length)).toEqual([4096, 0, 4096, 0]);
 });
 
 test("configure sends the firmware's case-sensitive ZlpAwareHost setting", async () => {

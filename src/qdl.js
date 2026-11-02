@@ -1,4 +1,4 @@
-import { Firehose } from "./firehose.js"
+import { Firehose, normalizeTransferOptions } from "./firehose.js"
 import { GPT } from "./gpt.js"
 import { Sahara } from "./sahara.js";
 import * as Sparse from "./sparse.js";
@@ -81,6 +81,8 @@ function streamSparseProgram(blob, plan, sectorSize) {
 
 
 export class qdlDevice {
+  #transferOptions;
+
   /**
    * @type {Firehose|null}
    */
@@ -91,11 +93,13 @@ export class qdlDevice {
 
   /**
    * @param {ArrayBuffer} programmer
+   * @param {import("./firehose.js").TransferOptions} [transferOptions]
    */
-  constructor(programmer) {
+  constructor(programmer, transferOptions = undefined) {
     if (!programmer) {
       throw "programmer is required";
     }
+    this.#transferOptions = normalizeTransferOptions(transferOptions);
     this.programmer = programmer;
     /**
      * @type {string|null}
@@ -130,7 +134,7 @@ export class qdlDevice {
     if (this.mode !== "firehose") {
       throw new Error(`Unsupported mode: ${this.mode}. Please reboot the device.`);
     }
-    this.#firehose = new Firehose(cdc);
+    this.#firehose = new Firehose(cdc, this.#transferOptions);
     if (!await this.firehose.configure()) throw new Error("Could not configure Firehose");
     logger.debug("Firehose configured");
   }
