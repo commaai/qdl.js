@@ -358,7 +358,10 @@ function addLz4Companion(entries) {
     hash: info.hash, chunk_size: info.chunkSize, chunk_hashes: info.chunkHashes,
     zstd_chunked_url: "lz4-frames.zst", zstd_chunked_size: 129, zstd_frame_sizes: [129],
     stream: { sector_size: 4096, num_partition_sectors: 1, data_sectors: 1, extents: [[0, 1]], compressed_bytes: 4096, first_frame_bytes: 4096 } };
-  entries.find(image => image.name === "system").flash = { lz4: companion };
+  const system = entries.find(image => image.name === "system");
+  system.hash_raw = hash(Buffer.alloc(4096, 5));
+  companion.hash_raw = system.hash_raw;
+  system.flash = { lz4: companion };
   return { bytes, companion };
 }
 
@@ -375,7 +378,8 @@ test("LZ4 companion selection preserves raw fallback and validates source and ta
   assert.equal(selected.stream.compressedBytes, 4096);
   for (const change of [value => { value.file_size = 8192; }, value => { value.stream.extents = [[1, 1]]; },
     value => { value.stream.first_frame_bytes = 1; }, value => { value.chunk_hashes = []; },
-    value => { value.zstd_frame_sizes = [130]; }, value => { value.zstd_chunked_url = "data:,bad"; }]) {
+    value => { value.zstd_frame_sizes = [130]; }, value => { value.zstd_chunked_url = "data:,bad"; },
+    value => { value.hash_raw = "0".repeat(64); }]) {
     const changed = structuredClone(companion); change(changed);
     entries.find(image => image.name === "system").flash.lz4 = changed;
     assert.throws(() => prepareManifest(entries, url, storage, "a", () => true));
@@ -405,5 +409,28 @@ test("full manifest sends verified LZ4 wire directly and stops on stream failure
     } });
     if (fail) await assert.rejects(run, /LZ4 source failed/); else await run;
     assert.equal(lz4Writes, 1); assert.equal(finalized, !fail);
+  }
+});
+
+
+test("LZ4 may fill sparse holes but cannot omit raw coverage or exceed logical bounds", () => {
+  const { entries } = fixture();
+  const { companion } = addLz4Companion(entries);
+  const system = entries.find(image => image.name === "system");
+  system.size = 4096 * 4;
+  system.stream.num_partition_sectors = 4;
+  system.stream.extents = [[1, 1]];
+  companion.stream.num_partition_sectors = 4;
+  companion.stream.data_sectors = 4;
+  companion.stream.extents = [[0, 4]];
+  const prepare = () => prepareManifest(entries, new URL("file:///tmp/a"), storage, "a", () => true);
+  assert.equal(prepare().images[0].stream.dataSectors, 4);
+  companion.stream.extents = [[0, 1], [2, 2]];
+  companion.stream.data_sectors = 3;
+  assert.throws(prepare, /omits sparse data/);
+  for (const extents of [[[0, 3], [2, 1]], [[0, 5]], [[0, Number.MAX_SAFE_INTEGER]]]) {
+    companion.stream.extents = extents;
+    companion.stream.data_sectors = extents.reduce((sum, extent) => sum + extent[1], 0);
+    assert.throws(prepare);
   }
 });

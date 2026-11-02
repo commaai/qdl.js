@@ -89,9 +89,21 @@ export function prepareManifest(entries, baseUrl, storage, slot = "a", supportsL
           numPartitionSectors: index.num_partition_sectors, dataSectors: index.data_sectors,
           extents: index.extents, compressedBytes: index.compressed_bytes, firstFrameBytes: index.first_frame_bytes });
         if (metadata.compressedBytes !== compressed.file_size || metadata.numPartitionSectors !== image.stream.numPartitionSectors
-          || metadata.dataSectors !== image.stream.dataSectors || metadata.extents.length !== image.stream.extents.length
-          || metadata.extents.some((extent, i) => extent[0] !== image.stream.extents[i][0] || extent[1] !== image.stream.extents[i][1])) {
-          throw new Error(`LZ4 companion differs from sparse image layout: ${item.name}`);
+          || !/^[a-f0-9]{64}$/.test(compressed.hash_raw) || compressed.hash_raw !== item.hash_raw) {
+          throw new Error(`LZ4 companion differs from sparse image identity: ${item.name}`);
+        }
+        // LZ4 may cheaply fill zero gaps that the raw transport skips, but cannot omit raw data.
+        let extentIndex = 0;
+        for (const [start, sectors] of image.stream.extents) {
+          let cursor = start;
+          const end = start + sectors;
+          while (cursor < end) {
+            while (extentIndex < metadata.extents.length
+              && metadata.extents[extentIndex][0] + metadata.extents[extentIndex][1] <= cursor) extentIndex++;
+            const extent = metadata.extents[extentIndex];
+            if (!extent || extent[0] > cursor) throw new Error(`LZ4 companion omits sparse data: ${item.name}`);
+            cursor = extent[0] + extent[1] < end ? extent[0] + extent[1] : end;
+          }
         }
         const candidate = { ...image, archiveUrl: resourceUrl(compressed.zstd_url, baseUrl), archiveSize: compressed.archive_size,
           fileSize: compressed.file_size, hash: compressed.hash, chunkSize: compressed.chunk_size, chunkHashes: compressed.chunk_hashes,
