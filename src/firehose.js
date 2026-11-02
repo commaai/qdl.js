@@ -2,7 +2,8 @@ import { concatUint8Array, containsBytes, compareStringToBytes, runWithTimeout }
 import { createLogger } from "./logger.js"
 import { toXml, xmlParser } from "./xml.js"
 import { validateSparseProgram } from "./sparse-program.js"
-import { validateLz4Metadata, validateLz4Stream } from "./lz4-stream.js"
+import { validateLz4Metadata } from "./lz4-stream.js"
+import { createLz4Stream } from "./lz4-frame-reader.js"
 
 const logger = createLogger("firehose")
 
@@ -363,7 +364,7 @@ export class Firehose {
         onProgress?.(decoded);
       };
       // Only a bounded USB window can run ahead of these completion markers.
-      const parts = [{ size: plan.compressedBytes, stream: () => validateLz4Stream(source, plan, frame => frames.push(frame)) }];
+      const parts = [{ size: plan.compressedBytes, stream: () => createLz4Stream(source, plan, frame => frames.push(frame), true) }];
       return await this.#programData(parts, progress, true);
     } catch (error) {
       if (this.failed) throw error;

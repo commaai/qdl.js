@@ -190,6 +190,29 @@ test("LZ4 programming negotiates table and wire bytes, reporting decoded complet
   expect(progress.every(bytes => bytes <= 8192)).toBe(true);
 });
 
+test("LZ4 frame reuse cannot change payloads still owned by queued USB writes", async () => {
+  const { hose } = nativeTransport();
+  hose.programSparseLz4 = true;
+  hose.cfg.MaxPayloadSizeToTargetInBytes = 4096;
+  const { wire, metadata } = lz4Fixture();
+  let table = true;
+  let pending = 0;
+  let peak = 0;
+  const sent = [];
+  hose.cdc.write = data => {
+    if (table) { table = false; return Promise.resolve(); }
+    peak = Math.max(peak, ++pending);
+    return new Promise(resolve => setTimeout(() => {
+      sent.push(data.slice());
+      pending--;
+      resolve();
+    }, 5));
+  };
+  expect(await hose.cmdProgramSparseLz4(0, 100n, metadata, wireSource(wire))).toBe(true);
+  expect(peak).toBe(4);
+  expect(Buffer.concat(sent.map(data => Buffer.from(data)))).toEqual(Buffer.from(wire));
+});
+
 test("LZ4 rejects unsupported or invalid requests before sending USB commands", async () => {
   for (const kind of ["unsupported", "wire", "first", "lun", "start", "locked"]) {
     const { hose, writes, commands } = nativeTransport();
