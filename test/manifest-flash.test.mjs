@@ -329,3 +329,23 @@ test("corrupt old GPT recovers persist after repair, while transport errors and 
     assert.equal(repairs, scenario === "usb" ? 0 : 6);
   }
 });
+
+
+test("a failed early frame cancels a stalled later HTTP read during prefill", async t => {
+  const chunk = Buffer.alloc(VERIFIED_CHUNK_SIZE, 7);
+  const frame = zstdCompressSync(chunk);
+  const server = createServer((request, response) => {
+    response.writeHead(200, { "content-length": frame.length * 2 });
+    response.write(frame); // The second frame never arrives.
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); });
+  const image = { ...metadata(Buffer.concat([chunk, chunk])), archiveUrl: new URL(`http://127.0.0.1:${server.address().port}/image`),
+    archiveSize: frame.length * 2, frameSizes: [frame.length, frame.length] };
+  image.chunkHashes[0] = "0".repeat(64);
+  const reader = (await openVerifiedImage(image)).getReader();
+  let timer;
+  try {
+    await assert.rejects(Promise.race([reader.read(), new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error("Timed out waiting for hash failure")), 2000); })]), /SHA-256 mismatch.*chunk 0/);
+  } finally { clearTimeout(timer); await reader.cancel().catch(() => undefined); }
+});

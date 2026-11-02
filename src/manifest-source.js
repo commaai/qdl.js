@@ -58,6 +58,7 @@ async function openVerifiedFrames(image, signal, concurrency) {
   let offset = 0;
   let received = 0;
   const pending = [];
+  let failure;
   async function frame(length) {
     const bytes = new Uint8Array(length);
     for (let used = 0; used < length;) {
@@ -96,7 +97,13 @@ async function openVerifiedFrames(image, signal, concurrency) {
       while (index < frameSizes.length || pending.length) {
         while (index < frameSizes.length && pending.length < concurrency) {
           const bytes = await frame(frameSizes[index]);
-          pending.push(decode(bytes, index++).then(value => ({ value }), error => ({ error })));
+          pending.push(decode(bytes, index++).then(value => ({ value }), error => {
+            failure ??= error;
+            // A later archive read must not hide an already known decode/hash failure.
+            controller.abort(error);
+            void reader.cancel(error).catch(() => undefined);
+            return { error };
+          }));
         }
         const result = await pending.shift();
         if (result.error) throw result.error;
@@ -105,6 +112,8 @@ async function openVerifiedFrames(image, signal, concurrency) {
         }
         if (!cancelled) yield result.value;
       }
+    } catch (error) {
+      throw failure ?? error;
     } finally {
       controller.abort();
       await reader.cancel().catch(() => undefined);
