@@ -26,6 +26,10 @@
       "types": "./dist/sparse-stream.d.ts",
       "import": "./dist/sparse-stream.js"
     },
+    "./manifest-batch": {
+      "types": "./dist/manifest-batch.d.ts",
+      "import": "./dist/manifest-batch.js"
+    },
     "./calibration": {
       "types": "./dist/calibration.d.ts",
       "import": "./dist/calibration.js"
@@ -37,7 +41,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "postinstall": "bun run build",
+    "postinstall": "tsc",
     "lint": "biome lint"
   },
   "bin": {

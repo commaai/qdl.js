@@ -1,6 +1,7 @@
 import { CalibrationLayoutError, canPreserveDdr, ddrPartitionFromGpt, readDdrPartition } from "./calibration.js";
 import { GPT } from "./gpt.js";
 import { validateLz4Metadata } from "./lz4-stream.js";
+import { createFirmwareBatch, flashFirmwareBatch } from "./manifest-batch.js";
 import { bufferVerifiedSource, openVerifiedImage, resourceUrl, validateFrameSizes, validateImageHashes } from "./manifest-source.js";
 import { selectSparseRanges, validateSparseStreamMetadata } from "./sparse-stream.js";
 
@@ -139,11 +140,13 @@ export function validateManifestDestinations(plan, gptBytes, storage) {
     const bytes = new Uint8Array(gptBytes.get(image.gpt.lun));
     const gpt = new GPT(SECTOR_SIZE);
     const header = gpt.parseHeader(bytes.subarray(SECTOR_SIZE, SECTOR_SIZE * 2), 1n);
-    if (!header || header.mismatchCrc32 || gpt.currentLba !== 1n || gpt.partEntriesStartLba !== 2n || gpt.numPartEntries < 1 || gpt.numPartEntries > 128 || gpt.partEntrySize !== 128) {
+    if (!header || header.mismatchCrc32 || gpt.currentLba !== 1n || gpt.partEntriesStartLba !== 2n || gpt.numPartEntries < 1 || gpt.numPartEntries > 128 || gpt.partEntrySize !== 128
+      || gpt.firstUsableLba < 6n || gpt.lastUsableLba < gpt.firstUsableLba || gpt.alternateLba <= gpt.currentLba
+      || gpt.lastUsableLba >= gpt.alternateLba - BigInt(gpt.partEntriesSectors)) {
       throw new Error(`Invalid GPT header: ${image.name}`);
     }
     if (gpt.parsePartEntries(bytes.subarray(2 * SECTOR_SIZE)).mismatchCrc32) throw new Error(`Invalid GPT entries: ${image.name}`);
-    let end = 6n;
+    let end = gpt.firstUsableLba;
     const partitions = gpt.getPartitions().sort((a, b) => a.start < b.start ? -1 : 1);
     for (const partition of partitions) {
       if (partition.start < end || partition.sectors <= 0n || partition.end > gpt.lastUsableLba || destinations.has(partition.name)) {
@@ -247,7 +250,7 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
       return result;
     });
     const gptBytes = new Map();
-    await phase("verify_gpts", async () => {
+    const destinations = await phase("verify_gpts", async () => {
       await Promise.all(plan.gpts.map(async image => {
         const source = await openImage(image, signal);
         const bytes = new Uint8Array(image.fileSize);
@@ -259,7 +262,18 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
         if (offset !== bytes.length) throw new Error(`Truncated GPT: ${image.name}`);
         gptBytes.set(image.gpt.lun, bytes);
       }));
-      validateManifestDestinations(plan, gptBytes, storage);
+      return validateManifestDestinations(plan, gptBytes, storage);
+    });
+    const operations = await phase("prepare_firmware", () => {
+      const batch = createFirmwareBatch(device, plan.images, destinations, slot);
+      const members = new Set(batch?.images);
+      const operations = [];
+      let addedBatch = false;
+      for (const image of plan.images) {
+        if (!members.has(image)) operations.push({ image });
+        else if (!addedBatch) { operations.push({ batch }); addedBatch = true; }
+      }
+      return operations;
     });
     const { desiredDdr, preserveDdr } = await phase("check_existing_calibration", async () => {
       const desiredDdr = readDdrPartition(gptBytes.get(3));
@@ -272,7 +286,8 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
       }
       return { desiredDdr, preserveDdr: canPreserveDdr(existingDdr, desiredDdr) };
     });
-    await phase("start_sources", () => { sources = prefetchImages(plan.images, openImage, signal, error => controller.abort(error)); });
+    const sourceOrder = operations.flatMap(operation => operation.batch?.images ?? [operation.image]);
+    await phase("start_sources", () => { sources = prefetchImages(sourceOrder, openImage, signal, error => controller.abort(error)); });
     await phase("repair_gpts", async () => {
       for (const image of plan.gpts) {
         if (!await device.repairGpt(image.gpt.lun, new Blob([gptBytes.get(image.gpt.lun)]))) throw new Error(`GPT repair failed on LUN ${image.gpt.lun}`);
@@ -286,6 +301,7 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
       }
     });
     await phase("start_prefetch", () => {
+      if (prefetchBytes) sources.warm(operations.flatMap(operation => operation.batch?.images ?? []), prefetchBytes);
       if (prefetchBytes) sources.warm(plan.images.filter(image => image.transport === "lz4"
         && (image.name === "system" || image.name === plan.userdata)), prefetchBytes);
     });
@@ -295,7 +311,12 @@ export async function flashManifest(device, entries, baseUrl, { slot = "a", sign
       if (lun === 3 && preserveDdr) preserve.push("ddr");
       await phase(`erase_${lun}`, () => device.eraseLun(lun, preserve));
     }
-    for (const image of plan.images) {
+    for (const operation of operations) {
+      if (operation.batch) {
+        await phase("flash_firmware_lun4", () => flashFirmwareBatch(device, operation.batch, () => sources.next()));
+        continue;
+      }
+      const { image } = operation;
       await phase(`flash_${image.name}`, async () => {
         const source = await sources.next();
         const payload = image.transport === "lz4" ? source : selectSparseRanges(source, image.stream, image.fileSize);

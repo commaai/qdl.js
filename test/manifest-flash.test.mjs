@@ -142,7 +142,7 @@ test("HTTP errors are rejected without decoding the error body", async t => {
 });
 
 const storage = { block_size: 4096, page_size: 4096, num_physical: 6, mem_type: "UFS", prod_name: "SDINDDH4-128G 1", manufacturer_id: 325, total_blocks: 29775872 };
-function fixture() {
+function fixture(firmwareLun4 = false) {
   const sparse = Buffer.alloc(4136, 5);
   sparse.writeUInt32LE(0xed26ff3a, 0); sparse.writeUInt16LE(1, 4); sparse.writeUInt16LE(0, 6);
   sparse.writeUInt16LE(28, 8); sparse.writeUInt16LE(12, 10); sparse.writeUInt32LE(4096, 12);
@@ -167,12 +167,19 @@ function fixture() {
     header.writeBigUInt64LE(6n, 40); header.writeBigUInt64LE(BigInt(storage.total_blocks - 6), 48);
     header.writeBigUInt64LE(2n, 72); header.writeUInt32LE(128, 80); header.writeUInt32LE(128, 84);
     if (lun === 0) {
-      ["persist", ...partitionNames].forEach((name, i) => {
+      ["persist", ...partitionNames.filter(name => !firmwareLun4 || !/^(boot|abl|modem)_/.test(name))].forEach((name, i) => {
         const entry = bytes.subarray(8192 + i * 128, 8192 + (i + 1) * 128);
         entry.fill(1, 0, 32);
         entry.writeBigUInt64LE(i === 0 ? 8n : BigInt(8200 + i * 10), 32);
         entry.writeBigUInt64LE(i === 0 ? 8199n : BigInt(8200 + i * 10 + 9), 40);
         entry.write(name, 56, "utf16le");
+      });
+    }
+    if (lun === 4 && firmwareLun4) {
+      ["modem_a", "modem_b", "abl_a", "abl_b", "boot_a", "boot_b"].forEach((name, i) => {
+        const entry = bytes.subarray(8192 + i * 128, 8192 + (i + 1) * 128);
+        entry.fill(1, 0, 32); entry.writeBigUInt64LE(BigInt(6 + i * 10), 32);
+        entry.writeBigUInt64LE(BigInt(15 + i * 10), 40); entry.write(name, 56, "utf16le");
       });
     }
     if (lun === 3) {
@@ -271,6 +278,77 @@ test("full flow preserves persist, erases six LUNs, writes one slot, and finaliz
       const stages = reports.filter(event => event.phase !== "complete").reduce((sum, event) => sum + event.seconds, 0);
       assert.ok(Math.abs(stages - reports.at(-1).seconds) < 1e-8);
     } else assert.equal(reports.some(event => event.phase === "complete"), false);
+  }
+});
+
+test("full flow batches physical firmware order after erase and preserves source identity, fallback and failure handling", async () => {
+  for (const [slot, mode] of [["a", "batch"], ["b", "batch"], ["a", "fallback"], ["a", "source"], ["a", "nak"]]) {
+    const { entries, files } = fixture(true);
+    for (const [i, item] of entries.filter(item => !item.gpt).entries()) {
+      const bytes = Buffer.from(files.get(item.name)); bytes.fill(i + 1, 40); files.set(item.name, bytes);
+      item.hash = hash(bytes); item.chunk_hashes = [item.hash];
+    }
+    const events = [], phases = [];
+    const physical = ["modem", "abl", "boot"];
+    const device = {
+      getStorageInfo: () => storage, canFlashStream: count => mode !== "fallback" || count < 3,
+      getGpt: lun => parsedGpt(files.get(`gpt_main_${lun}`)),
+      repairGpt(lun) { events.push(`gpt${lun}`); return true; },
+      detectPartition(name) {
+        if (name === "persist") return [true, 0, { start: 8n, sectors: 8192n }];
+        const gpt = parsedGpt(files.get("gpt_main_4"));
+        return [true, 4, gpt.locatePartition(name), gpt];
+      },
+      eraseLun(lun) { events.push(`erase${lun}`); return true; },
+      async flashStream(name, info, payload) {
+        events.push(name);
+        const key = name === "userdata" ? "userdata_90" : name.replace(/_[ab]$/, "");
+        assert.deepEqual(await collect(payload), files.get(key).subarray(40));
+        return true;
+      },
+      firehose: { cfg: { SECTOR_SIZE_IN_BYTES: 4096 }, async cmdProgramSparse(lun, start, plan) {
+        assert.equal(lun, 4); assert.equal(start, 6n);
+        assert.equal(events.filter(event => event === "erase4").length, 1);
+        assert.equal(events.includes("erase5"), true);
+        assert.deepEqual(plan.extents, slot === "a" ? [[0n, 1n], [20n, 1n], [40n, 1n]] : [[0n, 1n], [30n, 1n], [50n, 1n]]);
+        events.push("firmware");
+        if (mode === "nak") return false;
+        for (let i = 0; i < plan.parts.length; i++) assert.deepEqual(await collect(plan.parts[i].stream()), files.get(physical[i]).subarray(40));
+        return true;
+      } },
+      setActiveSlot(value) { assert.equal(value, slot); events.push("activate"); return true; },
+      reset() { events.push("reset"); return true; },
+    };
+    let sourceSignal;
+    const run = flashManifest(device, entries, new URL("file:///tmp/manifest.json"), { slot, report: row => phases.push(row.phase), openImage(item, signal) {
+      sourceSignal = signal;
+      const expected = mode === "source" && item.name === "abl" ? { ...item, chunkHashes: ["0".repeat(64)] } : item;
+      return verifyImageStream(stream(files.get(item.name)), expected);
+    } });
+    if (mode === "source") await assert.rejects(run, /SHA-256 mismatch/);
+    else if (mode === "nak") await assert.rejects(run, /flash_firmware_lun4 failed/);
+    else await run;
+    assert.equal(sourceSignal.aborted, true);
+    assert.equal(events.includes("activate"), !["source", "nak"].includes(mode));
+    assert.equal(events.includes("reset"), !["source", "nak"].includes(mode));
+    assert.equal(phases.includes("flash_firmware_lun4"), mode === "batch");
+    if (mode !== "source") assert.equal(events.includes("firmware"), mode !== "fallback");
+    if (mode === "batch") assert.deepEqual(events.slice(12), [`system_${slot}`, "firmware", `xbl_${slot}`, `xbl_config_${slot}`, "userdata", "activate", "reset"]);
+    if (mode === "fallback") assert.equal(events.filter(event => event === "modem_a").length, 1);
+  }
+});
+
+test("CRC-valid GPT usable bounds cannot cover backup GPT sectors before mutation", async () => {
+  for (const [offset, value] of [[32, 1n], [40, 5n], [48, BigInt(storage.total_blocks - 5)]]) {
+    const { entries, files } = fixture(true);
+    const header = files.get("gpt_main_4").subarray(4096, 4096 + 92);
+    header.writeBigUInt64LE(value, offset); header.writeUInt32LE(0, 16);
+    header.writeInt32LE(crc32(header), 16);
+    let mutations = 0;
+    const device = { getStorageInfo: () => storage, canFlashStream: () => true,
+      repairGpt() { mutations++; }, eraseLun() { mutations++; } };
+    await assert.rejects(flashManifest(device, entries, new URL("file:///tmp/a"), { openImage: image => stream(files.get(image.name)) }), /GPT header/);
+    assert.equal(mutations, 0);
   }
 });
 
