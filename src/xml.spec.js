@@ -28,6 +28,109 @@ describe("xmlParser", () => {
   const parser = new xmlParser();
   const encoder = new TextEncoder();
 
+  describe("packet cache", () => {
+    test("shares parsed documents across response and log reads in either order", () => {
+      for (const first of ["getResponse", "getLog"]) {
+        const cached = new xmlParser();
+        const parse = cached.parser.parse.bind(cached.parser);
+        let calls = 0;
+        cached.parser.parse = (...args) => { calls++; return parse(...args); };
+        const text = '<?xml version="1.0"?><data><log value="one &amp; two"/></data>'
+          + '<?xml version="1.0"?><data><response value="ACK"/></data>';
+        cached[first](encoder.encode(text));
+        expect(cached.getResponse(encoder.encode(text))).toEqual({ value: "ACK" });
+        expect(cached.getLog(encoder.encode(text))).toEqual(["one & two"]);
+        expect(calls).toBe(2);
+      }
+    });
+
+    test("detects mutation of the same input and respects typed-array view bounds", () => {
+      const cached = new xmlParser();
+      const text = '<?xml version="1.0"?><data><response value="ACK"/></data>';
+      const storage = encoder.encode(`prefix${text}suffix`);
+      const input = storage.subarray(6, storage.length - 6);
+      expect(cached.getResponse(input)).toEqual({ value: "ACK" });
+      input.set(encoder.encode("NAK"), text.indexOf("ACK"));
+      expect(cached.getResponse(input)).toEqual({ value: "NAK" });
+    });
+
+    test("isolates nested response and log values from caller mutations", () => {
+      const cached = new xmlParser();
+      const input = encoder.encode('<?xml version="1.0"?><data><response><item value="original"/></response>'
+        + '<log><value><item value="original"/></value></log></data>');
+      const response = cached.getResponse(input);
+      response.item.value = "changed";
+      const logs = cached.getLog(input);
+      logs[0].item.value = "changed";
+      logs.push("extra");
+      expect(cached.getResponse(input)).toEqual({ item: { value: "original" } });
+      expect(cached.getLog(input)).toEqual([{ item: { value: "original" } }]);
+      const second = cached.getResponse(input);
+      second.item.value = "changed again";
+      expect(cached.getResponse(input).item.value).toBe("original");
+    });
+
+    test("keeps malformed log behavior independent of response parsing", () => {
+      const cached = new xmlParser();
+      const input = encoder.encode('<?xml version="1.0"?><data><response value="ACK"/><log/></data>');
+      expect(cached.getResponse(input)).toEqual({ value: "ACK" });
+      expect(() => cached.getLog(input)).toThrow();
+      expect(cached.getResponse(input)).toEqual({ value: "ACK" });
+    });
+
+    test("keeps entity declarations scoped to each original document", () => {
+      const cached = new xmlParser();
+      const input = encoder.encode('<?xml version="1.0"?><!DOCTYPE data [<!ENTITY local "expanded">]>'
+        + '<data><log value="&local;"/></data><?xml version="1.0"?><data><log value="&local;"/></data>');
+      expect(cached.getResponse(input)).toEqual({});
+      expect(cached.getLog(input)).toEqual(["expanded", "&local;"]);
+    });
+
+    test("preserves separate malformed documents and repeated roots", () => {
+      const cached = new xmlParser();
+      const unclosed = encoder.encode('<?xml version="1.0"?><data><log value="first"/>'
+        + '<?xml version="1.0"?><data><response value="ACK"/></data>');
+      expect(cached.getResponse(unclosed)).toEqual({ value: "ACK" });
+      expect(cached.getLog(unclosed)).toEqual(["first"]);
+      const repeated = encoder.encode('<?xml version="1.0"?><data><response value="ACK"/></data>'
+        + '<data><response value="NAK"/></data><?xml version="1.0"?><data><log value="message"/></data>');
+      expect(cached.getResponse(repeated)).toEqual({});
+      expect(cached.getLog(repeated)).toEqual(["message"]);
+    });
+
+    test("does not cache partial or failed parses", () => {
+      const cached = new xmlParser();
+      const parse = cached.parser.parse.bind(cached.parser);
+      let calls = 0;
+      cached.parser.parse = (...args) => {
+        calls++;
+        if (calls === 2) throw new Error("parse failed");
+        return parse(...args);
+      };
+      const input = encoder.encode('<?xml version="1.0"?><data><response value="ACK"/></data>'
+        + '<?xml version="1.0"?><data><log value="message"/></data>');
+      expect(() => cached.getResponse(input)).toThrow("parse failed");
+      expect(cached.getLog(input)).toEqual(["message"]);
+      expect(calls).toBe(4);
+    });
+
+    test("retains only the last packet and invalidates a replaced parser", () => {
+      const cached = new xmlParser();
+      const parse = cached.parser.parse.bind(cached.parser);
+      let calls = 0;
+      cached.parser.parse = (...args) => { calls++; return parse(...args); };
+      const first = encoder.encode('<?xml version="1.0"?><data><response value="ACK"/></data>');
+      const second = encoder.encode('<?xml version="1.0"?><data><response value="NAK"/></data>');
+      cached.getResponse(first);
+      cached.getResponse(second);
+      cached.getResponse(first);
+      expect(calls).toBe(3);
+      cached.parser = new xmlParser().parser;
+      cached.parser.parse = () => ({ data: { response: { value: "replacement" } } });
+      expect(cached.getResponse(first)).toEqual({ value: "replacement" });
+    });
+  });
+
   describe("getResponse", () => {
     test("parse a simple response", () => {
       const xml = "<?xml version=\"1.0\" ?><data><response value=\"ACK\"/></data>";
