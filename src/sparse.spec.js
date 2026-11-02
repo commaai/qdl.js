@@ -47,6 +47,23 @@ describe("sparse", () => {
     });
   });
 
+  test.each([0, 4096, 1 << 20])("runs with maxGap %d match the raw image", async (maxGap) => {
+    const sparse = await Sparse.from(inputData);
+    const expected = new Uint8Array(await Bun.file(expectedPath).arrayBuffer());
+    const image = new Uint8Array(expected.length);
+    let prevEnd = 0;
+    for await (const [offset, run] of Sparse.runs(sparse, maxGap)) {
+      expect(offset).toBeGreaterThanOrEqual(prevEnd);
+      // read in odd-sized pieces to cross part boundaries
+      for (let pos = 0; pos < run.size; pos += 3000) {
+        const end = Math.min(run.size, pos + 3000);
+        image.set(new Uint8Array(await run.slice(pos, end).arrayBuffer()), offset + pos);
+      }
+      prevEnd = offset + run.size;
+    }
+    expect(image).toEqual(expected);
+  });
+
   test.skipIf(platform() !== "linux")("simg2img", async () => {
     const outputPath = `/tmp/${Bun.randomUUIDv7()}.img`;
     await simg2img(inputData.name, outputPath);

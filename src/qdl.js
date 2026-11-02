@@ -1,4 +1,5 @@
 import { Firehose } from "./firehose"
+/** @typedef {import("./firehose").ProgramData} ProgramData */
 import { GPT } from "./gpt"
 import { Sahara } from "./sahara";
 import * as Sparse from "./sparse";
@@ -6,12 +7,65 @@ import { createLogger } from "./logger";
 
 const logger = createLogger("qdl");
 
+// writing a short hole as zeros is cheaper than starting another program
+const SPARSE_MAX_GAP = 1024 * 1024;
+
+/**
+ * Pull everything from an async iterator as fast as possible, buffering it.
+ * peek() returns the next result if it's already available.
+ * @template T
+ * @param {AsyncIterator<T>} iterator
+ */
+function prefetch(iterator) {
+  /** @type {IteratorResult<T>[]} */
+  const ready = [];
+  /** @type {((value?: unknown) => void) | null} */
+  let wake = null;
+  /** @type {unknown} */
+  let error;
+  let failed = false;
+  (async () => {
+    try {
+      for (;;) {
+        const result = await iterator.next();
+        ready.push(result);
+        wake?.();
+        if (result.done) return;
+      }
+    } catch (e) {
+      error = e;
+      failed = true;
+      wake?.();
+    }
+  })();
+  return {
+    peek: () => ready[0],
+    /** @returns {Promise<IteratorResult<T>>} */
+    async next() {
+      while (!ready.length) {
+        if (failed) throw error;
+        await new Promise((resolve) => { wake = resolve; });
+        wake = null;
+      }
+      const result = /** @type {IteratorResult<T>} */ (ready[0]);
+      if (!result.done) ready.shift();
+      return result;
+    },
+  };
+}
+
 
 export class qdlDevice {
   /**
    * @type {Firehose|null}
    */
   #firehose = null
+
+  /**
+   * GPTs read by detectPartition, dropped whenever this class writes a GPT
+   * @type {Map<number, GPT>}
+   */
+  #gpts = new Map()
 
   /**
    * @param {ArrayBuffer} programmer
@@ -120,6 +174,7 @@ export class qdlDevice {
    */
   async repairGpt(lun, primaryGptBlob) {
     logger.info(`Repairing GPT on LUN ${lun}`);
+    this.#gpts.delete(lun);
 
     if (!await this.firehose.cmdProgram(lun, 0, primaryGptBlob)) {
       throw new Error("Failed to write primary GPT data");
@@ -237,7 +292,12 @@ export class qdlDevice {
    */
   async detectPartition(name) {
     for (const lun of this.firehose.luns) {
-      const gpt = await this.getGpt(lun);
+      // flashing looks up every partition, so don't read the GPTs every time
+      let gpt = this.#gpts.get(lun);
+      if (!gpt) {
+        gpt = await this.getGpt(lun);
+        this.#gpts.set(lun, gpt);
+      }
       const partition = gpt.locatePartition(name);
       if (!partition) continue;
       logger.debug("found partition", name, "in lun", lun, partition);
@@ -275,17 +335,27 @@ export class qdlDevice {
       }
     }
     logger.debug(`Writing chunks to ${name}...`);
-    for await (const [offset, chunk] of sparse.read()) {
-      if (!chunk) continue;
+    // parse all chunk headers up front, in the background
+    const runs = prefetch(Sparse.runs(sparse, SPARSE_MAX_GAP));
+    let result = await runs.next();
+    // read the start of each program while the previous one writes
+    let data = result.done ? null : this.firehose.prepareProgram(result.value[1]);
+    while (!result.done) {
+      const [offset, chunk] = result.value;
       if (offset % gpt.sectorSize !== 0) {
         throw "qdl - Offset not aligned to sector size";
       }
+      const current = /** @type {ProgramData} */ (data);
+      const next = runs.peek();
+      data = next && !next.done ? this.firehose.prepareProgram(next.value[1]) : null;
       const sector = partition.start + BigInt(offset / gpt.sectorSize);
-      const onChunkProgress = (progress) => onProgress?.(offset + progress);
-      if (!await this.firehose.cmdProgram(lun, sector, chunk, onChunkProgress)) {
+      const onChunkProgress = (/** @type {number} */ progress) => onProgress?.(offset + progress);
+      if (!await this.firehose.cmdProgram(lun, sector, current, onChunkProgress)) {
         logger.debug("Failed to program chunk")
         return false;
       }
+      result = await runs.next();
+      if (!result.done && !data) data = this.firehose.prepareProgram(result.value[1]);
     }
     return true;
   }
@@ -353,6 +423,7 @@ export class qdlDevice {
    */
   async setActiveSlot(slot) {
     if (slot !== "a" && slot !== "b") throw new Error("Invalid slot");
+    this.#gpts.clear();
 
     for (const lun of this.firehose.luns) {
       // Update primary GPT
