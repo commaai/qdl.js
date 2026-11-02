@@ -27,7 +27,7 @@ jobs:
       - run: bun install
       - run: bun lint
       - run: bun test
-      - run: node --test test/manifest-flash.test.mjs
+      - run: node --test test/*.test.mjs
       - run: bun run build
 
   benchmark:

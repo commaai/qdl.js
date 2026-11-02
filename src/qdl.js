@@ -9,6 +9,49 @@ import { createLogger } from "./logger.js";
 const logger = createLogger("qdl");
 const streamingPlans = new WeakMap();
 
+function boundedBlobStream(blob) {
+  const reader = blob.stream().getReader();
+  let buffer = new Uint8Array();
+  let offset = 0;
+  let stopped = false;
+  let closing;
+  const close = reason => {
+    if (!closing) {
+      stopped = true;
+      buffer = new Uint8Array();
+      closing = Promise.resolve().then(() => reader.cancel(reason)).finally(() => reader.releaseLock());
+    }
+    return closing;
+  };
+  return new ReadableStream({
+    async pull(controller) {
+      try {
+        if (offset === buffer.length) {
+          const next = await reader.read();
+          if (stopped) return;
+          if (next.done) {
+            stopped = true;
+            closing = Promise.resolve();
+            reader.releaseLock();
+            controller.close();
+            return;
+          }
+          buffer = next.value;
+          offset = 0;
+        }
+        if (!(buffer instanceof Uint8Array) || offset >= buffer.length) throw new Error("Invalid Blob stream chunk");
+        const end = Math.min(offset + 4 * 1024 * 1024, buffer.length);
+        controller.enqueue(buffer.subarray(offset, end));
+        offset = end;
+      } catch (error) {
+        if (!stopped) controller.error(error);
+        void close(error).catch(() => undefined);
+      }
+    },
+    cancel: close,
+  }, { highWaterMark: 0 });
+}
+
 function streamSparseProgram(blob, plan, sectorSize) {
   if (!plan || typeof blob.stream !== "function" || !plan.sourceRanges) return plan;
   let streamed = streamingPlans.get(plan);
@@ -16,7 +59,7 @@ function streamSparseProgram(blob, plan, sectorSize) {
     const metadata = { ...plan, sectorSize };
     streamed = {
       ...plan,
-      parts: [{ size: plan.dataSectors * sectorSize, stream: () => selectSparseRanges(blob.stream(), metadata, blob.size) }],
+      parts: [{ size: plan.dataSectors * sectorSize, stream: () => selectSparseRanges(boundedBlobStream(blob), metadata, blob.size) }],
     };
     streamingPlans.set(plan, streamed);
   }

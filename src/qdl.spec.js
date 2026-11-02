@@ -320,7 +320,7 @@ describe("bounded GPT reads", () => {
   });
 });
 
-function sparseImage() {
+function sparseImage(rawBlocks = 1) {
   const header = new Uint8Array(28);
   const h = new DataView(header.buffer);
   h.setUint32(0, 0xed26ff3a, true);
@@ -328,10 +328,10 @@ function sparseImage() {
   h.setUint16(8, 28, true);
   h.setUint16(10, 12, true);
   h.setUint32(12, 4096, true);
-  h.setUint32(16, 7, true);
+  h.setUint32(16, rawBlocks + 6, true);
   h.setUint32(20, 4, true);
   const chunks = [
-    [0xcac1, 1, new Uint8Array(4096).fill(7)],
+    [0xcac1, rawBlocks, new Uint8Array(4096 * rawBlocks).fill(7)],
     [0xcac2, 2, new Uint8Array(4)],
     [0xcac1, 1, new Uint8Array(4096).fill(42)],
     [0xcac3, 3, new Uint8Array()],
@@ -368,6 +368,51 @@ class SparseDevice extends qdlDevice {
 }
 
 describe("native sparse routing", () => {
+  test("bounds oversized native Blob stream chunks without changing payload bytes", async () => {
+    const device = new SparseDevice(new ArrayBuffer(1));
+    device.partitionSectors = 4096n;
+    const image = sparseImage(2048);
+    const source = new Uint8Array(await image.arrayBuffer());
+    image.stream = () => new ReadableStream({ start(controller) { controller.enqueue(source); controller.close(); } });
+    device.transport.cmdProgramSparse = async (_, __, plan) => {
+      const reader = plan.parts[0].stream().getReader();
+      let bytes = 0;
+      for (;;) {
+        const next = await reader.read();
+        if (next.done) break;
+        expect(next.value.length).toBeLessThanOrEqual(4 * 1024 * 1024);
+        expect(next.value.every((value, index) => value === (bytes + index < 8 * 1024 * 1024 ? 7 : 42))).toBe(true);
+        bytes += next.value.length;
+      }
+      expect(bytes).toBe(8 * 1024 * 1024 + 4096);
+      return true;
+    };
+    expect(await device.flashBlob("system_a", image, undefined, false)).toBe(true);
+  });
+
+  test("cancels the Blob reader when native payload consumption stops", async () => {
+    const device = new SparseDevice(new ArrayBuffer(1));
+    device.partitionSectors = 4096n;
+    const image = sparseImage(2048);
+    const source = new Uint8Array(await image.arrayBuffer());
+    let sent = false;
+    let cancelled = false;
+    image.stream = () => new ReadableStream({
+      pull(controller) {
+        if (!sent) { sent = true; controller.enqueue(source); }
+      },
+      cancel() { cancelled = true; },
+    }, { highWaterMark: 0 });
+    device.transport.cmdProgramSparse = async (_, __, plan) => {
+      const reader = plan.parts[0].stream().getReader();
+      await reader.read();
+      await reader.cancel();
+      return false;
+    };
+    expect(await device.flashBlob("system_a", image, undefined, false)).toBe(false);
+    expect(cancelled).toBe(true);
+  });
+
   test("reuses the image plan across slots and reports progress including gaps", async () => {
     const device = new SparseDevice(new ArrayBuffer(1));
     const image = sparseImage();
